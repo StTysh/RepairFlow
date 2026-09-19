@@ -7,8 +7,8 @@
 // reproduced, since a generated client isn't in place yet for this app
 // (frontend/ has openapi-fetch + a generated schema.ts; frontend-fixi
 // doesn't talk to enough of the API yet to justify the codegen step --
-// worth revisiting once the next phase adds WorkGraph/DecisionCard/
-// VoicePanel, which will want a lot more of the schema typed precisely).
+// worth revisiting once a future phase adds VoicePanel, which will want
+// a lot more of the schema typed precisely).
 
 import type { CaseStatus, Urgency } from "@/lib/fixi-data";
 
@@ -90,6 +90,26 @@ export interface WorkOrder {
   completion_report_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type DependencyStatus = "OPEN" | "SATISFIED" | "INVALIDATED";
+
+/** A prerequisite-to-dependent edge between two work orders (backend:
+ * app/schemas.py Dependency) -- e.g. a scaffold install blocking a roof
+ * repair until it's satisfied. Discovered from a contractor report, not
+ * invented by the UI; `satisfied_by_report_id` is null until another
+ * report satisfies it. Backs WorkGraph.tsx. */
+export interface Dependency {
+  id: string;
+  case_id: string;
+  prerequisite_work_order_id: string;
+  dependent_work_order_id: string;
+  status: DependencyStatus;
+  reason: string;
+  discovered_from_report_id: string;
+  satisfied_by_report_id: string | null;
+  created_at: string;
+  satisfied_at: string | null;
 }
 
 export interface Appointment {
@@ -263,12 +283,12 @@ export interface Communication {
   provenance: Provenance;
 }
 
-// dependencies / latest_reports / availability / approved_contractors are
-// still explicitly out of scope for this phase (WorkGraph/VoicePanel/
-// provenance badges build on them later) -- typed as unknown[] here so
-// CaseSnapshot is complete and nothing needs `as any` when reading the
-// other fields. work_orders and pending_actions ARE typed (Costs tab /
-// DecisionCard approval card).
+// latest_reports / availability / approved_contractors are still
+// explicitly out of scope for this phase (VoicePanel/provenance badges
+// build on them later) -- typed as unknown[] here so CaseSnapshot is
+// complete and nothing needs `as any` when reading the other fields.
+// work_orders, dependencies and pending_actions ARE typed (WorkGraph /
+// Costs tab / DecisionCard approval card).
 export interface CaseSnapshot {
   case: RepairCase;
   issue: RepairIssue;
@@ -277,7 +297,7 @@ export interface CaseSnapshot {
   assigned_contractor: AssignedContractor | null;
   next_appointment: Appointment | null;
   work_orders: WorkOrder[];
-  dependencies: unknown[];
+  dependencies: Dependency[];
   appointments: Appointment[];
   latest_reports: unknown[];
   communications: Communication[];

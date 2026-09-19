@@ -18,6 +18,7 @@ import { AppShell, Card } from "@/components/fixi/AppShell";
 import { Pill, StatusBadge, UrgencyBadge } from "@/components/fixi/Badge";
 import { CaseLifecycleActions } from "@/components/fixi/CaseLifecycleActions";
 import { DecisionCard } from "@/components/fixi/DecisionCard";
+import { WorkGraph } from "@/components/fixi/WorkGraph";
 import { authHeader, BASE_URL } from "@/api/client";
 import { useCaseDetail } from "@/hooks/use-case-detail";
 import { useCaseEvents } from "@/hooks/use-case-events";
@@ -34,7 +35,13 @@ import { cn } from "@/lib/utils";
 // folded into this single functional tab set instead of leaving two rows
 // where only one worked. "Overview" (the null/undefined section) keeps its
 // old "All" behaviour: summary + timeline + calls together.
-const sections = ["summary", "timeline", "calls", "property", "files", "costs"] as const;
+// "work" is new: the work orders on this case and any dependency blocking
+// one on another (e.g. a scaffold install blocking a roof repair) --
+// previously nowhere on this UI (CaseSnapshot.dependencies was typed
+// `unknown[]` and unrendered). Deliberately not folded into "Overview": a
+// graph needs real vertical room, and most cases render it as one node,
+// which reads fine as its own tab and would look sparse crammed in above.
+const sections = ["summary", "timeline", "calls", "work", "property", "files", "costs"] as const;
 type Section = (typeof sections)[number];
 
 export const Route = createFileRoute("/maintenance/tickets/$ticketId/{-$section}")({
@@ -162,6 +169,9 @@ function CasePage() {
           <SectionLink ticketId={ticketId} section="calls" active={section === "calls"}>
             Calls
           </SectionLink>
+          <SectionLink ticketId={ticketId} section="work" active={section === "work"}>
+            Work
+          </SectionLink>
           <SectionLink ticketId={ticketId} section="property" active={section === "property"}>
             Property
           </SectionLink>
@@ -179,6 +189,9 @@ function CasePage() {
           {show("summary") && <SummaryColumn snapshot={snapshot} />}
           {show("timeline") && <TimelineColumn caseId={c.id} agentActive={snapshot.agent_active} />}
           {show("calls") && <CallsColumn communications={snapshot.communications} />}
+          {section === "work" && (
+            <WorkGraph workOrders={snapshot.work_orders} dependencies={snapshot.dependencies} />
+          )}
           {section === "property" && <PropertyColumn snapshot={snapshot} />}
           {section === "files" && <FilesColumn />}
           {section === "costs" && <CostsColumn workOrders={snapshot.work_orders} />}
