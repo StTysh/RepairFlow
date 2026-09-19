@@ -61,7 +61,12 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allow_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    # DELETE is real (demo.py's delete-ticket endpoint) and PATCH/PUT cost
+    # nothing to allow -- a missing method here fails silently at the
+    # browser's CORS preflight, never reaching the handler or its tests
+    # (ASGITransport doesn't preflight), so it's invisible until clicked
+    # live from an actual cross-origin dev server.
+    allow_methods=["GET", "POST", "DELETE", "PATCH", "PUT"],
     allow_headers=["*"],
 )
 

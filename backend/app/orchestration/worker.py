@@ -20,7 +20,12 @@ from app.orchestration import dispatcher, executor
 from app.orchestration.dispatcher import Coordinator
 from app.schemas import CaseStatus
 
-LEASE_SECONDS = 60
+# >= coordinator.RUN_TIMEOUT_SECONDS (120s) so a COORDINATE job's lease
+# can't expire while its run is still legitimately in progress. Only one
+# worker task ever runs (see run_worker_loop), so a longer lease isn't a
+# double-claim risk here -- it only matters for stale-lease reclaim after a
+# crash, which this still bounds.
+LEASE_SECONDS = 120
 # COORDINATE calls a real model with real network latency (unlike the other
 # job kinds, which are local or already have their own retry semantics) --
 # a single slow response should not permanently kill a case's progress with

@@ -25,7 +25,6 @@ from app.agents.read_tools import find_appointment_options, list_case_events, re
 from app.config import Settings
 from app.schemas import ActionProposal, CaseSnapshot, Wait
 
-RUN_TIMEOUT_SECONDS = 60
 # Verified live 2026-09-19: with 5 tools registered below, a case with even
 # a handful of communications/events to review can legitimately need more
 # than 3 tool calls before producing a final decision, which was tripping
@@ -33,6 +32,14 @@ RUN_TIMEOUT_SECONDS = 60
 # still bounded, not unlimited (CLAUDE.md: "bounded retries").
 MAX_MODEL_REQUESTS = 10
 MAX_TOOL_CALLS = 8
+# Per-request timeout (a single Gemini call). Kept separate from the outer
+# run timeout below: with MAX_MODEL_REQUESTS raised to 10, a run needing
+# several real round trips can legitimately take longer in total than any
+# one request does, so reusing this value as the outer bound too would
+# needlessly abort a run that's still correctly working (found alongside
+# the fix above, not yet hit live).
+MODEL_REQUEST_TIMEOUT_SECONDS = 60
+RUN_TIMEOUT_SECONDS = 120
 
 
 def construct_agent(model) -> Agent[CoordinatorDeps, ActionProposal]:
@@ -44,7 +51,7 @@ def construct_agent(model) -> Agent[CoordinatorDeps, ActionProposal]:
         deps_type=CoordinatorDeps,
         output_type=ToolOutput(ActionProposal),
         instructions=COORDINATOR_INSTRUCTIONS,
-        model_settings=ModelSettings(timeout=RUN_TIMEOUT_SECONDS),
+        model_settings=ModelSettings(timeout=MODEL_REQUEST_TIMEOUT_SECONDS),
         retries=1,
     )
     agent.tool(read_report)
@@ -60,11 +67,29 @@ def build_agent(model_name: str, api_key: str) -> Agent[CoordinatorDeps, ActionP
 
 
 def _redact_snapshot(snapshot: CaseSnapshot) -> dict:
+    """docs/19: "Redact phone numbers, audio/transcripts and tokens" before
+    anything reaches a model. The coordinator proposes actions over IDs --
+    dispatch resolves phone numbers itself straight from the DB
+    (place_call reads TenantModel.phone_e164, never the proposal) -- so raw
+    contact info adds no capability here, only exposure. Verified
+    2026-09-19: this was previously applied only to recording.media_path,
+    leaving tenant.phone_e164/email and contractor contact_reference/phone
+    going to Gemini on every wake."""
     data = snapshot.model_dump(mode="json")
     for comm in data.get("communications", []):
         recording = comm.get("recording")
         if recording:
             recording["media_path"] = None
+    tenant = data.get("tenant")
+    if tenant:
+        tenant["phone_e164"] = None
+        tenant["email"] = None
+    for contractor in data.get("approved_contractors", []):
+        contractor["contact_reference"] = None
+    assigned = data.get("assigned_contractor")
+    if assigned:
+        assigned["contact_reference"] = None
+        assigned["phone"] = None
     return data
 
 

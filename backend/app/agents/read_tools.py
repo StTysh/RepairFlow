@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.agents.dependencies import CoordinatorDeps
 from app.db import session_scope
 from app.domain import services
+from app.domain.errors import NotFoundError
 from app.integrations.booking import mock_booking_connector
 from app.models import (
     AvailabilityWindowModel,
@@ -100,7 +101,17 @@ async def read_research(ctx: RunContext[CoordinatorDeps], ref: RecordRef) -> Con
 async def find_appointment_options(ctx: RunContext[CoordinatorDeps], query: AppointmentQuery) -> AppointmentOptions:
     _check_scope(ctx.deps, query.case_id)
     async with session_scope() as session:
-        work_order = await services.load_work_order(session, ctx.deps.case_id, str(query.work_order_id))
+        # The other four tools all raise ModelRetry on not-found, which
+        # pydantic_ai turns into a cheap in-run re-prompt. load_work_order
+        # instead raises NotFoundError (a plain DomainError) -- uncaught,
+        # that aborts the whole run and burns a full COORDINATE retry (a
+        # fresh Gemini call) on what should just be a stale ID the model
+        # can self-correct from. Same bug class as tonight's earlier
+        # UsageLimits fix.
+        try:
+            work_order = await services.load_work_order(session, ctx.deps.case_id, str(query.work_order_id))
+        except NotFoundError:
+            raise ModelRetry(f"no work order {query.work_order_id} found in this case; use only IDs from the supplied case snapshot")
 
         windows = (
             await session.execute(

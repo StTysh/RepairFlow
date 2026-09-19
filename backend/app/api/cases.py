@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_session, require_operator
 from app.domain import services
-from app.domain.errors import ConflictError, NotFoundError, PolicyRejectedError
+from app.domain.errors import ConflictError, DomainError, NotFoundError, PolicyRejectedError
 from app.domain.services import ActorContext
 from app.domain.transitions import assert_case_transition
 from app.models import (
@@ -70,7 +70,7 @@ async def readiness(session: AsyncSession = Depends(get_session)) -> ReadinessRe
 
 @router.get("/cases")
 async def list_cases(
-    limit: int = Query(default=20, le=100),
+    limit: int = Query(default=20, ge=1, le=100),
     cursor: str | None = None,
     status: CaseStatus | None = None,
     property_id: str | None = None,
@@ -85,7 +85,10 @@ async def list_cases(
         .limit(limit + 1)
     )
     if cursor:
-        cursor_dt = datetime.fromisoformat(cursor)
+        try:
+            cursor_dt = datetime.fromisoformat(cursor)
+        except ValueError:
+            raise DomainError(f"cursor {cursor!r} is not a valid ISO-8601 timestamp")
         query = query.where(RepairCaseModel.updated_at < cursor_dt)
     if status is not None:
         query = query.where(RepairCaseModel.status == status)
@@ -298,9 +301,16 @@ async def retry_recording(communication_id: str, session: AsyncSession = Depends
     comm = await session.get(CommunicationModel, communication_id)
     if comm is None:
         raise NotFoundError(f"communication {communication_id} not found")
+    # A fresh uuid4() here can never collide with itself, so this never
+    # deduped anything -- a double-click always queued two jobs. A fully
+    # fixed key would fix that but then permanently block any LATER retry
+    # too (enqueue_job's dedupe has no TTL). Bucket like the reconciliation
+    # sweep does: collapses rapid double-clicks, still allows a genuine
+    # retry a few seconds later.
+    retry_bucket = int(datetime.now(timezone.utc).timestamp() // 10)
     job = await services.enqueue_job(
         session, case_id=comm.case_id, kind="FETCH_RECORDING",
-        dedupe_key=f"recording:{communication_id}:{uuid.uuid4()}", payload={"communication_id": communication_id},
+        dedupe_key=f"recording:{communication_id}:retry:{retry_bucket}", payload={"communication_id": communication_id},
     )
     return RetryRecordingResponse(queued=job is not None)
 
