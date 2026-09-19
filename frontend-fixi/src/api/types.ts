@@ -360,6 +360,68 @@ export interface DashboardMetrics {
   total: number;
   resolved_this_week: number;
   agent_active: boolean;
+  /** Mean hours between a case's created_at and its latest CASE_RESOLVED
+   * event, for cases resolved in the last 30 days (backend:
+   * DashboardMetricsResponse.avg_resolution_hours). Null when nothing has
+   * resolved in that window -- never a fabricated average. */
+  avg_resolution_hours: number | null;
+  /** "vs 7 days ago" trend, from a documented simplified replay of the
+   * CaseEvent log (backend: services.reconstructed_status_counts), not a
+   * literal historical audit. Null whenever the comparison would be
+   * undefined/misleading -- render no arrow, not a fake one. */
+  active_delta_pct: number | null;
+  awaiting_confirmation_delta_pct: number | null;
+  escalated_delta_pct: number | null;
+}
+
+// --- Notifications (bell icon) ------------------------------------------------
+//
+// GET /api/v1/notifications. Derived entirely from existing ActionRecord
+// (AWAITING_APPROVAL) and CaseEvent (CASE_ESCALATED) rows -- no separate
+// notification-authoring system and no persisted read-state table (see
+// backend/app/api/notifications.py, services.load_notifications).
+
+export type NotificationKind = "AWAITING_APPROVAL" | "CASE_ESCALATED";
+
+export interface NotificationItem {
+  id: string;
+  kind: NotificationKind;
+  case_id: string;
+  case_number: number;
+  case_title: string;
+  occurred_at: string;
+  message: string;
+  unread: boolean;
+}
+
+export interface NotificationsResponse {
+  items: NotificationItem[];
+  unread_count: number;
+}
+
+// --- Upcoming appointments (cross-case) ---------------------------------------
+//
+// GET /api/v1/appointments/upcoming -- every CONFIRMED appointment starting
+// in the future, soonest first, across all cases (backend/app/api/cases.py
+// get_upcoming_appointments).
+
+export interface UpcomingAppointmentItem {
+  appointment_id: string;
+  case_id: string;
+  case_number: number;
+  case_title: string;
+  work_order_id: string;
+  trade: Trade;
+  start_at: string;
+  end_at: string;
+  status: AppointmentStatus;
+  property_address: string;
+  contractor_id: string;
+  contractor_name: string;
+}
+
+export interface UpcomingAppointmentsResponse {
+  items: UpcomingAppointmentItem[];
 }
 
 // --- Property history --------------------------------------------------------

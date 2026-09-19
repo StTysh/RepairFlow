@@ -7,12 +7,13 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Toaster } from "sonner";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { LoginGate } from "../components/fixi/LoginGate";
+import { CaseSearchContext } from "../lib/case-search-context";
 
 function NotFoundComponent() {
   return (
@@ -130,14 +131,23 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  // Owns the one global search box's value (UtilityBar, rendered inside
+  // AppShell on every page) so a page below it -- currently only the
+  // Maintenance list -- can read the same value to filter its case list.
+  // Has to live above <Outlet/>, not inside AppShell, since AppShell is
+  // rendered BY each page component (a descendant of the page, not an
+  // ancestor) -- see case-search-context.ts.
+  const [caseSearch, setCaseSearch] = useState("");
 
   return (
     <QueryClientProvider client={queryClient}>
-      <LoginGate>
-        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-        <Outlet />
-      </LoginGate>
-      <Toaster position="bottom-right" richColors closeButton />
+      <CaseSearchContext.Provider value={{ search: caseSearch, setSearch: setCaseSearch }}>
+        <LoginGate>
+          {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+          <Outlet />
+        </LoginGate>
+        <Toaster position="bottom-right" richColors closeButton />
+      </CaseSearchContext.Provider>
     </QueryClientProvider>
   );
 }

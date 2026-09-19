@@ -1,5 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Wrench, Building2 } from "lucide-react";
+import { UtilityBar } from "@/components/fixi/UtilityBar";
 import { useDashboardMetrics } from "@/hooks/use-dashboard-metrics";
 import { useAuthedCreds } from "@/lib/auth-context";
 import { initials } from "@/lib/format";
@@ -17,8 +18,8 @@ const nav = [
 
 export function FixiLogo() {
   return (
-    <div className="flex items-center gap-2.5">
-      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-soft text-primary">
+    <div className="flex items-center gap-3">
+      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-soft text-primary">
         <svg
           viewBox="0 0 24 24"
           className="h-5 w-5"
@@ -52,15 +53,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   return (
     <div className="flex min-h-screen w-full bg-background font-sans text-foreground antialiased">
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-4 py-5 lg:flex">
+      <aside className="sticky top-0 hidden h-screen w-[218px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-3.5 py-4 lg:flex">
         <FixiLogo />
-        <nav className="mt-7 flex flex-col gap-0.5">
+        <nav className="mt-7 flex flex-col gap-1">
           {nav.map((item) => (
             <Link
               key={item.label}
               to={item.to}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] font-medium transition-colors",
+                "flex h-10 items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition-colors",
                 pathname.startsWith(item.to)
                   ? "bg-sidebar-primary text-sidebar-primary-foreground"
                   : "text-sidebar-foreground hover:bg-sidebar-accent",
@@ -73,17 +74,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
         <div className="mt-auto space-y-3">
           <div className="flex items-center gap-2.5 rounded-lg border border-sidebar-border bg-card px-3 py-2.5 shadow-card">
-            <span className="relative flex h-2.5 w-2.5">
-              {agentThinking && (
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-timeline-done opacity-60" />
+            {/* Static dot, not a decorative animate-ping pulse -- but still
+             * the real agent_active signal (see comment above), just
+             * colour-only now instead of colour+animation. */}
+            <span
+              className={cn(
+                "h-2.5 w-2.5 rounded-full",
+                agentThinking ? "bg-timeline-done" : "bg-muted-foreground/40",
               )}
-              <span
-                className={cn(
-                  "relative inline-flex h-2.5 w-2.5 rounded-full",
-                  agentThinking ? "bg-timeline-done" : "bg-muted-foreground/40",
-                )}
-              />
-            </span>
+            />
             <div className="leading-tight">
               <div className="text-xs font-semibold">
                 {agentThinking ? "AI agent thinking…" : "AI agent idle"}
@@ -109,7 +108,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </aside>
-      <main className="min-w-0 flex-1">{children}</main>
+      <main className="min-w-0 flex-1">
+        {/* Hoisted above every page's own content (not rendered per-page)
+         * so it's consistent everywhere and never duplicated -- matches
+         * the max-w-[1510px]/px-6/xl:px-7 container the Maintenance list
+         * uses so the bar's right edge lines up with the content under it
+         * on a wide screen instead of stretching full-bleed. */}
+        <div className="mx-auto w-full max-w-[1510px] px-6 pt-4 xl:px-7">
+          <UtilityBar />
+        </div>
+        {children}
+      </main>
     </div>
   );
 }

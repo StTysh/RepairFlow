@@ -66,6 +66,19 @@ export function formatPence(pence: number | null | undefined): string | null {
   });
 }
 
+/** KPI trend arrow for a `*_delta_pct` field off DashboardMetrics (backend:
+ * services.reconstructed_status_counts -- "vs 7 days ago", a documented
+ * simplified replay of the CaseEvent log, not a literal historical audit).
+ * `null` means the backend had nothing to compare against and MUST render
+ * as no delta at all, never a fabricated "0%". */
+export function formatDeltaPct(pct: number | null | undefined): string | null {
+  if (pct === null || pct === undefined) return null;
+  const rounded = Math.round(Math.abs(pct));
+  if (pct > 0) return `↑${rounded}%`;
+  if (pct < 0) return `↓${rounded}%`;
+  return `→${rounded}%`;
+}
+
 export function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";

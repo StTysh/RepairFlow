@@ -19,12 +19,14 @@ import type {
   DemoIntakeRequest,
   DemoSeedRefs,
   IntakeResponse,
+  NotificationsResponse,
   PropertyHistoryResponse,
   PropertyStatsResponse,
   ReopenCaseRequest,
   ResumeCaseRequest,
   SimulationObservationRequest,
   SimulationObservationResponse,
+  UpcomingAppointmentsResponse,
 } from "@/api/types";
 // CaseStatus is a UI-facing display concept as much as a wire type (see
 // lib/fixi-data.ts), so it's defined there rather than in api/types.ts.
@@ -80,6 +82,19 @@ export function fetchCaseMessages(
 
 export function fetchDashboardMetrics(creds: OperatorCredentials): Promise<DashboardMetrics> {
   return request<DashboardMetrics>(creds, "/api/v1/metrics/dashboard");
+}
+
+/** Bell-icon feed -- see api/types.ts's NotificationsResponse docstring. */
+export function fetchNotifications(creds: OperatorCredentials): Promise<NotificationsResponse> {
+  return request<NotificationsResponse>(creds, "/api/v1/notifications");
+}
+
+/** Cross-case "next visits" list for the Maintenance sidebar -- see
+ * api/types.ts's UpcomingAppointmentsResponse docstring. */
+export function fetchUpcomingAppointments(
+  creds: OperatorCredentials,
+): Promise<UpcomingAppointmentsResponse> {
+  return request<UpcomingAppointmentsResponse>(creds, "/api/v1/appointments/upcoming");
 }
 
 export function fetchPropertyHistory(
