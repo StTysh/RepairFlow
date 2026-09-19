@@ -131,10 +131,36 @@ def test_map_transcript_handles_empty_list():
 
 
 def test_map_outcome_handles_missing_analysis():
+    # No transcript at all is not evidence anyone answered -- CLAUDE.md: no
+    # closure inferred from silence. Verified 2026-09-19 against ElevenLabs'
+    # actual API: a finished call's `status` is only ever "done"/"failed",
+    # never "no_answer"/"voicemail", so those can only be distinguished via
+    # metadata.termination_reason or transcript evidence, not status alone.
     outcome = elevenlabs_integration.map_outcome(uid(), "conv-123", {"status": "done"})
-    assert outcome.outcome.value == "ANSWERED"
+    assert outcome.outcome.value == "UNKNOWN"
     assert outcome.tenant_confirms_resolved is None
     assert outcome.missing_questions == []
+
+
+def test_map_outcome_answered_when_transcript_has_user_turn():
+    details = {
+        "status": "done",
+        "transcript": [{"role": "agent", "message": "Hi"}, {"role": "user", "message": "Hello"}],
+    }
+    outcome = elevenlabs_integration.map_outcome(uid(), "conv-123", details)
+    assert outcome.outcome.value == "ANSWERED"
+
+
+def test_map_outcome_no_answer_from_termination_reason():
+    details = {"status": "done", "metadata": {"termination_reason": "no_answer"}}
+    outcome = elevenlabs_integration.map_outcome(uid(), "conv-123", details)
+    assert outcome.outcome.value == "NO_ANSWER"
+
+
+def test_map_outcome_voicemail_from_termination_reason():
+    details = {"status": "done", "metadata": {"termination_reason": "voicemail_detected"}}
+    outcome = elevenlabs_integration.map_outcome(uid(), "conv-123", details)
+    assert outcome.outcome.value == "VOICEMAIL"
 
 
 # --------------------------------------------------------------------------

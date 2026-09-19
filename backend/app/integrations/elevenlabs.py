@@ -164,15 +164,30 @@ def map_transcript(raw_turns: list[dict]) -> list[TranscriptTurn]:
 
 
 def map_outcome(communication_id: str, conversation_id: str, details: dict) -> CallOutcome:
+    """Verified 2026-09-19 against ElevenLabs' current conversation-details
+    docs: `status` on a finished call is only ever "done" or "failed" --
+    never "no_answer"/"voicemail"/"completed"/"ended" as this originally
+    guessed, which meant a call nobody actually picked up was silently
+    reported ANSWERED (CLAUDE.md: no closure inferred from silence). The
+    real per-call-ending signal is `metadata.termination_reason`; fall back
+    to whether the transcript actually contains a USER turn (real evidence
+    someone spoke) rather than assuming ANSWERED by default."""
     status_raw = str(details.get("status") or details.get("call_status") or "").upper()
-    if status_raw in ("DONE", "COMPLETED", "ENDED"):
-        outcome_status = CallOutcomeStatus.ANSWERED
-    elif status_raw == "FAILED":
+    metadata = details.get("metadata") or {}
+    termination_reason = str(metadata.get("termination_reason") or "").upper()
+
+    if status_raw == "FAILED" or "FAIL" in termination_reason or "ERROR" in termination_reason:
         outcome_status = CallOutcomeStatus.FAILED
-    elif status_raw in ("NO_ANSWER",):
+    elif any(term in termination_reason for term in ("NO_ANSWER", "NO-ANSWER", "NOANSWER", "UNANSWERED")):
         outcome_status = CallOutcomeStatus.NO_ANSWER
-    elif status_raw == "VOICEMAIL":
+    elif "VOICEMAIL" in termination_reason:
         outcome_status = CallOutcomeStatus.VOICEMAIL
+    elif status_raw in ("DONE", "COMPLETED", "ENDED"):
+        has_user_turn = any(
+            str((turn or {}).get("role") or (turn or {}).get("speaker") or "").upper() in ("USER", "TENANT", "CALLER")
+            for turn in (details.get("transcript") or [])
+        )
+        outcome_status = CallOutcomeStatus.ANSWERED if has_user_turn else CallOutcomeStatus.UNKNOWN
     else:
         outcome_status = CallOutcomeStatus.UNKNOWN
 
@@ -237,6 +252,15 @@ async def place_call(communication_id: str, *, question: str = "") -> None:
 
     async def _skip(reason: str, **extra: object) -> None:
         async with session_scope() as skip_session:
+            # Without this, the row stays state=REQUESTED with no
+            # provider_conversation_id forever -- sweep_stale_live_calls'
+            # WHERE clause requires provider_conversation_id IS NOT NULL,
+            # so it's permanently invisible to reconciliation (found
+            # 2026-09-19). A skipped call is a terminal outcome, not a
+            # pending one.
+            skip_comm = await skip_session.get(CommunicationModel, communication_id)
+            if skip_comm is not None:
+                skip_comm.state = "FAILED"
             await services.append_event(
                 skip_session, case_id=case_id, event_type="CALL_SKIPPED",
                 payload={"communication_id": communication_id, "reason": reason, **extra},
@@ -272,6 +296,10 @@ async def place_call(communication_id: str, *, question: str = "") -> None:
         )
     except httpx.HTTPError as exc:
         async with session_scope() as session:
+            # Same reasoning as _skip() above: terminal state, not REQUESTED.
+            failed_comm = await session.get(CommunicationModel, communication_id)
+            if failed_comm is not None:
+                failed_comm.state = "FAILED"
             await services.append_event(
                 session, case_id=case_id, event_type="CALL_FAILED",
                 payload={"communication_id": communication_id, "error": str(exc)[:200]},
