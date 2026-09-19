@@ -544,28 +544,31 @@ async def test_seed_is_idempotent_per_row(app_db):
     await seed_module.seed()
 
     async with session_scope() as session:
-        assert len((await session.execute(select(PropertyModel))).scalars().all()) == len(
-            seed_module.PROPERTIES
-        )
+        properties = (await session.execute(select(PropertyModel))).scalars().all()
+        assert len(properties) == len(seed_module.PROPERTIES)
         assert len((await session.execute(select(TenantModel))).scalars().all()) == len(
             seed_module.TENANTS
         )
         assert len((await session.execute(select(ContractorModel))).scalars().all()) == len(
             seed_module.CONTRACTORS
         )
+        # Every seeded property gets a backfilled build_year on the first run.
+        build_years_after_first_run = {p.id: p.build_year for p in properties}
+        assert all(v is not None for v in build_years_after_first_run.values())
 
     await seed_module.seed()  # must not raise, and must add nothing further
 
     async with session_scope() as session:
-        assert len((await session.execute(select(PropertyModel))).scalars().all()) == len(
-            seed_module.PROPERTIES
-        )
+        properties = (await session.execute(select(PropertyModel))).scalars().all()
+        assert len(properties) == len(seed_module.PROPERTIES)
         assert len((await session.execute(select(TenantModel))).scalars().all()) == len(
             seed_module.TENANTS
         )
         assert len((await session.execute(select(ContractorModel))).scalars().all()) == len(
             seed_module.CONTRACTORS
         )
+        # The backfill pass must not overwrite build_year on a second run.
+        assert {p.id: p.build_year for p in properties} == build_years_after_first_run
 
 
 # --------------------------------------------------------------------------
@@ -631,12 +634,21 @@ async def test_property_history_and_stats_exclude_cancelled_work_orders(app_db):
 
 
 # --------------------------------------------------------------------------
-# H. Property build_year (honest-or-null)
+# H. Property build_year (honest-or-null; seeded properties now carry a real
+# fictional value -- see app/seed.py PROPERTIES)
 # --------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_property_build_year_honestly_null_for_seeded_properties(app_db):
+async def test_property_build_year_present_for_seeded_properties(app_db):
+    """Every seeded demo property is a fictional persona (fake address, fake
+    tenant), so a plausible fictional build_year on it is honest seed data,
+    not a fabricated fact about a real place -- see app/seed.py's PROPERTIES
+    comment. This only covers the *seeded* properties; a property created
+    ad hoc without one (e.g. _seed_reference_data() in test_hero_path.py)
+    must still come back null -- see
+    test_property_stats_breakdown_and_recurring_issues's
+    `body["build_year"] is None` assertion elsewhere in this file."""
     from app import seed as seed_module
 
     await seed_module.seed()
@@ -647,7 +659,8 @@ async def test_property_build_year_honestly_null_for_seeded_properties(app_db):
         body = r.json()
 
     assert body["properties"], "expected seeded demo properties"
-    assert all(p["build_year"] is None for p in body["properties"])
+    assert all(p["build_year"] is not None for p in body["properties"])
+    assert all(1900 <= p["build_year"] <= 2026 for p in body["properties"])
 
 
 # --------------------------------------------------------------------------
