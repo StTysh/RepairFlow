@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import session_scope
 from app.domain import services
 from app.domain.services import ActorContext
-from app.models import JobModel
+from app.models import CommunicationModel, JobModel
 from app.orchestration import dispatcher, executor
 from app.orchestration.dispatcher import Coordinator
 from app.schemas import CaseStatus
@@ -27,6 +27,16 @@ LEASE_SECONDS = 60
 # no automatic retry. Bounded, not unlimited (CLAUDE.md: "bounded retries").
 MAX_COORDINATE_ATTEMPTS = 3
 COORDINATE_RETRY_DELAY_SECONDS = 5
+
+# There is no live ElevenLabs webhook wired up (no public URL to sign
+# against, see backend/.env's comment on ELEVENLABS_WEBHOOK_SECRET) --
+# CLAUDE.md's "use polling" is the real mechanism here. Without this sweep,
+# a real autonomous call's Communication row would sit at state=ACTIVE
+# forever once the call actually ends, since nothing else ever re-checks
+# it. Found live: a finished call still showed "in progress" with no
+# automatic reconciliation.
+RECONCILE_SWEEP_INTERVAL_SECONDS = 5
+RECONCILE_MIN_CALL_AGE_SECONDS = 15
 
 
 def utcnow() -> datetime:
@@ -130,6 +140,37 @@ async def process_one_job(
         return True
 
 
+async def sweep_stale_live_calls() -> None:
+    """Finds real calls (provenance=LIVE, a bound provider_conversation_id)
+    still sitting at state ACTIVE/REQUESTED after a minimum age, and
+    enqueues FETCH_RECORDING for each. fetch_recording itself now checks
+    the remote call status and no-ops if it isn't actually over yet, so
+    this is safe to call on the same rows repeatedly. Bucketing the
+    dedupe_key by sweep interval (not a fixed key) lets retries happen on
+    the next sweep instead of being permanently blocked by enqueue_job's
+    dedupe-forever-by-key behavior, while still not spamming a new job
+    every worker tick."""
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=RECONCILE_MIN_CALL_AGE_SECONDS)
+    bucket = int(datetime.now(timezone.utc).timestamp() // RECONCILE_SWEEP_INTERVAL_SECONDS)
+    async with session_scope() as session:
+        stale = (
+            await session.execute(
+                select(CommunicationModel).where(
+                    CommunicationModel.state.in_(["ACTIVE", "REQUESTED"]),
+                    CommunicationModel.provider_conversation_id.is_not(None),
+                    CommunicationModel.provenance == "LIVE",
+                    CommunicationModel.started_at < cutoff,
+                )
+            )
+        ).scalars().all()
+        for comm in stale:
+            await services.enqueue_job(
+                session, case_id=comm.case_id, kind="FETCH_RECORDING",
+                dedupe_key=f"recording:sweep:{comm.id}:{bucket}",
+                payload={"communication_id": comm.id},
+            )
+
+
 async def drain_due_jobs(
     coordinator: Coordinator, *, max_jobs: int = 50, elevenlabs_configured: bool = False,
     research_adapter=None, raise_on_error: bool = False,
@@ -152,8 +193,15 @@ async def run_worker_loop(
     coordinator: Coordinator, *, stop_event: asyncio.Event, elevenlabs_configured: bool = False,
     research_adapter=None, poll_interval: float = 0.75,
 ) -> None:
+    last_sweep = 0.0
     while not stop_event.is_set():
         processed = await process_one_job(coordinator, elevenlabs_configured=elevenlabs_configured, research_adapter=research_adapter)
+
+        loop_time = asyncio.get_event_loop().time()
+        if elevenlabs_configured and loop_time - last_sweep >= RECONCILE_SWEEP_INTERVAL_SECONDS:
+            await sweep_stale_live_calls()
+            last_sweep = loop_time
+
         if not processed:
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=poll_interval)

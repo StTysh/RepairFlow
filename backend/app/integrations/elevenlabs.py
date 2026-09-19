@@ -339,6 +339,14 @@ async def fetch_recording(communication_id: str) -> None:
                 comm.recording = Recording(status=RecordingStatus.FAILED, error_code=f"details_fetch_failed: {exc}"[:200]).model_dump(mode="json")
         return
 
+    # The call may genuinely still be in progress on ElevenLabs' side
+    # (status "initiated"/"in-progress"/"processing") -- finalizing now
+    # would mark this ENDED with a partial transcript. No-op and let the
+    # next sweep retry; this function is safe to call repeatedly.
+    remote_status = str(details.get("status") or "").lower()
+    if remote_status not in ("done", "completed", "ended", "failed", "no_answer", "voicemail"):
+        return
+
     new_turns = map_transcript(details.get("transcript") or []) if not has_transcript else None
     new_outcome = map_outcome(communication_id, conversation_id, details) if not has_transcript else None
 
