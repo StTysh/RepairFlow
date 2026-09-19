@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import approvals, cases, demo, observations
+from app.api import approvals, cases, demo, observations, voice
 from app.api.errors import register_error_handlers
 from app.config import get_settings
 from app.db import create_all, dispose_engine
@@ -71,6 +71,9 @@ app.include_router(cases.router)
 app.include_router(observations.router)
 app.include_router(approvals.router)
 app.include_router(demo.router)
+app.include_router(voice.router)
+app.include_router(voice.webhook_router)
+app.include_router(voice.tools_router)
 
 
 @app.get("/healthz")
