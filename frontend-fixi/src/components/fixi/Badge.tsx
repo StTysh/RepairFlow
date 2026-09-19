@@ -1,8 +1,8 @@
 import { cn } from "@/lib/utils";
-import type { Priority, StatusTone } from "@/lib/fixi-data";
-import { statusTone } from "@/lib/fixi-data";
+import type { CaseStatus, StatusTone, Urgency } from "@/lib/fixi-data";
+import { STATUS_LABEL, URGENCY_LABEL, statusTone, urgencyTone } from "@/lib/fixi-data";
 
-const toneClasses: Record<StatusTone | "red" | "orange", string> = {
+const toneClasses: Record<StatusTone, string> = {
   red: "bg-status-red text-status-red-foreground",
   orange: "bg-status-orange text-status-orange-foreground",
   green: "bg-status-green text-status-green-foreground",
@@ -19,7 +19,7 @@ export function Pill({
 }: {
   tone: keyof typeof toneClasses;
   children: React.ReactNode;
-  className?: string;
+  className?: string | undefined;
 }) {
   return (
     <span
@@ -34,11 +34,32 @@ export function Pill({
   );
 }
 
-export function PriorityBadge({ priority }: { priority: Priority }) {
-  const tone = priority === "High" ? "red" : priority === "Medium" ? "orange" : "green";
-  return <Pill tone={tone}>{priority}</Pill>;
+/** Urgency badge -- a separate axis from case status (see fixi-data.ts).
+ * Replaces the old fictional High/Medium/Low "priority" concept. */
+export function UrgencyBadge({
+  urgency,
+  className,
+}: {
+  urgency: Urgency;
+  className?: string | undefined;
+}) {
+  return (
+    <Pill tone={urgencyTone(urgency)} className={className}>
+      {URGENCY_LABEL[urgency]}
+    </Pill>
+  );
 }
 
-export function StatusBadge({ status }: { status: string }) {
-  return <Pill tone={statusTone(status)}>{status}</Pill>;
+export function StatusBadge({
+  status,
+  className,
+}: {
+  status: CaseStatus;
+  className?: string | undefined;
+}) {
+  return (
+    <Pill tone={statusTone(status)} className={className}>
+      {STATUS_LABEL[status]}
+    </Pill>
+  );
 }

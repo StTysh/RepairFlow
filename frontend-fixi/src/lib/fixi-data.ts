@@ -1,327 +1,80 @@
-export type Priority = "High" | "Medium" | "Low";
-export type StatusTone = "blue" | "amber" | "purple" | "green" | "gray";
+// Real status/urgency taxonomy + display helpers backing Badge.tsx.
+//
+// This used to hold hardcoded mock tickets/case details/messages/property
+// history (Lovable placeholder data). All of that is gone now that every
+// screen fetches from the RepairFlow API (see src/api and src/hooks) --
+// this file's only remaining job is the small set of pure display helpers
+// that turn the backend's real enums into badge colors/labels, which is
+// why it keeps its original name and import path.
 
-export interface Ticket {
-  id: number;
-  issue: string;
-  address: string;
-  priority: Priority;
-  status: string;
-  assignedTo: string | null;
-  updated: string;
-}
+// The 5 real case statuses (backend: app/schemas.py CaseStatus). Not the
+// ~10 fictional statuses the original Lovable mock used ("In progress",
+// "Awaiting tenant", "Contractor booked", ...) -- see docs/07 state machine.
+export type CaseStatus =
+  "ACTIVE" | "AWAITING_CONFIRMATION" | "RESOLVED" | "ESCALATED" | "CANCELLED";
 
-export const tickets: Ticket[] = [
-  {
-    id: 1042,
-    issue: "Roof leak",
-    address: "14 King Street, E17",
-    priority: "High",
-    status: "In progress",
-    assignedTo: "ABC Roofing",
-    updated: "2h ago",
-  },
-  {
-    id: 1041,
-    issue: "No heating",
-    address: "27 Maple Road, N1",
-    priority: "High",
-    status: "Awaiting tenant",
-    assignedTo: "London Heat Ltd",
-    updated: "5h ago",
-  },
-  {
-    id: 1040,
-    issue: "Leaking pipe",
-    address: "8 Station View, W3",
-    priority: "Medium",
-    status: "Diagnosing",
-    assignedTo: null,
-    updated: "6h ago",
-  },
-  {
-    id: 1039,
-    issue: "Broken boiler",
-    address: "12 Oak Avenue, SE3",
-    priority: "High",
-    status: "Contractor booked",
-    assignedTo: "HeatRight",
-    updated: "1 day ago",
-  },
-  {
-    id: 1038,
-    issue: "Electrical issue",
-    address: "90 Riverdale Rd, SW6",
-    priority: "Medium",
-    status: "In progress",
-    assignedTo: "PowerFix",
-    updated: "1 day ago",
-  },
-  {
-    id: 1037,
-    issue: "Mould in bathroom",
-    address: "3 Wellington Close, AL8",
-    priority: "Medium",
-    status: "Awaiting response",
-    assignedTo: null,
-    updated: "2 days ago",
-  },
-  {
-    id: 1036,
-    issue: "Window won't close",
-    address: "21 Birch Lane, N8",
-    priority: "Low",
-    status: "Scheduled",
-    assignedTo: "HomeFix",
-    updated: "2 days ago",
-  },
-  {
-    id: 1035,
-    issue: "Water pressure",
-    address: "5 Church Road, E11",
-    priority: "Low",
-    status: "Resolved",
-    assignedTo: "FlowTech",
-    updated: "3 days ago",
-  },
+export const CASE_STATUSES: CaseStatus[] = [
+  "ACTIVE",
+  "AWAITING_CONFIRMATION",
+  "RESOLVED",
+  "ESCALATED",
+  "CANCELLED",
 ];
 
-export function statusTone(status: string): StatusTone {
-  const s = status.toLowerCase();
-  if (s.includes("awaiting") || s.includes("waiting")) return "amber";
-  if (s.includes("booked")) return "purple";
-  if (s.includes("resolved") || s.includes("scheduled")) return "green";
-  if (s.includes("diagnos")) return "gray";
-  return "blue";
-}
-
-export const kpis = [
-  { value: "24", label: "Open tickets" },
-  { value: "8", label: "In progress" },
-  { value: "12", label: "Awaiting response" },
-  { value: "156", label: "Resolved (30 days)" },
-  { value: "4.7 days", label: "Average time to resolve", badge: "↓ 32%" },
-];
-
-export const caseDetails = {
-  id: 1042,
-  issue: "Roof leak",
-  address: "14 King Street, Walthamstow, E17 6QX",
-  priority: "High" as Priority,
-  status: "In progress",
-  summary:
-    "Tenant reports water coming through the ceiling in the bedroom after heavy rain. Similar issue reported 4 months ago. Contractor on site inspecting the roof. Next step depends on findings (possible scaffolding required).",
-  tenant: { name: "James Doe", phone: "+44 7700 123456", initials: "JD" },
-  contractor: {
-    name: "ABC Roofing",
-    role: "Roofing Specialist",
-    phone: "+44 20 7946 0011",
-    initials: "AR",
-  },
-  appointment: { date: "Tomorrow, 14 Sep 2026", time: "15:00 – 17:00" },
-  steps: [
-    { label: "Reported", time: "12 Sep, 10:24", state: "done" },
-    { label: "Diagnosing", time: "12 Sep, 11:02", state: "done" },
-    { label: "Contractor on site", time: "Current", state: "current" },
-    { label: "Follow up", time: "", state: "future" },
-    { label: "Resolved", time: "", state: "future" },
-  ] as const,
+export const STATUS_LABEL: Record<CaseStatus, string> = {
+  ACTIVE: "Active",
+  AWAITING_CONFIRMATION: "Awaiting confirmation",
+  RESOLVED: "Resolved",
+  ESCALATED: "Escalated",
+  CANCELLED: "Cancelled",
 };
 
-export type TimelineState = "done" | "current" | "future";
+// Urgency is a SEPARATE axis from status (backend: RiskAssessment.urgency,
+// surfaced on CaseListItem/RepairCase.risk). It backs what the mockup
+// called the "priority" badge -- kept visually distinct from the status
+// badge throughout the UI.
+export type Urgency = "EMERGENCY" | "URGENT" | "ROUTINE" | "UNKNOWN";
 
-export const agentTimeline: { title: string; body: string; time?: string; state: TimelineState }[] =
-  [
-    {
-      title: "Analysed issue",
-      body: "Identified as likely roof leak based on tenant description and photos.",
-      time: "12 Sep, 10:26",
-      state: "done",
-    },
-    {
-      title: "Checked property history",
-      body: "Found similar issue in May 2026. Previous repair may not have fully resolved the underlying cause.",
-      time: "12 Sep, 10:27",
-      state: "done",
-    },
-    {
-      title: "Selected contractor",
-      body: "Chose ABC Roofing (highest rating, available this week).",
-      time: "12 Sep, 10:31",
-      state: "done",
-    },
-    {
-      title: "Contacted tenant",
-      body: "Confirmed access for inspection.",
-      time: "12 Sep, 10:34",
-      state: "done",
-    },
-    {
-      title: "Contractor on site",
-      body: "ABC Roofing has arrived and is inspecting the roof.",
-      time: "12 Sep, 12:05",
-      state: "current",
-    },
-    {
-      title: "Waiting for contractor update",
-      body: "Contractor will provide findings and next steps.",
-      state: "future",
-    },
-    {
-      title: "Plan next steps",
-      body: "May require scaffolding or further investigation.",
-      state: "future",
-    },
-  ];
+export const URGENCIES: Urgency[] = ["EMERGENCY", "URGENT", "ROUTINE", "UNKNOWN"];
 
-export type SenderType = "Contractor" | "Tenant" | "AI Agent";
+export const URGENCY_LABEL: Record<Urgency, string> = {
+  EMERGENCY: "Emergency",
+  URGENT: "Urgent",
+  ROUTINE: "Routine",
+  UNKNOWN: "Unknown",
+};
 
-export interface Message {
-  sender: string;
-  type: SenderType;
-  time: string;
-  text: string;
-  attachments?: "tenant" | "contractor";
+export type StatusTone = "blue" | "amber" | "purple" | "green" | "gray" | "red" | "orange";
+
+/** Plain 5-way switch -- replaces the old substring-matching heuristic
+ * that guessed a tone from ~10 fictional status strings. */
+export function statusTone(status: CaseStatus): StatusTone {
+  switch (status) {
+    case "ACTIVE":
+      return "blue";
+    case "AWAITING_CONFIRMATION":
+      return "amber";
+    case "RESOLVED":
+      return "green";
+    case "ESCALATED":
+      return "red";
+    case "CANCELLED":
+      return "gray";
+    default:
+      return "gray";
+  }
 }
 
-export const messages: Message[] = [
-  {
-    sender: "Contractor (ABC Roofing)",
-    type: "Contractor",
-    time: "12:05",
-    text: "On site now. Initial inspection shows possible flashing issue. Need to check under tiles. Will update shortly.",
-    attachments: "contractor",
-  },
-  {
-    sender: "AI Agent",
-    type: "AI Agent",
-    time: "12:06",
-    text: "Thanks. Please take photos of the flashing and let me know if scaffolding is required.",
-  },
-  {
-    sender: "Tenant (James Doe)",
-    type: "Tenant",
-    time: "11:48",
-    text: "That's great. I'm at work today — please use the back entrance if needed.",
-  },
-  {
-    sender: "AI Agent",
-    type: "AI Agent",
-    time: "11:49",
-    text: "Noted. I've informed the contractor about access. I'll keep you updated.",
-  },
-  {
-    sender: "Tenant (James Doe)",
-    type: "Tenant",
-    time: "10:28",
-    text: "Here are some more photos of the ceiling. The leak seems worse after last night's rain.",
-    attachments: "tenant",
-  },
-];
-
-export interface HistoryItem {
-  date: string;
-  issue: string;
-  state: "Resolved";
-  outcome: string;
-  contractor: string;
-  cost: string;
+export function urgencyTone(urgency: Urgency): StatusTone {
+  switch (urgency) {
+    case "EMERGENCY":
+      return "red";
+    case "URGENT":
+      return "orange";
+    case "ROUTINE":
+      return "green";
+    case "UNKNOWN":
+    default:
+      return "gray";
+  }
 }
-
-export const propertyHistory: HistoryItem[] = [
-  {
-    date: "May 2026",
-    issue: "Roof leak",
-    state: "Resolved",
-    outcome: "Flashing replaced",
-    contractor: "ABC Roofing",
-    cost: "£620",
-  },
-  {
-    date: "Nov 2025",
-    issue: "Gutter blockage",
-    state: "Resolved",
-    outcome: "Gutters cleared",
-    contractor: "City Gutters",
-    cost: "£180",
-  },
-  {
-    date: "Feb 2025",
-    issue: "Damp in bedroom",
-    state: "Resolved",
-    outcome: "No further issues",
-    contractor: "HomeFix",
-    cost: "£350",
-  },
-  {
-    date: "Oct 2024",
-    issue: "Roof leak",
-    state: "Resolved",
-    outcome: "Minor repair",
-    contractor: "ABC Roofing",
-    cost: "£240",
-  },
-  {
-    date: "Jun 2024",
-    issue: "Broken tile",
-    state: "Resolved",
-    outcome: "Tile replaced",
-    contractor: "Local Builders",
-    cost: "£120",
-  },
-  {
-    date: "Jan 2024",
-    issue: "Boiler service",
-    state: "Resolved",
-    outcome: "Annual service",
-    contractor: "HeatRight",
-    cost: "£90",
-  },
-  {
-    date: "Aug 2023",
-    issue: "Leak under sink",
-    state: "Resolved",
-    outcome: "Pipe replaced",
-    contractor: "PlumbPro",
-    cost: "£210",
-  },
-  {
-    date: "Mar 2023",
-    issue: "Electrical issue",
-    state: "Resolved",
-    outcome: "Socket replaced",
-    contractor: "PowerFix",
-    cost: "£160",
-  },
-  {
-    date: "Sep 2022",
-    issue: "Damp in hallway",
-    state: "Resolved",
-    outcome: "Ventilation improved",
-    contractor: "HomeFix",
-    cost: "£300",
-  },
-  {
-    date: "Apr 2022",
-    issue: "Roof inspection",
-    state: "Resolved",
-    outcome: "No issues found",
-    contractor: "ABC Roofing",
-    cost: "£80",
-  },
-  {
-    date: "Nov 2021",
-    issue: "Heating issue",
-    state: "Resolved",
-    outcome: "Thermostat replaced",
-    contractor: "HeatRight",
-    cost: "£180",
-  },
-];
-
-export const propertyStats = [
-  { value: "3", label: "Active tickets" },
-  { value: "8", label: "Total tickets" },
-  { value: "2", label: "Repeat issues" },
-  { value: "2021", label: "Built" },
-];

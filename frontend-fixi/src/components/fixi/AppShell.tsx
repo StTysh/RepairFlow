@@ -9,17 +9,20 @@ import {
   MessageSquare,
   FileText,
 } from "lucide-react";
+import { useDashboardMetrics } from "@/hooks/use-dashboard-metrics";
 import { cn } from "@/lib/utils";
 
+// "Properties" pointed at /properties/14-king-street/history in the
+// mockup; that route now needs a real property id (and ideally an
+// address, passed via search params -- see properties.$propertyId.history
+// .tsx), which this global nav item has no case in scope to source from.
+// Pointing it at /maintenance rather than leaving it a dead link, pending
+// a real properties list screen (out of scope for this phase). Same
+// reasoning for every other item below that still has no dedicated screen.
 const nav = [
   { label: "Overview", icon: Home, to: "/maintenance" as const, active: false },
   { label: "Maintenance", icon: Wrench, to: "/maintenance" as const, active: true },
-  {
-    label: "Properties",
-    icon: Building2,
-    to: "/properties/14-king-street/history" as const,
-    active: false,
-  },
+  { label: "Properties", icon: Building2, to: "/maintenance" as const, active: false },
   { label: "Contractors", icon: HardHat, to: "/maintenance" as const, active: false },
   { label: "Tenants", icon: Users, to: "/maintenance" as const, active: false },
   { label: "Insights", icon: BarChart3, to: "/maintenance" as const, active: false },
@@ -54,6 +57,8 @@ export function FixiLogo() {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const metrics = useDashboardMetrics();
+  const activeCount = metrics.data?.active;
   return (
     <div className="flex min-h-screen w-full bg-background font-sans text-foreground antialiased">
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-4 py-5 lg:flex">
@@ -83,7 +88,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </span>
             <div className="leading-tight">
               <div className="text-xs font-semibold">AI agent active</div>
-              <div className="text-[11px] text-muted-foreground">Handling 24 tasks</div>
+              <div className="text-[11px] text-muted-foreground">
+                {activeCount !== undefined
+                  ? `Handling ${activeCount} active case${activeCount === 1 ? "" : "s"}`
+                  : "Handling cases…"}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2.5 px-1">

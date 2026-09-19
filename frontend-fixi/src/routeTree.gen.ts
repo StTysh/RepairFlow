@@ -11,7 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as MaintenanceIndexRouteImport } from './routes/maintenance.index'
-import { Route as Properties14KingStreetHistoryRouteImport } from './routes/properties.14-king-street.history'
+import { Route as PropertiesPropertyIdHistoryRouteImport } from './routes/properties.$propertyId.history'
 import { Route as MaintenanceTicketsTicketIdChar123SectionChar125RouteImport } from './routes/maintenance.tickets.$ticketId.{-$section}'
 
 const IndexRoute = IndexRouteImport.update({
@@ -24,10 +24,10 @@ const MaintenanceIndexRoute = MaintenanceIndexRouteImport.update({
   path: '/maintenance/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const Properties14KingStreetHistoryRoute =
-  Properties14KingStreetHistoryRouteImport.update({
-    id: '/properties/14-king-street/history',
-    path: '/properties/14-king-street/history',
+const PropertiesPropertyIdHistoryRoute =
+  PropertiesPropertyIdHistoryRouteImport.update({
+    id: '/properties/$propertyId/history',
+    path: '/properties/$propertyId/history',
     getParentRoute: () => rootRouteImport,
   } as any)
 const MaintenanceTicketsTicketIdChar123SectionChar125Route =
@@ -40,20 +40,20 @@ const MaintenanceTicketsTicketIdChar123SectionChar125Route =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/maintenance/': typeof MaintenanceIndexRoute
-  '/properties/14-king-street/history': typeof Properties14KingStreetHistoryRoute
+  '/properties/$propertyId/history': typeof PropertiesPropertyIdHistoryRoute
   '/maintenance/tickets/$ticketId/{-$section}': typeof MaintenanceTicketsTicketIdChar123SectionChar125Route
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/maintenance': typeof MaintenanceIndexRoute
-  '/properties/14-king-street/history': typeof Properties14KingStreetHistoryRoute
+  '/properties/$propertyId/history': typeof PropertiesPropertyIdHistoryRoute
   '/maintenance/tickets/$ticketId/{-$section}': typeof MaintenanceTicketsTicketIdChar123SectionChar125Route
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/maintenance/': typeof MaintenanceIndexRoute
-  '/properties/14-king-street/history': typeof Properties14KingStreetHistoryRoute
+  '/properties/$propertyId/history': typeof PropertiesPropertyIdHistoryRoute
   '/maintenance/tickets/$ticketId/{-$section}': typeof MaintenanceTicketsTicketIdChar123SectionChar125Route
 }
 export interface FileRouteTypes {
@@ -61,26 +61,26 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/maintenance/'
-    | '/properties/14-king-street/history'
+    | '/properties/$propertyId/history'
     | '/maintenance/tickets/$ticketId/{-$section}'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/maintenance'
-    | '/properties/14-king-street/history'
+    | '/properties/$propertyId/history'
     | '/maintenance/tickets/$ticketId/{-$section}'
   id:
     | '__root__'
     | '/'
     | '/maintenance/'
-    | '/properties/14-king-street/history'
+    | '/properties/$propertyId/history'
     | '/maintenance/tickets/$ticketId/{-$section}'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   MaintenanceIndexRoute: typeof MaintenanceIndexRoute
-  Properties14KingStreetHistoryRoute: typeof Properties14KingStreetHistoryRoute
+  PropertiesPropertyIdHistoryRoute: typeof PropertiesPropertyIdHistoryRoute
   MaintenanceTicketsTicketIdChar123SectionChar125Route: typeof MaintenanceTicketsTicketIdChar123SectionChar125Route
 }
 
@@ -100,11 +100,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MaintenanceIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/properties/14-king-street/history': {
-      id: '/properties/14-king-street/history'
-      path: '/properties/14-king-street/history'
-      fullPath: '/properties/14-king-street/history'
-      preLoaderRoute: typeof Properties14KingStreetHistoryRouteImport
+    '/properties/$propertyId/history': {
+      id: '/properties/$propertyId/history'
+      path: '/properties/$propertyId/history'
+      fullPath: '/properties/$propertyId/history'
+      preLoaderRoute: typeof PropertiesPropertyIdHistoryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/maintenance/tickets/$ticketId/{-$section}': {
@@ -120,7 +120,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   MaintenanceIndexRoute: MaintenanceIndexRoute,
-  Properties14KingStreetHistoryRoute: Properties14KingStreetHistoryRoute,
+  PropertiesPropertyIdHistoryRoute: PropertiesPropertyIdHistoryRoute,
   MaintenanceTicketsTicketIdChar123SectionChar125Route:
     MaintenanceTicketsTicketIdChar123SectionChar125Route,
 }

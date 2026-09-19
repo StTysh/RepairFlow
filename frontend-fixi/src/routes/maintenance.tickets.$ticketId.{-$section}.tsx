@@ -4,7 +4,6 @@ import {
   ArrowRight,
   Calendar,
   Check,
-  ChevronDown,
   Copy,
   Mail,
   MapPin,
@@ -13,43 +12,38 @@ import {
   Pencil,
   Phone,
   Share2,
-  Sparkles,
 } from "lucide-react";
 import { AppShell, Card } from "@/components/fixi/AppShell";
-import { Pill, PriorityBadge } from "@/components/fixi/Badge";
-import { agentTimeline, caseDetails, messages, propertyHistory } from "@/lib/fixi-data";
+import { Pill, StatusBadge, UrgencyBadge } from "@/components/fixi/Badge";
+import { CaseLifecycleActions } from "@/components/fixi/CaseLifecycleActions";
+import { useCaseDetail } from "@/hooks/use-case-detail";
+import { useCaseEvents } from "@/hooks/use-case-events";
+import { useCancelAppointment } from "@/hooks/use-case-actions";
+import { usePropertyHistory } from "@/hooks/use-property-history";
+import type { CaseSnapshot } from "@/api/types";
+import { statusTone } from "@/lib/fixi-data";
+import { formatDateRange, formatRelative, initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import ceilingStain from "@/assets/ceiling-stain.jpg";
-import ceilingDamp from "@/assets/ceiling-damp.jpg";
-import houseExterior from "@/assets/house-exterior.jpg";
-import roofFlashing from "@/assets/roof-flashing.jpg";
 
-const sections = ["summary", "timeline", "messages"] as const;
+const sections = ["summary", "timeline"] as const;
 type Section = (typeof sections)[number];
 
 export const Route = createFileRoute("/maintenance/tickets/$ticketId/{-$section}")({
   loader: ({ params }) => {
-    if (params.ticketId !== "1042") throw notFound();
     if (params.section && !sections.includes(params.section as Section)) throw notFound();
     return { section: (params.section as Section | undefined) ?? null };
   },
-  head: ({ loaderData }) => {
-    const title = loaderData
-      ? `#1042 – Roof leak${loaderData.section ? ` · ${cap(loaderData.section)}` : ""} — Fixi`
-      : "Ticket not found — Fixi";
+  head: ({ params, loaderData }) => {
+    const title = `#${params.ticketId} — Fixi${loaderData?.section ? ` · ${cap(loaderData.section)}` : ""}`;
     return {
       meta: [
         { title },
         {
           name: "description",
           content:
-            "Case details for the roof leak at 14 King Street, Walthamstow: agent timeline, latest messages and property history.",
+            "Case details: property, tenant, contractor, next appointment and agent timeline.",
         },
         { property: "og:title", content: title },
-        {
-          property: "og:description",
-          content: "Case details, AI agent timeline and latest messages for ticket #1042.",
-        },
       ],
     };
   },
@@ -61,9 +55,41 @@ function cap(s: string) {
 }
 
 function CasePage() {
+  const { ticketId } = Route.useParams();
   const { section } = Route.useLoaderData();
   const show = (s: Section) => section === null || section === s;
-  const c = caseDetails;
+
+  const detail = useCaseDetail(ticketId);
+
+  if (detail.isLoading) {
+    return (
+      <AppShell>
+        <div className="px-8 py-6 text-sm text-muted-foreground">Loading ticket…</div>
+      </AppShell>
+    );
+  }
+
+  if (detail.isError || !detail.data) {
+    return (
+      <AppShell>
+        <div className="px-8 py-6">
+          <Link
+            to="/maintenance"
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="h-4 w-4" /> Back to tickets
+          </Link>
+          <p className="mt-6 text-sm text-destructive">
+            Could not load this ticket. It may not exist, or the backend may be unreachable.
+          </p>
+        </div>
+      </AppShell>
+    );
+  }
+
+  const snapshot = detail.data.snapshot;
+  const c = snapshot.case;
+  const address = `${snapshot.property.address_line}, ${snapshot.property.postcode}`;
 
   return (
     <AppShell>
@@ -86,18 +112,25 @@ function CasePage() {
 
         <div className="mt-4 flex items-start justify-between gap-6">
           <div>
-            <PriorityBadge priority={c.priority} />
-            <h1 className="mt-2 text-2xl font-bold tracking-tight">
-              #{c.id} – {c.issue}
+            <UrgencyBadge urgency={c.risk.urgency} />
+            <h1 className="mt-2 max-w-2xl text-2xl font-bold tracking-tight" title={c.title}>
+              #{c.case_number} – <span className="line-clamp-2">{c.title}</span>
             </h1>
             <div className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
-              <MapPin className="h-3.5 w-3.5" /> {c.address}
-              <Copy className="ml-1 h-3.5 w-3.5 cursor-pointer hover:text-foreground" />
+              <MapPin className="h-3.5 w-3.5" /> {address}
+              <button
+                type="button"
+                onClick={() => void navigator.clipboard.writeText(address)}
+                title="Copy address"
+              >
+                <Copy className="ml-1 h-3.5 w-3.5 cursor-pointer hover:text-foreground" />
+              </button>
             </div>
           </div>
-          <button className="flex h-9 items-center gap-2 rounded-lg bg-status-blue px-3.5 text-sm font-medium text-status-blue-foreground">
-            {c.status} <ChevronDown className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <StatusBadge status={c.status} className="h-9 px-3.5 text-sm" />
+            <CaseLifecycleActions caseId={c.id} status={c.status} version={c.version} />
+          </div>
         </div>
 
         <div className="mt-5 flex gap-6 border-b border-border text-sm">
@@ -116,54 +149,23 @@ function CasePage() {
           ))}
         </div>
 
-        <Card className="mt-5 px-8 py-5">
-          <ol className="flex items-start">
-            {c.steps.map((s, i) => (
-              <li key={s.label} className="relative flex flex-1 flex-col items-center text-center">
-                {i < c.steps.length - 1 && (
-                  <span
-                    className={cn(
-                      "absolute left-1/2 top-2.5 h-0.5 w-full",
-                      s.state === "done" ? "bg-timeline-done" : "bg-timeline-future",
-                    )}
-                  />
-                )}
-                <StepDot state={s.state} />
-                <div
-                  className={cn(
-                    "mt-2 text-xs font-medium",
-                    s.state === "future" ? "text-muted-foreground" : "text-foreground",
-                  )}
-                >
-                  {s.label}
-                </div>
-                {s.time && <div className="text-[11px] text-muted-foreground">{s.time}</div>}
-              </li>
-            ))}
-          </ol>
-        </Card>
-
         <div className="mt-5 flex items-center gap-1.5">
-          <SectionLink section={undefined} active={section === null}>
+          <SectionLink ticketId={ticketId} section={undefined} active={section === null}>
             All
           </SectionLink>
-          <SectionLink section="summary" active={section === "summary"}>
+          <SectionLink ticketId={ticketId} section="summary" active={section === "summary"}>
             Summary
           </SectionLink>
-          <SectionLink section="timeline" active={section === "timeline"}>
+          <SectionLink ticketId={ticketId} section="timeline" active={section === "timeline"}>
             Timeline
-          </SectionLink>
-          <SectionLink section="messages" active={section === "messages"}>
-            Messages
           </SectionLink>
         </div>
 
         <div
-          className={cn("mt-3 grid gap-4", section === null ? "xl:grid-cols-3" : "xl:grid-cols-1")}
+          className={cn("mt-3 grid gap-4", section === null ? "xl:grid-cols-2" : "xl:grid-cols-1")}
         >
-          {show("summary") && <SummaryColumn />}
-          {show("timeline") && <TimelineColumn />}
-          {show("messages") && <MessagesColumn />}
+          {show("summary") && <SummaryColumn snapshot={snapshot} />}
+          {show("timeline") && <TimelineColumn caseId={c.id} />}
         </div>
       </div>
     </AppShell>
@@ -185,10 +187,12 @@ function ToolbarButton({
 }
 
 function SectionLink({
+  ticketId,
   section,
   active,
   children,
 }: {
+  ticketId: string;
   section?: Section | undefined;
   active: boolean;
   children: React.ReactNode;
@@ -196,7 +200,7 @@ function SectionLink({
   return (
     <Link
       to="/maintenance/tickets/$ticketId/{-$section}"
-      params={{ ticketId: "1042", section }}
+      params={{ ticketId, section }}
       className={cn(
         "h-8 rounded-lg border px-3 text-xs font-medium leading-8 transition-colors",
         active
@@ -209,21 +213,15 @@ function SectionLink({
   );
 }
 
-function StepDot({ state }: { state: "done" | "current" | "future" }) {
-  if (state === "done")
+function StepDot({ tone }: { tone: "done" | "muted" }) {
+  if (tone === "done")
     return (
-      <span className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full bg-timeline-done text-primary-foreground">
+      <span className="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-timeline-done text-primary-foreground">
         <Check className="h-3 w-3" strokeWidth={3} />
       </span>
     );
-  if (state === "current")
-    return (
-      <span className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full border-2 border-timeline-current bg-card">
-        <span className="h-2 w-2 rounded-full bg-timeline-current" />
-      </span>
-    );
   return (
-    <span className="relative z-10 h-5 w-5 rounded-full border-2 border-timeline-future bg-card" />
+    <span className="relative z-10 h-5 w-5 shrink-0 rounded-full border-2 border-timeline-future bg-card" />
   );
 }
 
@@ -251,7 +249,7 @@ function Label({ children }: { children: React.ReactNode }) {
   return <div className="text-[13px] font-semibold">{children}</div>;
 }
 
-function Avatar({ initials, tone }: { initials: string; tone: "gray" | "green" | "purple" }) {
+function Avatar({ initials: text, tone }: { initials: string; tone: "gray" | "green" | "purple" }) {
   const cls = {
     gray: "bg-status-gray text-status-gray-foreground",
     green: "bg-status-green text-status-green-foreground",
@@ -264,7 +262,7 @@ function Avatar({ initials, tone }: { initials: string; tone: "gray" | "green" |
         cls,
       )}
     >
-      {initials}
+      {text}
     </div>
   );
 }
@@ -277,42 +275,62 @@ function IconButton({ icon: Icon }: { icon: typeof Phone }) {
   );
 }
 
-function OutlineButton({ children }: { children: React.ReactNode }) {
+function OutlineButton({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
   return (
-    <button className="h-8 rounded-lg border border-border bg-card px-3 text-xs font-medium shadow-card hover:bg-accent">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="h-8 rounded-lg border border-border bg-card px-3 text-xs font-medium shadow-card hover:bg-accent disabled:opacity-50"
+    >
       {children}
     </button>
   );
 }
 
-function SummaryColumn() {
-  const c = caseDetails;
+function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
+  const { case: c, issue, tenant, assigned_contractor, next_appointment, property } = snapshot;
+  const propertyHistory = usePropertyHistory(property.id);
+  const cancelAppointment = useCancelAppointment(c.id);
+
+  async function handleReschedule() {
+    if (!next_appointment) return;
+    const reason = window.prompt("Reason for rescheduling this visit?") ?? "";
+    try {
+      await cancelAppointment.mutateAsync({ appointmentId: next_appointment.id, reason });
+    } catch {
+      // handled by onError toast (see use-case-actions.ts)
+    }
+  }
+
   return (
     <Card className="p-5">
       <SectionHeader title="Case overview" />
-      <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">{c.summary}</p>
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        {[ceilingStain, houseExterior, ceilingDamp].map((src, i) => (
-          <img
-            key={i}
-            src={src}
-            alt=""
-            loading="lazy"
-            width={912}
-            height={736}
-            className="aspect-[4/3] w-full rounded-lg object-cover"
-          />
-        ))}
-      </div>
+      <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">{issue.description}</p>
+      {c.last_decision_summary && (
+        <p className="mt-2 rounded-lg bg-muted px-3 py-2 text-[13px] leading-relaxed text-muted-foreground">
+          {c.last_decision_summary}
+        </p>
+      )}
 
       <div className="mt-5 border-t border-border pt-4">
         <Label>Tenant</Label>
         <div className="mt-2 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Avatar initials={c.tenant.initials} tone="gray" />
+            <Avatar initials={initials(tenant.display_name)} tone="gray" />
             <div className="leading-tight">
-              <div className="text-[13px] font-medium">{c.tenant.name}</div>
-              <div className="text-xs text-muted-foreground">{c.tenant.phone}</div>
+              <div className="text-[13px] font-medium">{tenant.display_name}</div>
+              <div className="text-xs text-muted-foreground">
+                {tenant.phone_e164 ?? tenant.email ?? "No contact on file"}
+              </div>
             </div>
           </div>
           <div className="flex gap-1.5">
@@ -325,48 +343,86 @@ function SummaryColumn() {
 
       <div className="mt-4 border-t border-border pt-4">
         <Label>Assigned contractor</Label>
-        <div className="mt-2 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Avatar initials={c.contractor.initials} tone="green" />
-            <div className="leading-tight">
-              <div className="text-[13px] font-medium">{c.contractor.name}</div>
-              <div className="text-xs text-muted-foreground">{c.contractor.role}</div>
-              <div className="text-xs text-muted-foreground">{c.contractor.phone}</div>
+        {assigned_contractor ? (
+          <div className="mt-2 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Avatar initials={initials(assigned_contractor.display_name)} tone="green" />
+              <div className="leading-tight">
+                <div className="text-[13px] font-medium">{assigned_contractor.display_name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {assigned_contractor.trade ?? "—"}
+                </div>
+                {assigned_contractor.phone && (
+                  <div className="text-xs text-muted-foreground">{assigned_contractor.phone}</div>
+                )}
+              </div>
             </div>
+            <OutlineButton>View profile</OutlineButton>
           </div>
-          <OutlineButton>View profile</OutlineButton>
-        </div>
+        ) : (
+          <p className="mt-2 text-xs text-muted-foreground">No contractor assigned yet.</p>
+        )}
       </div>
 
       <div className="mt-4 border-t border-border pt-4">
         <Label>Next appointment</Label>
-        <div className="mt-2 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground">
-              <Calendar className="h-4 w-4" />
+        {next_appointment ? (
+          <div className="mt-2 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground">
+                <Calendar className="h-4 w-4" />
+              </div>
+              <div className="leading-tight">
+                <div className="text-[13px] font-medium">
+                  {formatDateRange(next_appointment.start_at, next_appointment.end_at).date}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {formatDateRange(next_appointment.start_at, next_appointment.end_at).time}
+                </div>
+              </div>
             </div>
-            <div className="leading-tight">
-              <div className="text-[13px] font-medium">{c.appointment.date}</div>
-              <div className="text-xs text-muted-foreground">{c.appointment.time}</div>
-            </div>
+            <OutlineButton
+              onClick={() => void handleReschedule()}
+              disabled={cancelAppointment.isPending}
+            >
+              Reschedule
+            </OutlineButton>
           </div>
-          <OutlineButton>Reschedule</OutlineButton>
-        </div>
+        ) : (
+          <p className="mt-2 text-xs text-muted-foreground">No appointment scheduled yet.</p>
+        )}
       </div>
 
       <div className="mt-4 border-t border-border pt-4">
         <Label>Property history</Label>
-        <ul className="mt-2 divide-y divide-border rounded-lg border border-border">
-          {propertyHistory.slice(0, 4).map((h) => (
-            <li key={h.date} className="flex items-center justify-between px-3 py-2 text-xs">
-              <span className="w-20 text-muted-foreground">{h.date}</span>
-              <span className="flex-1 font-medium">{h.issue}</span>
-              <Pill tone="green">{h.state}</Pill>
-            </li>
-          ))}
-        </ul>
+        {propertyHistory.isLoading && (
+          <p className="mt-2 text-xs text-muted-foreground">Loading…</p>
+        )}
+        {propertyHistory.data && (
+          <ul className="mt-2 divide-y divide-border rounded-lg border border-border">
+            {propertyHistory.data.items.slice(0, 4).map((h) => (
+              <li
+                key={h.case_id}
+                className="flex items-center justify-between gap-2 px-3 py-2 text-xs"
+              >
+                <span className="w-16 shrink-0 text-muted-foreground">
+                  {formatRelative(h.created_at)}
+                </span>
+                <span className="flex-1 truncate font-medium">{h.title}</span>
+                <Pill tone={statusTone(h.status)}>{h.status}</Pill>
+              </li>
+            ))}
+            {propertyHistory.data.items.length === 0 && (
+              <li className="px-3 py-2 text-xs text-muted-foreground">
+                No other cases at this property.
+              </li>
+            )}
+          </ul>
+        )}
         <Link
-          to="/properties/14-king-street/history"
+          to="/properties/$propertyId/history"
+          params={{ propertyId: property.id }}
+          search={{ address: property.address_line, postcode: property.postcode }}
           className="mt-3 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-card text-xs font-medium shadow-card hover:bg-accent"
         >
           View full property history <ArrowRight className="h-3.5 w-3.5" />
@@ -376,146 +432,47 @@ function SummaryColumn() {
   );
 }
 
-function TimelineColumn() {
+function TimelineColumn({ caseId }: { caseId: string }) {
+  const events = useCaseEvents(caseId);
+  const items = events.data?.items ?? [];
+
   return (
     <Card className="p-5">
       <SectionHeader
         title="Agent timeline"
         subtitle="What the AI agent has done and what's next."
       />
+      {events.isLoading && <p className="mt-4 text-xs text-muted-foreground">Loading…</p>}
+      {events.isError && (
+        <p className="mt-4 text-xs text-destructive">Could not load the timeline.</p>
+      )}
+      {!events.isLoading && items.length === 0 && (
+        <p className="mt-4 text-xs text-muted-foreground">No events recorded yet.</p>
+      )}
       <ol className="mt-4">
-        {agentTimeline.map((item, i) => {
-          const last = i === agentTimeline.length - 1;
+        {items.map((item, i) => {
+          const last = i === items.length - 1;
           return (
-            <li key={item.title} className="relative flex gap-3 pb-5 last:pb-0">
+            <li key={item.id} className="relative flex gap-3 pb-5 last:pb-0">
               {!last && (
-                <span
-                  className={cn(
-                    "absolute left-[9px] top-5 h-full w-0.5",
-                    item.state === "done" ? "bg-timeline-done" : "bg-timeline-future",
-                  )}
-                />
+                <span className="absolute left-[9px] top-5 h-full w-0.5 bg-timeline-done" />
               )}
-              <StepDot state={item.state} />
+              <StepDot tone="done" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-start justify-between gap-2">
-                  <div
-                    className={cn(
-                      "text-[13px] font-semibold",
-                      item.state === "future" && "text-muted-foreground",
-                    )}
-                  >
-                    {item.title}
-                  </div>
-                  {item.time ? (
-                    <span className="shrink-0 text-[11px] text-muted-foreground">{item.time}</span>
-                  ) : (
-                    <Pill tone={item.state === "current" ? "blue" : "gray"} className="text-[10px]">
-                      {item.state === "current" ? "Current" : "Upcoming"}
-                    </Pill>
-                  )}
+                  <div className="text-[13px] font-semibold">{item.display_title}</div>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">
+                    {formatRelative(item.occurred_at)}
+                  </span>
                 </div>
-                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{item.body}</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                  {item.display_description}
+                </p>
               </div>
             </li>
           );
         })}
       </ol>
-    </Card>
-  );
-}
-
-function MessagesColumn() {
-  return (
-    <Card className="flex flex-col p-5">
-      <SectionHeader
-        title="Latest incoming messages"
-        subtitle="Messages, calls and updates from all parties."
-        action={
-          <button className="text-xs font-medium text-primary hover:underline">View all</button>
-        }
-      />
-      <ul className="mt-4 divide-y divide-border">
-        {messages.map((m, i) => {
-          const isAI = m.type === "AI Agent";
-          return (
-            <li key={i} className="flex gap-3 py-3 first:pt-0">
-              {isAI ? (
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-status-purple text-status-purple-foreground">
-                  <Sparkles className="h-4 w-4" />
-                </div>
-              ) : (
-                <Avatar
-                  initials={m.type === "Tenant" ? "JD" : "AR"}
-                  tone={m.type === "Tenant" ? "gray" : "green"}
-                />
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <span className="text-[13px] font-semibold">{m.sender}</span>
-                    <Pill
-                      tone={isAI ? "purple" : m.type === "Tenant" ? "gray" : "green"}
-                      className="ml-2 text-[10px]"
-                    >
-                      {m.type}
-                    </Pill>
-                  </div>
-                  <span className="shrink-0 text-[11px] text-muted-foreground">{m.time}</span>
-                </div>
-                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{m.text}</p>
-                {m.attachments === "tenant" && (
-                  <div className="mt-2 flex gap-1.5">
-                    {[ceilingStain, ceilingDamp].map((src, j) => (
-                      <img
-                        key={j}
-                        src={src}
-                        alt=""
-                        loading="lazy"
-                        width={912}
-                        height={736}
-                        className="h-14 w-20 rounded-md object-cover"
-                      />
-                    ))}
-                  </div>
-                )}
-                {m.attachments === "contractor" && (
-                  <div className="mt-2 flex gap-1.5">
-                    <img
-                      src={roofFlashing}
-                      alt=""
-                      loading="lazy"
-                      width={912}
-                      height={736}
-                      className="h-14 w-20 rounded-md object-cover"
-                    />
-                  </div>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-
-      <div className="mt-auto rounded-xl bg-primary-soft p-4">
-        <div className="flex gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Sparkles className="h-4 w-4" />
-          </div>
-          <div>
-            <div className="text-[13px] font-semibold">Need full history?</div>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              See all previous issues, repairs and documents for this property.
-            </p>
-          </div>
-        </div>
-        <Link
-          to="/properties/14-king-street/history"
-          className="mt-3 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-card text-xs font-medium shadow-card hover:bg-accent"
-        >
-          View full history <ArrowRight className="h-3.5 w-3.5" />
-        </Link>
-      </div>
     </Card>
   );
 }

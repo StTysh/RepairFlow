@@ -64,3 +64,77 @@ export async function verifyCredentials(creds: OperatorCredentials): Promise<boo
   });
   return res.ok;
 }
+
+/** Thrown by `request()`/`requestOrNotModified()` below on a non-2xx
+ * response, carrying the HTTP status so callers (mutations especially --
+ * e.g. a stale case version) can branch on it instead of string-matching
+ * the message. */
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+async function readErrorDetail(res: Response): Promise<string> {
+  try {
+    const body: unknown = await res.json();
+    if (body && typeof body === "object" && "detail" in body) {
+      const detail = (body as { detail: unknown }).detail;
+      if (typeof detail === "string") return detail;
+      if (detail !== undefined) return JSON.stringify(detail);
+    }
+    return JSON.stringify(body);
+  } catch {
+    return res.statusText;
+  }
+}
+
+/** Generic authenticated JSON request against the RepairFlow API. Every
+ * data-fetching hook/endpoint function in src/api and src/hooks goes
+ * through this (or requestOrNotModified below) so auth attachment and
+ * error shape stay in one place. */
+export async function request<T>(
+  creds: OperatorCredentials,
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      Authorization: authHeader(creds),
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...init?.headers,
+    },
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, await readErrorDetail(res));
+  }
+  // 202 here still carries a JSON body (CaseVersionResponse etc. -- the
+  // 202 just signals "accepted, coordinator will follow up asynchronously"
+  // per docs, not "no content"). Only 204 has no body to parse.
+  if (res.status === 204) {
+    return undefined as T;
+  }
+  return (await res.json()) as T;
+}
+
+/** GET that understands the API's `known_version` / 304-no-body polling
+ * convention (see docs: case snapshot polling). openapi-fetch/plain fetch
+ * both try to JSON-parse every response, which throws on a 304's empty
+ * body -- this bypasses that by handling 304 explicitly, same as
+ * frontend/src/api/client.ts's fetchCaseDetail. */
+export async function requestOrNotModified<T>(
+  creds: OperatorCredentials,
+  path: string,
+  knownVersion: number | undefined,
+): Promise<{ status: 304 } | { status: 200; body: T }> {
+  const url = new URL(`${BASE_URL}${path}`);
+  if (knownVersion !== undefined) url.searchParams.set("known_version", String(knownVersion));
+  const res = await fetch(url, { headers: { Authorization: authHeader(creds) } });
+  if (res.status === 304) return { status: 304 };
+  if (!res.ok) throw new ApiError(res.status, await readErrorDetail(res));
+  return { status: 200, body: (await res.json()) as T };
+}
