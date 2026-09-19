@@ -1,5 +1,11 @@
+import { Play } from "lucide-react";
 import type { CaseStatus } from "@/lib/fixi-data";
-import { useCancelCase, useReopenCase, useResumeCase } from "@/hooks/use-case-actions";
+import {
+  useCancelCase,
+  useReopenCase,
+  useReplayCase,
+  useResumeCase,
+} from "@/hooks/use-case-actions";
 
 /** The real lifecycle action buttons, replacing the mockup's status
  * dropdown (CLAUDE.md decision: no control that writes status directly).
@@ -30,8 +36,24 @@ export function CaseLifecycleActions({
   const resume = useResumeCase(caseId);
   const reopen = useReopenCase(caseId);
   const cancel = useCancelCase(caseId);
+  const replay = useReplayCase(caseId);
 
-  const busy = resume.isPending || reopen.isPending || cancel.isPending;
+  const busy = resume.isPending || reopen.isPending || cancel.isPending || replay.isPending;
+
+  async function handleReplay() {
+    if (
+      !window.confirm(
+        "Replay this ticket from scratch? This clears its history (events, calls, work orders) and re-triggers the coordinator on the same ticket number.",
+      )
+    ) {
+      return;
+    }
+    try {
+      await replay.mutateAsync();
+    } catch {
+      // handled by onError toast
+    }
+  }
 
   // mutateAsync's rejection is already surfaced via each hook's onError
   // toast (see use-case-actions.ts) -- catch-and-swallow here just avoids
@@ -72,6 +94,16 @@ export function CaseLifecycleActions({
 
   return (
     <div className="flex items-center gap-2">
+      <button
+        type="button"
+        className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground shadow-card transition-colors hover:opacity-90 disabled:opacity-50"
+        disabled={busy}
+        onClick={() => void handleReplay()}
+        title="Reset this ticket to just-created and re-run the coordinator from scratch"
+      >
+        <Play className="h-4 w-4" />
+        Play demo
+      </button>
       {status === "ESCALATED" && (
         <button
           type="button"

@@ -87,6 +87,15 @@ export function submitDemoIntake(
   });
 }
 
+/** Demo-only: resets this one case back to its just-created state (same id,
+ * same case_number) and re-triggers the coordinator -- a repeatable "Play"
+ * button for a rehearsed demo case rather than retyping an intake each time. */
+export function replayCase(creds: OperatorCredentials, caseId: string): Promise<IntakeResponse> {
+  return request<IntakeResponse>(creds, `/api/v1/demo/cases/${caseId}/replay`, {
+    method: "POST",
+  });
+}
+
 export function resumeCase(
   creds: OperatorCredentials,
   caseId: string,

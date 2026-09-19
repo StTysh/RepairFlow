@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { cancelAppointment, cancelCase, reopenCase, resumeCase } from "@/api/endpoints";
+import { cancelAppointment, cancelCase, reopenCase, replayCase, resumeCase } from "@/api/endpoints";
 import type { CancelCaseRequest, ReopenCaseRequest, ResumeCaseRequest } from "@/api/types";
 import { caseDetailQueryKey } from "@/hooks/use-case-detail";
 import { useAuthedCreds } from "@/lib/auth-context";
@@ -57,6 +57,19 @@ export function useCancelCase(caseId: string) {
       toast.success("Case cancelled");
     },
     onError: (error: Error) => toast.error(`Could not cancel case: ${error.message}`),
+  });
+}
+
+export function useReplayCase(caseId: string) {
+  const creds = useAuthedCreds();
+  const invalidate = useInvalidateAfterAction(caseId);
+  return useMutation({
+    mutationFn: () => replayCase(creds, caseId),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Replaying from scratch — the coordinator is re-triaging now");
+    },
+    onError: (error: Error) => toast.error(`Could not replay case: ${error.message}`),
   });
 }
 

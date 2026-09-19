@@ -36,6 +36,8 @@ from app.models import (
 )
 from app.schemas import (
     ApprovalResponse,
+    CommandResult,
+    CommandResultStatus,
     DemoResetResponse,
     DemoSeedRefs,
     DemoTenantFeedbackResponse,
@@ -46,6 +48,7 @@ from app.schemas import (
     Provenance,
     ReportSubmission,
     ReportSubmitResponse,
+    RiskAssessment,
     SafetyAnswers,
     SimulationObservation,
     SimulationObservationAttendanceWindowEnded,
@@ -150,6 +153,88 @@ async def demo_simulation_observation(case_id: str, observation: SimulationObser
         return ApprovalResponse(result=result)
 
     raise NotFoundError("unrecognized simulation observation kind")
+
+
+@router.post("/cases/{case_id}/replay", status_code=202)
+async def demo_replay_case(case_id: str, session: AsyncSession = Depends(get_session)) -> IntakeResponse:
+    """Demo-only: resets ONE case back to its just-created state -- same
+    case_id/case_number, same tenant/property/description/location -- and
+    re-triggers the coordinator, so an operator can replay the same ticket
+    repeatedly during a demo without retyping an intake each time.
+
+    Unlike /reset, this is a per-case operator choice, not a blanket safety
+    scoped wipe: it clears the case's own communications regardless of
+    provenance, including any real LIVE call recordings from a prior replay
+    of this same case -- selecting "replay this ticket" is exactly asking
+    for a clean slate on it."""
+    case = await services.load_case(session, case_id)
+    issue = await services.load_issue(session, case_id)
+
+    work_order_ids = set(
+        (await session.execute(select(WorkOrderModel.id).where(WorkOrderModel.case_id == case_id))).scalars().all()
+    )
+    if work_order_ids:
+        slot_ids = set(
+            (await session.execute(select(MockReservationModel.slot_id).where(MockReservationModel.work_order_id.in_(work_order_ids)))).scalars().all()
+        )
+        await session.execute(delete(MockReservationModel).where(MockReservationModel.work_order_id.in_(work_order_ids)))
+        if slot_ids:
+            await session.execute(update(MockSlotModel).where(MockSlotModel.slot_id.in_(slot_ids)).values(is_reserved=False))
+
+    # Same deletion order as /reset (children before the parents they
+    # reference), minus RepairCaseModel/RepairIssueModel -- those are reset
+    # in place below rather than deleted, so case_id/case_number survive.
+    for model in (
+        DependencyModel, ContractorReportModel, AppointmentModel, OrchestrationRunModel,
+        ActionRecordModel, JobModel, ContractorCandidateModel, ResearchSnapshotModel,
+        AvailabilityWindowModel, CaseEventModel, WorkOrderModel,
+    ):
+        await session.execute(delete(model).where(model.case_id == case_id))
+    await session.execute(delete(CommunicationModel).where(CommunicationModel.case_id == case_id))
+
+    risk = RiskAssessment(
+        urgency="UNKNOWN", gas="UNKNOWN", fire="UNKNOWN", water_near_electrics="UNKNOWN",
+        structural_danger="UNKNOWN", uncontrolled_flood="UNKNOWN", vulnerability_concern="UNKNOWN",
+    )
+    case.status = "ACTIVE"
+    case.version = 1
+    case.risk = risk.model_dump(mode="json")
+    case.last_decision_summary = None
+    case.next_follow_up_at = None
+    case.escalation_reason = None
+    case.resume_status = None
+    case.updated_at = datetime.now(timezone.utc)
+
+    issue.evidence_refs = []
+    issue.unresolved_concerns = []
+    issue.tenant_resolution_confirmed_at = None
+    issue.started_at = None
+
+    comm_id = str(uuid.uuid4())
+    session.add(
+        CommunicationModel(
+            id=comm_id, case_id=case_id, tenant_id=case.tenant_id, purpose="INTAKE", direction="BROWSER",
+            correlation_token_hash=str(uuid.uuid4()), state="ENDED", provenance="FIXTURE",
+        )
+    )
+    await session.flush()
+
+    actor = ActorContext("OPERATOR", "operator-demo-replay", comm_id)
+    event = await services.append_event(
+        session, case_id=case_id, event_type="CASE_CREATED",
+        payload={"communication_id": comm_id, "replayed": True},
+        actor=actor, source_event_key=f"replay:{case_id}:{comm_id}",
+    )
+    await services.enqueue_job(
+        session, case_id=case_id, kind="COORDINATE",
+        dedupe_key=f"coordinate:{case_id}:replay:{comm_id}",
+        payload={"trigger_event_id": event.id},
+    )
+
+    return IntakeResponse(
+        case_id=case_id, communication_id=comm_id,
+        result=CommandResult(status=CommandResultStatus.APPLIED, case_version=case.version, event_ids=[event.id]),
+    )
 
 
 @router.post("/reset", status_code=202)
