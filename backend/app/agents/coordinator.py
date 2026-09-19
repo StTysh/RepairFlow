@@ -26,8 +26,13 @@ from app.config import Settings
 from app.schemas import ActionProposal, CaseSnapshot, Wait
 
 RUN_TIMEOUT_SECONDS = 60
-MAX_MODEL_REQUESTS = 4
-MAX_TOOL_CALLS = 3
+# Verified live 2026-09-19: with 5 tools registered below, a case with even
+# a handful of communications/events to review can legitimately need more
+# than 3 tool calls before producing a final decision, which was tripping
+# UsageLimitExceeded and forcing a silent retry cycle. Raised with headroom;
+# still bounded, not unlimited (CLAUDE.md: "bounded retries").
+MAX_MODEL_REQUESTS = 10
+MAX_TOOL_CALLS = 8
 
 
 def construct_agent(model) -> Agent[CoordinatorDeps, ActionProposal]:

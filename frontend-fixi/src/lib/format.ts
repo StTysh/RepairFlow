@@ -1,4 +1,4 @@
-// Ported from frontend/src/lib/format.ts (old RepairFlow UI) -- keeping the
+// Ported from frontend/src/lib/format.ts (old Fixi UI) -- keeping the
 // same formatting conventions so the two frontends read consistently while
 // both exist side by side.
 

@@ -235,14 +235,21 @@ function CallsColumn({ communications }: { communications: Communication[] }) {
 
 function CallRow({ comm }: { comm: Communication }) {
   const [open, setOpen] = useState(false);
-  const label = purposeLabel[comm.purpose] ?? comm.purpose;
+  // direction=BROWSER + no transcript is not a phone call at all -- it's
+  // the agent asking the operator (not the tenant) to do something, which
+  // never gets a transcript/recording. Rendering it as "Call in progress"
+  // was misleading: it looked like a stuck call that would never resolve.
+  const isOperatorNote = comm.direction === "BROWSER" && comm.transcript.length === 0;
+  const label = isOperatorNote ? "Needs your input" : (purposeLabel[comm.purpose] ?? comm.purpose);
   const summary =
     comm.outcome?.transcript_summary ??
-    (comm.state === "ACTIVE" || comm.state === "REQUESTED"
-      ? "Call in progress…"
-      : comm.transcript.length > 0
-        ? "No AI-generated summary for this call yet — see the full transcript below."
-        : "No transcript yet.");
+    (isOperatorNote
+      ? "The agent couldn't complete this automatically and is waiting on you."
+      : comm.state === "ACTIVE" || comm.state === "REQUESTED"
+        ? "Call in progress…"
+        : comm.transcript.length > 0
+          ? "No AI-generated summary for this call yet — see the full transcript below."
+          : "No transcript yet.");
 
   return (
     <li className="rounded-lg border border-border p-3">
@@ -274,31 +281,36 @@ function CallRow({ comm }: { comm: Communication }) {
       </button>
       {open && (
         <div className="mt-3 border-t border-border pt-3">
-          {comm.recording.status === "AVAILABLE" ? (
+          {isOperatorNote ? (
+            <p className="text-xs text-muted-foreground">
+              Not a call — no recording or transcript applies here.
+            </p>
+          ) : comm.recording.status === "AVAILABLE" ? (
             <RecordingPlayer communicationId={comm.id} />
           ) : (
             <p className="text-xs text-muted-foreground">
               Recording: {comm.recording.status.toLowerCase()}
             </p>
           )}
-          {comm.transcript.length > 0 ? (
-            <ol className="mt-3 space-y-2">
-              {comm.transcript.map((turn) => (
-                <li key={turn.turn_id} className="text-xs">
-                  <span className="font-semibold">
-                    {turn.speaker === "AGENT"
-                      ? "Ava (AI): "
-                      : turn.speaker === "USER"
-                        ? "Caller: "
-                        : `${turn.speaker}: `}
-                  </span>
-                  <span className="text-muted-foreground">{turn.text}</span>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="mt-3 text-xs text-muted-foreground">No transcript recorded.</p>
-          )}
+          {!isOperatorNote &&
+            (comm.transcript.length > 0 ? (
+              <ol className="mt-3 space-y-2">
+                {comm.transcript.map((turn) => (
+                  <li key={turn.turn_id} className="text-xs">
+                    <span className="font-semibold">
+                      {turn.speaker === "AGENT"
+                        ? "Ava (AI): "
+                        : turn.speaker === "USER"
+                          ? "Caller: "
+                          : `${turn.speaker}: `}
+                    </span>
+                    <span className="text-muted-foreground">{turn.text}</span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="mt-3 text-xs text-muted-foreground">No transcript recorded.</p>
+            ))}
         </div>
       )}
     </li>

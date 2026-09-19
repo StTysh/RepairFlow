@@ -886,6 +886,17 @@ async def request_information(session: AsyncSession, *, case_id: str, action: Re
             session, case_id=case_id, kind="PLACE_CALL", dedupe_key=f"place-call:{comm.id}",
             payload={"communication_id": comm.id, "question": action.questions[0] if action.questions else ""},
         )
+    else:
+        # OPERATOR-directed requests place no call and enqueue no job, so
+        # without a CaseEvent they were invisible on the Timeline -- the
+        # only trace was a Communication row stuck at REQUESTED, which the
+        # Calls tab rendered as a phantom "call in progress" that never
+        # resolves. Log it as its own event instead.
+        await append_event(
+            session, case_id=case_id, event_type="OPERATOR_INFO_REQUESTED",
+            payload={"communication_id": comm.id, "questions": action.questions},
+            actor=actor, source_event_key=f"operator-info-requested:{comm.id}",
+        )
     return CommandResult(status=CommandResultStatus.APPLIED, case_version=case.version, resource_ids={"communication_id": comm.id})
 
 

@@ -2,7 +2,7 @@
 //
 // Mirrors frontend/src/api/client.ts exactly (same sessionStorage key, same
 // Basic-auth encoding, same /api/v1/readiness verification check) so both
-// frontends stay interchangeable against the same RepairFlow backend and so
+// frontends stay interchangeable against the same Fixi backend and so
 // this can be swapped in wholesale once real data wiring lands here.
 //
 // This file intentionally does NOT include frontend's typed openapi-fetch
@@ -92,7 +92,7 @@ async function readErrorDetail(res: Response): Promise<string> {
   }
 }
 
-/** Generic authenticated JSON request against the RepairFlow API. Every
+/** Generic authenticated JSON request against the Fixi API. Every
  * data-fetching hook/endpoint function in src/api and src/hooks goes
  * through this (or requestOrNotModified below) so auth attachment and
  * error shape stay in one place. */

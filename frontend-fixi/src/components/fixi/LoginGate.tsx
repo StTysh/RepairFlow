@@ -11,9 +11,17 @@ import { FixiLogo } from "@/components/fixi/AppShell";
 // which can't receive props the way frontend's flat component tree does.
 
 export function LoginGate({ children }: { children: ReactNode }) {
-  const { creds, login, logout, error, verifying } = useAuth();
+  const { creds, login, logout, error, verifying, checking } = useAuth();
   const [username, setUsername] = useState("operator");
   const [password, setPassword] = useState("");
+
+  // Still probing whether the backend even requires sign-in -- render
+  // nothing rather than flashing the login form for the ~1 request it takes
+  // to find out (this was showing on every page load/refresh even though
+  // auth is disabled, since that answer wasn't known synchronously yet).
+  if (checking) {
+    return <div className="min-h-screen w-full bg-background" />;
+  }
 
   if (creds) {
     return (

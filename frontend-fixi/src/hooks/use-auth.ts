@@ -20,15 +20,31 @@ export function useAuth() {
   const [creds, setCreds] = useState<OperatorCredentials | null>(() => loadStoredCredentials());
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
+  // Only meaningful while creds is null: distinguishes "still checking
+  // whether auth is even required" from "checked, and it is required" so
+  // the login form isn't flashed on every page load/refresh while the
+  // probe below is in flight.
+  const [checking, setChecking] = useState(() => !loadStoredCredentials());
 
   // If nothing is stored, check whether the backend even requires a login at
   // all (auth disabled locally) before showing the sign-in form.
   useEffect(() => {
     if (creds) return;
     let cancelled = false;
-    verifyCredentials(AUTH_DISABLED_CREDS).then((ok) => {
-      if (ok && !cancelled) setCreds(AUTH_DISABLED_CREDS);
-    });
+    verifyCredentials(AUTH_DISABLED_CREDS)
+      .then((ok) => {
+        if (cancelled) return;
+        if (ok) {
+          // Persist so the NEXT page load in this tab finds it in
+          // sessionStorage immediately via loadStoredCredentials() and
+          // skips this network round-trip (and its flash) entirely.
+          storeCredentials(AUTH_DISABLED_CREDS);
+          setCreds(AUTH_DISABLED_CREDS);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setChecking(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -61,5 +77,5 @@ export function useAuth() {
     setCreds(null);
   }, []);
 
-  return { creds, login, logout, error, verifying };
+  return { creds, login, logout, error, verifying, checking };
 }

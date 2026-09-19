@@ -18,7 +18,14 @@ if (existsSync(serverDir)) {
 
 if (existsSync(clientDir)) {
   for (const entry of readdirSync(clientDir)) {
-    renameSync(join(clientDir, entry), join(distDir, entry));
+    const dest = join(distDir, entry);
+    // Windows rename() refuses to overwrite an existing directory (unlike
+    // POSIX rename), so a stale flattened output from a previous build
+    // makes this EPERM on every rebuild unless cleared first.
+    if (existsSync(dest)) {
+      rmSync(dest, { recursive: true, force: true });
+    }
+    renameSync(join(clientDir, entry), dest);
   }
   rmSync(clientDir, { recursive: true, force: true });
 }

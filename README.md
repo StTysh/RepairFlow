@@ -37,13 +37,25 @@ Run uvicorn from inside `backend/` (or point `--app-dir` at it) so `app` is impo
 
 ### Frontend
 
+There are two frontends in this repo. **`frontend-fixi` is the one actually served** — the backend mounts its production build at `http://localhost:8000/` directly (see `backend/app/main.py`), so once the backend is running there is nothing further to start for that path. `frontend` is the original build; it has some components (`DecisionCard`, `WorkGraph`, `VoicePanel`) not yet ported over to `frontend-fixi`, and is not what the backend serves by default.
+
+For local dev with hot reload against `frontend-fixi`:
+
+```
+cd frontend-fixi
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`. Operator sign-in can be disabled entirely via `OPERATOR_AUTH_ENABLED=false` in `backend/.env` (the frontend auto-detects this and skips the login form); when enabled, credentials come from `backend/.env` (`OPERATOR_USERNAME`/`OPERATOR_PASSWORD`). The frontend polls the backend directly over CORS; no build step is required for local dev.
+
+To run the original `frontend` instead (has the approval/dependency-graph/voice-panel UI `frontend-fixi` currently lacks — see Known gaps below):
+
 ```
 cd frontend
 npm install
 npm run dev
 ```
-
-Open `http://localhost:5173`. Sign in with the operator credentials from `backend/.env` (default `operator` / `repairflow-demo`). The frontend polls the backend directly over CORS; no build step is required for local dev.
 
 ### Tests
 
@@ -60,7 +72,8 @@ uv run pytest tests/ -q
 
 ## Known gaps
 
-- **Frontend was not verified in an actual browser.** The Chrome automation extension was unavailable in the implementation environment. `npm run build` (type-check + production bundle) passes cleanly, and the full backend API surface it depends on was exercised for real over HTTP, but the React runtime itself — 304-aware polling, the React Flow graph render, the approval round trip as clicked rather than curled — was not click-tested. Verify this manually before a live demo.
+- **`frontend-fixi` (the UI actually served at `/`) has no approval UI, dependency graph, or voice panel.** It covers case list/detail/timeline/calls/property/files/costs against real backend data, but there is currently no way to approve/reject an `AWAITING_APPROVAL` action, inject a simulated contractor observation, or start a browser voice session from this UI — all of which the hero demo path above depends on. `frontend` (the original build) has this functionality; use it for a live demo of the full hero path until it's ported over. See docs/26 for tracking.
+- Both frontends have been exercised live against a real running backend (real HTTP, real clicks) during development, not just `npm run build` type-checking.
 - **ElevenLabs live voice** is code-complete but its acceptance gate (real audio, real transcript, real webhook delivery) was not run — see the table above.
 - **Tavily** is code-complete but untested against the real API.
 

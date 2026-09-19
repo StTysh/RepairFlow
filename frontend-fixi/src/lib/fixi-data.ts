@@ -2,7 +2,7 @@
 //
 // This used to hold hardcoded mock tickets/case details/messages/property
 // history (Lovable placeholder data). All of that is gone now that every
-// screen fetches from the RepairFlow API (see src/api and src/hooks) --
+// screen fetches from the Fixi API (see src/api and src/hooks) --
 // this file's only remaining job is the small set of pure display helpers
 // that turn the backend's real enums into badge colors/labels, which is
 // why it keeps its original name and import path.
