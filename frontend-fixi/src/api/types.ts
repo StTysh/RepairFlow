@@ -1,0 +1,289 @@
+// Hand-written types mirroring the backend's OpenAPI schema (verified
+// against a live /openapi.json from the branch that adds these routes --
+// see the field notes below for what's confirmed vs. best-effort).
+//
+// Only the fields the UI actually reads are modelled; anything unused is
+// typed loosely (`unknown`/`Record<string, unknown>`) rather than fully
+// reproduced, since a generated client isn't in place yet for this app
+// (frontend/ has openapi-fetch + a generated schema.ts; frontend-fixi
+// doesn't talk to enough of the API yet to justify the codegen step --
+// worth revisiting once the next phase adds WorkGraph/DecisionCard/
+// VoicePanel, which will want a lot more of the schema typed precisely).
+
+import type { CaseStatus, Urgency } from "@/lib/fixi-data";
+
+export type Provenance = "LIVE" | "SIMULATED" | "FIXTURE";
+export type AppointmentStatus = "PENDING" | "CONFIRMED" | "FINISHED" | "CANCELLED";
+export type Trade = "ROOFING" | "SCAFFOLDING" | "PLUMBING" | "ELECTRICAL" | "OTHER";
+
+// --- Case list -------------------------------------------------------------
+
+export interface CaseListItem {
+  id: string;
+  case_number: number;
+  title: string;
+  status: CaseStatus;
+  version: number;
+  updated_at: string;
+  property_address: string;
+  urgency: Urgency;
+  assigned_contractor_name: string | null;
+}
+
+export interface CaseListResponse {
+  items: CaseListItem[];
+  next_cursor: string | null;
+}
+
+// --- Case detail / snapshot -------------------------------------------------
+
+export interface Property {
+  id: string;
+  address_line: string;
+  postcode: string;
+  timezone: string;
+  landlord_reference: string;
+  roof_responsibility: string;
+  access_notes: string | null;
+}
+
+export interface Tenant {
+  id: string;
+  property_id: string;
+  display_name: string;
+  phone_e164: string | null;
+  email: string | null;
+  preferred_channel: string;
+  contact_allowed: boolean;
+  accessibility_notes: string | null;
+}
+
+export interface AssignedContractor {
+  id: string;
+  display_name: string;
+  trade: Trade | null;
+  contact_reference: string | null;
+  phone: string | null;
+  provenance: Provenance;
+}
+
+export interface Appointment {
+  id: string;
+  case_id: string;
+  work_order_id: string;
+  contractor_id: string;
+  slot_id: string;
+  start_at: string;
+  end_at: string;
+  status: AppointmentStatus;
+  visit_outcome: string | null;
+  connector: string;
+  provider_booking_id: string | null;
+  action_id: string;
+  attempt_number: number;
+  availability_revision: number;
+  provenance: Provenance;
+}
+
+export interface RiskAssessment {
+  urgency: Urgency;
+  [key: string]: unknown;
+}
+
+export interface RepairCase {
+  id: string;
+  case_number: number;
+  property_id: string;
+  tenant_id: string;
+  status: CaseStatus;
+  version: number;
+  title: string;
+  risk: RiskAssessment;
+  created_at: string;
+  updated_at: string;
+  owner_operator_id: string;
+  last_decision_summary: string | null;
+  next_follow_up_at: string | null;
+  escalation_reason: string | null;
+  resume_status: CaseStatus | null;
+}
+
+export interface RepairIssue {
+  id: string;
+  case_id: string;
+  description: string;
+  location: string;
+  started_at: string | null;
+  evidence_refs: unknown[];
+  tenant_resolution_confirmed_at: string | null;
+  unresolved_concerns: string[];
+}
+
+export interface CaseEvent {
+  id: string;
+  case_id: string;
+  seq: number;
+  type: string;
+  occurred_at: string;
+  received_at: string;
+  actor_type: string;
+  actor_id: string;
+  provenance: Provenance;
+  payload: Record<string, unknown>;
+  display_title: string;
+  display_description: string;
+}
+
+export interface CaseEventsResponse {
+  items: CaseEvent[];
+  next_cursor: string | null;
+}
+
+// pending_actions / work_orders / dependencies / communications /
+// approved_contractors are explicitly out of scope for this phase (the
+// next phase builds WorkGraph/DecisionCard/VoicePanel/provenance badges
+// on top of them) -- typed as unknown[] here so CaseSnapshot is complete
+// and nothing needs `as any` when reading the other fields.
+export interface CaseSnapshot {
+  case: RepairCase;
+  issue: RepairIssue;
+  property: Property;
+  tenant: Tenant;
+  assigned_contractor: AssignedContractor | null;
+  next_appointment: Appointment | null;
+  work_orders: unknown[];
+  dependencies: unknown[];
+  appointments: Appointment[];
+  latest_reports: unknown[];
+  communications: unknown[];
+  availability: unknown[];
+  approved_contractors: unknown[];
+  pending_actions: unknown[];
+  recent_events: CaseEvent[];
+  policy_snapshot: Record<string, unknown>;
+  snapshot_version: number;
+}
+
+export interface CaseDetailResponse {
+  snapshot: CaseSnapshot;
+  latest_event_seq: number;
+}
+
+// --- Dashboard metrics -------------------------------------------------------
+
+export interface DashboardMetrics {
+  active: number;
+  awaiting_confirmation: number;
+  resolved: number;
+  escalated: number;
+  cancelled: number;
+  total: number;
+  resolved_this_week: number;
+}
+
+// --- Property history --------------------------------------------------------
+
+export interface PropertyHistoryItem {
+  case_id: string;
+  case_number: number;
+  title: string;
+  status: CaseStatus;
+  created_at: string;
+  resolved_at: string | null;
+  outcome: string | null;
+}
+
+export interface PropertyHistoryResponse {
+  property_id: string;
+  items: PropertyHistoryItem[];
+}
+
+// --- Demo / intake ------------------------------------------------------------
+
+export interface DemoSeedRefs {
+  property_id: string;
+  tenant_id: string;
+  roofer_id: string;
+  scaffolder_id: string;
+}
+
+export type SafetyAnswer = "YES" | "NO" | "UNKNOWN";
+
+export interface SafetyAnswers {
+  gas?: SafetyAnswer;
+  fire?: SafetyAnswer;
+  water_near_electrics?: SafetyAnswer;
+  structural_danger?: SafetyAnswer;
+  uncontrolled_flood?: SafetyAnswer;
+  vulnerability_concern?: SafetyAnswer;
+}
+
+export interface DemoIntakeRequest {
+  property_id: string;
+  tenant_id: string;
+  description: string;
+  location: string;
+  source_text: string;
+  safety_answers?: SafetyAnswers;
+}
+
+export type CommandResultStatus = "APPLIED" | "NOOP" | "PENDING" | "REJECTED" | "UNKNOWN";
+
+export interface CommandResult {
+  action_id: string | null;
+  status: CommandResultStatus;
+  case_version: number;
+  event_ids: string[];
+  resource_ids: Record<string, string>;
+  error: unknown;
+}
+
+export interface IntakeResponse {
+  case_id: string;
+  communication_id: string;
+  result: CommandResult;
+}
+
+// --- Lifecycle actions ---------------------------------------------------------
+
+export interface CaseVersionResponse {
+  case_id: string;
+  version: number;
+}
+
+export interface ResumeCaseRequest {
+  version: number;
+  reason: string;
+  resolved_hold_evidence: string;
+}
+
+export interface ReopenCaseRequest {
+  version: number;
+  reason: string;
+  evidence_refs?: unknown[];
+}
+
+export interface CancelCaseRequest {
+  version: number;
+  reason: string;
+}
+
+export interface CancellationRequest {
+  appointment_id: string;
+  reason: string;
+}
+
+export type CancellationStatus = "CANCELLED" | "PENDING" | "REJECTED" | "UNKNOWN";
+
+export interface CancellationOutcome {
+  status: CancellationStatus;
+  provider_booking_id: string | null;
+  reason: string | null;
+  provenance: Provenance;
+}
+
+export interface AppointmentCancelResponse {
+  appointment_id: string;
+  outcome: CancellationOutcome;
+  case_version: number;
+}

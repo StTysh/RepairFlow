@@ -1,0 +1,8 @@
+# Force LF line endings for all text files regardless of the checking-out
+# machine's core.autocrlf setting. Without this, a Windows checkout with
+# core.autocrlf=true rewrites every file to CRLF on checkout, which then
+# fails eslint's prettier/prettier rule (this project's .prettierrc has no
+# endOfLine override, so prettier's LF default applies) -- every fresh
+# clone/checkout on Windows would otherwise start from a failing `bun run
+# lint` with zero code changes.
+* text=lf
