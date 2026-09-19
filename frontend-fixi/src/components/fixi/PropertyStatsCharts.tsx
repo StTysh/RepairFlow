@@ -80,6 +80,27 @@ export function QuotedByTradeDonut({ data }: { data: TradeQuoteBreakdown[] }) {
     return `${color} ${from}% ${to}%`;
   });
 
+  // Rounding each share independently can print a legend that doesn't add
+  // up (51.5 + 48.5 -> "52% + 49%" = 101%). Largest-remainder instead: keep
+  // every floor, then hand the leftover whole points to whichever shares
+  // were rounded down hardest, so the column always totals exactly 100%.
+  const displayPercentages = (() => {
+    const floors = data.map((d) => Math.floor(d.percentage));
+    let leftover =
+      Math.round(data.reduce((sum, d) => sum + d.percentage, 0)) -
+      floors.reduce((a, b) => a + b, 0);
+    const order = data
+      .map((d, index) => ({ index, remainder: d.percentage - Math.floor(d.percentage) }))
+      .sort((a, b) => b.remainder - a.remainder);
+    const result = [...floors];
+    for (const { index } of order) {
+      if (leftover <= 0) break;
+      result[index] = (result[index] ?? 0) + 1;
+      leftover -= 1;
+    }
+    return result;
+  })();
+
   return (
     <Card className="p-4">
       <CardHead title="Quoted by trade" />
@@ -97,7 +118,7 @@ export function QuotedByTradeDonut({ data }: { data: TradeQuoteBreakdown[] }) {
             </div>
           </div>
           <ul className="flex-1 space-y-1.5 text-[11px]">
-            {data.map((d) => (
+            {data.map((d, index) => (
               <li key={d.trade} className="flex items-center">
                 <span
                   className={cn(
@@ -106,7 +127,7 @@ export function QuotedByTradeDonut({ data }: { data: TradeQuoteBreakdown[] }) {
                   )}
                 />
                 <span>{titleCase(d.trade)}</span>
-                <b className="ml-auto shrink-0">{Math.round(d.percentage)}%</b>
+                <b className="ml-auto shrink-0">{displayPercentages[index]}%</b>
               </li>
             ))}
           </ul>
