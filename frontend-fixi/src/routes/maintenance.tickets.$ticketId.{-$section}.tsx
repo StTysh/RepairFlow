@@ -707,9 +707,14 @@ function PropertyColumn({ snapshot }: { snapshot: CaseSnapshot }) {
         <DetailRow label="Landlord reference" value={property.landlord_reference || "—"} />
         <DetailRow
           label="Roof responsibility"
-          value={roofResponsibilityLabel[property.roof_responsibility] ?? property.roof_responsibility}
+          value={
+            roofResponsibilityLabel[property.roof_responsibility] ?? property.roof_responsibility
+          }
         />
-        <DetailRow label="Access notes" value={property.access_notes ?? "No access notes recorded."} />
+        <DetailRow
+          label="Access notes"
+          value={property.access_notes ?? "No access notes recorded."}
+        />
       </div>
 
       <SectionHeader title="Tenant" />
@@ -776,7 +781,9 @@ function CostsColumn({ workOrders }: { workOrders: WorkOrder[] }) {
                 </div>
                 <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{wo.scope}</p>
               </div>
-              <Pill tone={wo.status === "COMPLETED" ? "green" : "blue"}>{titleCase(wo.status)}</Pill>
+              <Pill tone={wo.status === "COMPLETED" ? "green" : "blue"}>
+                {titleCase(wo.status)}
+              </Pill>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 border-t border-border pt-2.5 text-xs">
               <div className="flex items-center gap-1.5 text-muted-foreground">

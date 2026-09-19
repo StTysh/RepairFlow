@@ -62,7 +62,8 @@ function HistoryPage() {
   // other way) just falls back to the address/postcode passed in search
   // params below.
   const seedRefs = useSeedRefs();
-  const propertyDetails = seedRefs.data?.properties.find((p) => p.property_id === propertyId) ?? null;
+  const propertyDetails =
+    seedRefs.data?.properties.find((p) => p.property_id === propertyId) ?? null;
 
   const stats = [
     { value: String(items.length), label: "Total tickets" },

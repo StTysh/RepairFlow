@@ -69,13 +69,7 @@ export interface AssignedContractor {
 
 export type WorkOrderKind = "REPAIR" | "SCAFFOLD_INSTALL" | "SCAFFOLD_REMOVE";
 export type WorkOrderStatus =
-  | "READY"
-  | "SCHEDULED"
-  | "IN_PROGRESS"
-  | "AWAITING_REPORT"
-  | "BLOCKED"
-  | "COMPLETED"
-  | "CANCELLED";
+  "READY" | "SCHEDULED" | "IN_PROGRESS" | "AWAITING_REPORT" | "BLOCKED" | "COMPLETED" | "CANCELLED";
 
 export interface WorkOrder {
   id: string;
