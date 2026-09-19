@@ -571,6 +571,61 @@ async def test_seed_is_idempotent_per_row(app_db):
         assert {p.id: p.build_year for p in properties} == build_years_after_first_run
 
 
+@pytest.mark.asyncio
+async def test_seed_demo_activity_is_idempotent_and_snapshot_valid(app_db):
+    """The demo-activity rows (closed history, the scaffold dependency,
+    upcoming visits, messages) have a deep FK chain -- case -> work order ->
+    action -> appointment -> report -> dependency -- so a re-run is where a
+    duplicate or a broken link would show up. Also validates the seeded
+    ActionRecord's proposal against the real schema: CaseSnapshot validates
+    every pending action, so a payload missing a required ScheduleVisit
+    field would 500 the case-detail endpoint rather than fail quietly."""
+    from app import seed as seed_module
+    from app.domain import services
+    from app.models import (
+        AppointmentModel,
+        ContractorReportModel,
+        DependencyModel,
+        MessageModel,
+        RepairCaseModel,
+    )
+
+    await seed_module.seed()
+
+    async def counts() -> dict[str, int]:
+        async with session_scope() as session:
+            return {
+                name: len((await session.execute(select(model))).scalars().all())
+                for name, model in (
+                    ("cases", RepairCaseModel), ("appointments", AppointmentModel),
+                    ("reports", ContractorReportModel), ("dependencies", DependencyModel),
+                    ("messages", MessageModel),
+                )
+            }
+
+    first = await counts()
+    assert first["cases"] > 0 and first["dependencies"] > 0 and first["messages"] > 0
+
+    await seed_module.seed()
+    assert await counts() == first, "re-running seed() duplicated demo activity rows"
+
+    # The dependency case must load as a real snapshot (this is what the
+    # ticket page renders) with its graph edge and pending approval intact.
+    scaffold_case_id = seed_module._hist_ids(seed_module._SCAFFOLD_CASE_LABEL)["case"]
+    async with session_scope() as session:
+        snapshot = await services.load_case_snapshot(session, scaffold_case_id)
+    assert len(snapshot.work_orders) == 2
+    assert len(snapshot.dependencies) == 1
+    assert len(snapshot.latest_reports) == 1
+    assert len(snapshot.pending_actions) == 1
+    dependency = snapshot.dependencies[0]
+    prerequisite = next(w for w in snapshot.work_orders if w.id == dependency.prerequisite_work_order_id)
+    dependent = next(w for w in snapshot.work_orders if w.id == dependency.dependent_work_order_id)
+    assert prerequisite.kind.value == "SCAFFOLD_INSTALL"
+    assert dependent.kind.value == "REPAIR"
+    assert dependent.status.value == "BLOCKED"
+
+
 # --------------------------------------------------------------------------
 # G. Property history enrichment (contractor_name / quoted_pence / trade)
 # --------------------------------------------------------------------------
