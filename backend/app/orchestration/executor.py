@@ -421,7 +421,7 @@ async def _apply_research_result(action_id: str, search_result: ContractorSearch
         case = await services.load_case(session, action_record.case_id)
 
         snapshot = ResearchSnapshotModel(
-            id=search_result.research.id, case_id=case.id, query=search_result.research.query,
+            id=str(search_result.research.id), case_id=case.id, query=search_result.research.query,
             provider=search_result.research.provider, provider_request_id=search_result.research.provider_request_id,
             requested_at=search_result.research.requested_at, completed_at=search_result.research.completed_at,
             result_urls=search_result.research.result_urls,
@@ -432,7 +432,7 @@ async def _apply_research_result(action_id: str, search_result: ContractorSearch
         for candidate in search_result.candidates:
             session.add(
                 ContractorCandidateModel(
-                    id=candidate.id, case_id=case.id, research_id=snapshot.id, name=candidate.name,
+                    id=str(candidate.id), case_id=case.id, research_id=snapshot.id, name=candidate.name,
                     trades=[t.value for t in candidate.trades], website=str(candidate.website) if candidate.website else None,
                     phone=candidate.phone, service_area=candidate.service_area,
                     claimed_emergency_service=candidate.claimed_emergency_service,

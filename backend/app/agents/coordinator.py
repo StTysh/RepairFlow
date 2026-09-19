@@ -21,7 +21,7 @@ from pydantic_ai.usage import UsageLimits
 
 from app.agents.dependencies import CoordinatorDeps
 from app.agents.instructions import COORDINATOR_INSTRUCTIONS
-from app.agents.read_tools import find_appointment_options, list_case_events, read_communication, read_report
+from app.agents.read_tools import find_appointment_options, list_case_events, read_communication, read_report, read_research
 from app.config import Settings
 from app.schemas import ActionProposal, CaseSnapshot, Wait
 
@@ -46,6 +46,7 @@ def construct_agent(model) -> Agent[CoordinatorDeps, ActionProposal]:
     agent.tool(read_communication)
     agent.tool(list_case_events)
     agent.tool(find_appointment_options)
+    agent.tool(read_research)
     return agent
 
 

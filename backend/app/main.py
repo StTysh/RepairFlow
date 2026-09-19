@@ -26,11 +26,22 @@ async def lifespan(app: FastAPI):
     from app.agents.coordinator import build_coordinator
 
     coordinator = build_coordinator(settings)
+
+    research_adapter = None
+    if settings.tavily_live:
+        from app.integrations.tavily import TavilyResearchAdapter
+
+        research_adapter = TavilyResearchAdapter()
+
     stop_event = asyncio.Event()
     worker_task = asyncio.create_task(
-        run_worker_loop(coordinator, stop_event=stop_event, elevenlabs_configured=settings.elevenlabs_live)
+        run_worker_loop(
+            coordinator, stop_event=stop_event, elevenlabs_configured=settings.elevenlabs_live,
+            research_adapter=research_adapter,
+        )
     )
     app.state.coordinator = coordinator
+    app.state.research_adapter = research_adapter
 
     yield
 
