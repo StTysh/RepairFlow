@@ -55,6 +55,17 @@ export function titleCase(value: string): string {
     .join(" ");
 }
 
+/** GBP display for a pence-denominated amount from the API (WorkOrder
+ * quote_pence/approved_limit_pence). null stays null -- callers decide the
+ * "not recorded" copy rather than this silently rendering "£0.00". */
+export function formatPence(pence: number | null | undefined): string | null {
+  if (pence === null || pence === undefined) return null;
+  return (pence / 100).toLocaleString(undefined, {
+    style: "currency",
+    currency: "GBP",
+  });
+}
+
 export function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";

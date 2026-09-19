@@ -29,15 +29,18 @@ from app.models import (
     MockReservationModel,
     MockSlotModel,
     OrchestrationRunModel,
+    PropertyModel,
     RepairCaseModel,
     RepairIssueModel,
     ResearchSnapshotModel,
+    TenantModel,
     WorkOrderModel,
 )
 from app.schemas import (
     ApprovalResponse,
     CommandResult,
     CommandResultStatus,
+    DemoPropertyRef,
     DemoResetResponse,
     DemoSeedRefs,
     DemoTenantFeedbackResponse,
@@ -61,15 +64,42 @@ router = APIRouter(prefix="/api/v1/demo", dependencies=[Depends(require_operator
 
 
 @router.get("/seed-refs")
-async def demo_seed_refs() -> DemoSeedRefs:
+async def demo_seed_refs(session: AsyncSession = Depends(get_session)) -> DemoSeedRefs:
     """The demo property/tenant/contractor IDs (deterministic uuid5s, see
     app/seed.py), seeded idempotently at startup, so the operator UI can
     populate the intake form without a dedicated properties/tenants list
-    endpoint -- docs/16 doesn't define one, and this is demo-only glue."""
+    endpoint -- docs/16 doesn't define one, and this is demo-only glue.
+
+    `properties` is read live from the DB (every seeded property joined to
+    its tenant), not from app.seed's constants -- honest even if seeding
+    hasn't run yet or only partially completed."""
     from app.seed import DEMO_PROPERTY_ID, DEMO_ROOFER_ID, DEMO_SCAFFOLDER_ID, DEMO_TENANT_ID
 
+    rows = (
+        await session.execute(
+            select(PropertyModel, TenantModel)
+            .join(TenantModel, TenantModel.property_id == PropertyModel.id)
+            .order_by(PropertyModel.address_line)
+        )
+    ).all()
+    properties = [
+        DemoPropertyRef(
+            property_id=prop.id,
+            tenant_id=tenant.id,
+            address_line=prop.address_line,
+            postcode=prop.postcode,
+            landlord_reference=prop.landlord_reference,
+            roof_responsibility=prop.roof_responsibility,
+            access_notes=prop.access_notes,
+            tenant_name=tenant.display_name,
+            tenant_phone=tenant.phone_e164,
+        )
+        for prop, tenant in rows
+    ]
+
     return DemoSeedRefs(
-        property_id=DEMO_PROPERTY_ID, tenant_id=DEMO_TENANT_ID, roofer_id=DEMO_ROOFER_ID, scaffolder_id=DEMO_SCAFFOLDER_ID,
+        property_id=DEMO_PROPERTY_ID, tenant_id=DEMO_TENANT_ID, roofer_id=DEMO_ROOFER_ID,
+        scaffolder_id=DEMO_SCAFFOLDER_ID, properties=properties,
     )
 
 

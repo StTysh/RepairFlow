@@ -67,6 +67,37 @@ export interface AssignedContractor {
   provenance: Provenance;
 }
 
+export type WorkOrderKind = "REPAIR" | "SCAFFOLD_INSTALL" | "SCAFFOLD_REMOVE";
+export type WorkOrderStatus =
+  | "READY"
+  | "SCHEDULED"
+  | "IN_PROGRESS"
+  | "AWAITING_REPORT"
+  | "BLOCKED"
+  | "COMPLETED"
+  | "CANCELLED";
+
+export interface WorkOrder {
+  id: string;
+  case_id: string;
+  issue_id: string;
+  kind: WorkOrderKind;
+  trade: Trade;
+  scope: string;
+  status: WorkOrderStatus;
+  contractor_id: string | null;
+  required_for_resolution: boolean;
+  /** A quote, not an actual/final invoiced cost -- render labelled as
+   * "Quoted", never as "Cost". Null means no quote recorded yet. */
+  quote_pence: number | null;
+  /** The spend ceiling the operator approved, separate from the quote
+   * itself -- render labelled as "Approved limit". */
+  approved_limit_pence: number | null;
+  completion_report_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Appointment {
   id: string;
   case_id: string;
@@ -192,11 +223,11 @@ export interface Communication {
   provenance: Provenance;
 }
 
-// pending_actions / work_orders / dependencies / communications /
-// approved_contractors are explicitly out of scope for this phase (the
-// next phase builds WorkGraph/DecisionCard/VoicePanel/provenance badges
-// on top of them) -- typed as unknown[] here so CaseSnapshot is complete
-// and nothing needs `as any` when reading the other fields.
+// pending_actions / dependencies / communications / approved_contractors
+// are explicitly out of scope for this phase (the next phase builds
+// WorkGraph/DecisionCard/VoicePanel/provenance badges on top of them) --
+// typed as unknown[] here so CaseSnapshot is complete and nothing needs
+// `as any` when reading the other fields. work_orders IS typed (Costs tab).
 export interface CaseSnapshot {
   case: RepairCase;
   issue: RepairIssue;
@@ -204,7 +235,7 @@ export interface CaseSnapshot {
   tenant: Tenant;
   assigned_contractor: AssignedContractor | null;
   next_appointment: Appointment | null;
-  work_orders: unknown[];
+  work_orders: WorkOrder[];
   dependencies: unknown[];
   appointments: Appointment[];
   latest_reports: unknown[];
@@ -255,11 +286,24 @@ export interface PropertyHistoryResponse {
 
 // --- Demo / intake ------------------------------------------------------------
 
+export interface DemoPropertyRef {
+  property_id: string;
+  tenant_id: string;
+  address_line: string;
+  postcode: string;
+  landlord_reference: string;
+  roof_responsibility: string;
+  access_notes: string | null;
+  tenant_name: string;
+  tenant_phone: string | null;
+}
+
 export interface DemoSeedRefs {
   property_id: string;
   tenant_id: string;
   roofer_id: string;
   scaffolder_id: string;
+  properties: DemoPropertyRef[];
 }
 
 export type SafetyAnswer = "YES" | "NO" | "UNKNOWN";
