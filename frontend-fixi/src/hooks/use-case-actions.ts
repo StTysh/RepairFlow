@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import {
   cancelAppointment,
   cancelCase,
+  decideActionApproval,
   deleteCase,
   reopenCase,
   replayCase,
@@ -94,6 +95,37 @@ export function useReplayCase(caseId: string) {
       toast.success("Replaying from scratch — the coordinator is re-triaging now");
     },
     onError: (error: Error) => toast.error(`Could not replay case: ${error.message}`),
+  });
+}
+
+/** Approve/reject one ActionRecord that's sitting in AWAITING_APPROVAL --
+ * see api/endpoints.ts's decideActionApproval and DecisionCard.tsx, which
+ * is the only caller. Both outcomes need the case-detail query invalidated
+ * (approval either applies the write immediately or records the rejection,
+ * either way the snapshot's pending_actions/version has changed). */
+export function useDecideApproval(caseId: string) {
+  const creds = useAuthedCreds();
+  const invalidate = useInvalidateAfterAction(caseId);
+  return useMutation({
+    mutationFn: (vars: {
+      actionId: string;
+      expectedCaseVersion: number;
+      approve: boolean;
+      reason: string;
+      actionPayloadHash: string;
+    }) =>
+      decideActionApproval(creds, vars.actionId, {
+        action_id: vars.actionId,
+        expected_case_version: vars.expectedCaseVersion,
+        approve: vars.approve,
+        reason: vars.reason,
+        action_payload_hash: vars.actionPayloadHash,
+      }),
+    onSuccess: (_data, vars) => {
+      invalidate();
+      toast.success(vars.approve ? "Action approved" : "Action rejected");
+    },
+    onError: (error: Error) => toast.error(`Could not record decision: ${error.message}`),
   });
 }
 
