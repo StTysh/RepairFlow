@@ -16,8 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain import policy, services
 from app.domain.errors import DomainError, StaleVersionError
 from app.domain.services import ActorContext
-from app.models import CaseEventModel
-from app.schemas import ActionProposal, CaseSnapshot, RiskAssessment
+from app.models import ActionRecordModel, CaseEventModel, OrchestrationRunModel
+from app.schemas import ActionProposal, CaseSnapshot, OrchestrationRunState, RiskAssessment, utcnow
 
 ROOT_LOOP_BUDGET = 6
 
@@ -88,46 +88,95 @@ async def _internal_chain_depth(session: AsyncSession, trigger_event_id: str) ->
     return depth
 
 
-async def run_coordinate(session: AsyncSession, *, case_id: str, trigger_event_id: str, coordinator: Coordinator) -> ActionRecordModel | None:
+async def run_coordinate(*, case_id: str, trigger_event_id: str, coordinator: Coordinator) -> ActionRecordModel | None:
     """One bounded reasoning run. Returns the admitted ActionRecord, or None
     if the run was diverted (hazard gate, loop budget) or the model's
-    proposal was stale and needs to be retried at the current version."""
-    case = await services.load_case(session, case_id)
+    proposal was stale and needs to be retried at the current version.
 
-    risk = RiskAssessment.model_validate(case.risk)
-    if policy.is_hazard(risk) and case.status not in ("ESCALATED", "CANCELLED", "RESOLVED"):
-        from app.schemas import Escalate
+    Three phases, exactly like executor.execute_action's SCHEDULE_VISIT/
+    DISCOVER_CONTRACTORS pattern: commit intent (creating the RUNNING
+    OrchestrationRun row), call the model with no transaction open at all
+    (this is the one call in the whole codebase that may be a real,
+    multi-second network round trip to Gemini -- CLAUDE.md: "Do not hold a
+    DB transaction across any network/model call"), then apply the result
+    in a fresh transaction. Manages its own session boundaries rather than
+    taking one from the caller for exactly this reason."""
+    from app.db import session_scope
 
-        await services.escalate_to_human(
-            session, case_id=case_id,
-            action=Escalate(reason_code="HAZARD", operator_message="Deterministic hazard gate: unsafe condition on record.", evidence_refs=[]),
-            trigger_event_id=trigger_event_id, actor=ActorContext("SYSTEM", "hazard-gate", trigger_event_id),
+    async with session_scope() as session:
+        case = await services.load_case(session, case_id)
+
+        risk = RiskAssessment.model_validate(case.risk)
+        if policy.is_hazard(risk) and case.status not in ("ESCALATED", "CANCELLED", "RESOLVED"):
+            from app.schemas import Escalate
+
+            await services.escalate_to_human(
+                session, case_id=case_id,
+                action=Escalate(reason_code="HAZARD", operator_message="Deterministic hazard gate: unsafe condition on record.", evidence_refs=[]),
+                trigger_event_id=trigger_event_id, actor=ActorContext("SYSTEM", "hazard-gate", trigger_event_id),
+            )
+            return None
+
+        if await _internal_chain_depth(session, trigger_event_id) >= ROOT_LOOP_BUDGET:
+            from app.schemas import Escalate
+
+            await services.escalate_to_human(
+                session, case_id=case_id,
+                action=Escalate(reason_code="ROOT_LOOP_BUDGET_EXCEEDED", operator_message="Too many automatic actions without a pause; needs human review.", evidence_refs=[]),
+                trigger_event_id=trigger_event_id, actor=ActorContext("SYSTEM", "loop-budget", trigger_event_id),
+            )
+            return None
+
+        snapshot = await services.load_case_snapshot(session, case_id)
+
+        # docs/17: OrchestrationRun is the only auditable record of what the
+        # model actually did on a given trigger -- persisted around the call
+        # itself (not the hazard/loop-budget diversions above, which never
+        # invoke a model at all) so GET /cases/{id}/runs has real content and
+        # a failed/timed-out model call is visible rather than silently
+        # swallowed into JobModel.last_error by the worker's error handling.
+        run = OrchestrationRunModel(
+            case_id=case_id, trigger_event_id=trigger_event_id, snapshot_version=snapshot.snapshot_version,
+            model_id=coordinator.model_id, state=OrchestrationRunState.RUNNING,
         )
-        return None
+        session.add(run)
+        await session.flush()
+        run_id = run.id
 
-    if await _internal_chain_depth(session, trigger_event_id) >= ROOT_LOOP_BUDGET:
-        from app.schemas import Escalate
-
-        await services.escalate_to_human(
-            session, case_id=case_id,
-            action=Escalate(reason_code="ROOT_LOOP_BUDGET_EXCEEDED", operator_message="Too many automatic actions without a pause; needs human review.", evidence_refs=[]),
-            trigger_event_id=trigger_event_id, actor=ActorContext("SYSTEM", "loop-budget", trigger_event_id),
-        )
-        return None
-
-    snapshot = await services.load_case_snapshot(session, case_id)
-    proposal = await coordinator.decide(snapshot, trigger_event_id)
-
+    # --- Phase B: outside any open transaction ---
     try:
-        from app.orchestration.executor import admit_proposal
-
-        action_record = await admit_proposal(session, proposal, ActorContext("COORDINATOR", coordinator.model_id, trigger_event_id))
-        return action_record
-    except StaleVersionError:
-        await services.enqueue_job(
-            session, case_id=case_id, kind="COORDINATE",
-            dedupe_key=f"coordinate:{case_id}:{case.version}", payload={"trigger_event_id": trigger_event_id},
-        )
-        return None
-    except DomainError:
+        proposal = await coordinator.decide(snapshot, trigger_event_id)
+    except Exception as exc:
+        async with session_scope() as session:
+            run = await session.get(OrchestrationRunModel, run_id)
+            run.state = OrchestrationRunState.FAILED
+            run.finished_at = utcnow()
+            run.error_code = type(exc).__name__
         raise
+
+    # --- Phase C: apply the result in a fresh transaction ---
+    async with session_scope() as session:
+        run = await session.get(OrchestrationRunModel, run_id)
+        run.proposal = proposal.model_dump(mode="json")
+        run.finished_at = utcnow()
+
+        try:
+            from app.orchestration.executor import admit_proposal
+
+            action_record = await admit_proposal(session, proposal, ActorContext("COORDINATOR", coordinator.model_id, trigger_event_id))
+            run.state = OrchestrationRunState.SUCCEEDED
+            run.policy_result = action_record.state
+            return action_record
+        except StaleVersionError:
+            run.state = OrchestrationRunState.SUPERSEDED
+            run.policy_result = "stale_version_requeued"
+            current_case = await services.load_case(session, case_id)
+            await services.enqueue_job(
+                session, case_id=case_id, kind="COORDINATE",
+                dedupe_key=f"coordinate:{case_id}:{current_case.version}", payload={"trigger_event_id": trigger_event_id},
+            )
+            return None
+        except DomainError as exc:
+            run.state = OrchestrationRunState.FAILED
+            run.error_code = getattr(exc, "code", type(exc).__name__)
+            raise

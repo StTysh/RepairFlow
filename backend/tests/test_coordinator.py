@@ -213,9 +213,7 @@ async def test_hazard_gate_bypasses_coordinator_entirely(app_db):
         )
     trigger_event_id = str(intake_result.event_ids[0])
 
-    async with session_scope() as session:
-        case = await services.load_case(session, case_id)
-        record = await dispatcher.run_coordinate(session, case_id=case_id, trigger_event_id=trigger_event_id, coordinator=PoisonCoordinator())
+    record = await dispatcher.run_coordinate(case_id=case_id, trigger_event_id=trigger_event_id, coordinator=PoisonCoordinator())
     assert record is None
 
     async with session_scope() as session:

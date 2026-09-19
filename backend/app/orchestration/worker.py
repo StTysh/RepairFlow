@@ -59,7 +59,9 @@ async def _handle_follow_up(case_id: str, payload: dict, coordinator: Coordinato
             actor=ActorContext("SYSTEM", "follow-up-timer", case_id),
             source_event_key=f"followup-due:{case_id}:{utcnow().isoformat()}",
         )
-        await dispatcher.run_coordinate(session, case_id=case_id, trigger_event_id=event.id, coordinator=coordinator)
+        event_id = event.id
+
+    await dispatcher.run_coordinate(case_id=case_id, trigger_event_id=event_id, coordinator=coordinator)
 
 
 async def process_one_job(
@@ -79,10 +81,9 @@ async def process_one_job(
 
     try:
         if kind == "COORDINATE":
-            async with session_scope() as session:
-                await dispatcher.run_coordinate(
-                    session, case_id=case_id, trigger_event_id=payload["trigger_event_id"], coordinator=coordinator,
-                )
+            await dispatcher.run_coordinate(
+                case_id=case_id, trigger_event_id=payload["trigger_event_id"], coordinator=coordinator,
+            )
         elif kind == "EXECUTE_ACTION":
             await executor.execute_action(
                 payload["action_id"], elevenlabs_configured=elevenlabs_configured, research_adapter=research_adapter,
