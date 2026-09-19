@@ -46,3 +46,12 @@ class ExternalResultUnknownError(DomainError):
     code = ToolErrorCode.EXTERNAL_RESULT_UNKNOWN
     retryable = False
     reconciliation_required = True
+
+
+class ProviderUnavailableError(DomainError):
+    """Raised when a live provider path is invoked without credentials
+    configured -- e.g. voice session creation when elevenlabs_live is
+    False. Never fabricate a session/result instead of raising this."""
+
+    code = ToolErrorCode.PROVIDER_UNAVAILABLE
+    retryable = True

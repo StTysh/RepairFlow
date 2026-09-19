@@ -1128,3 +1128,79 @@ class DemoResetResponse(StrictModel):
 class DemoTenantFeedbackResponse(StrictModel):
     communication_id: UUID
     result: CommandResult
+
+
+# --------------------------------------------------------------------------
+# Voice endpoints (docs/16 "Operator and UI endpoints" for /api/v1/voice/*,
+# docs/16 "ElevenLabs endpoints" for the webhook and dedicated-secret tool
+# routes -- these bypass operator Basic auth per docs/16's own carve-out
+# and use their own verification instead).
+# --------------------------------------------------------------------------
+
+
+class VoiceSessionResponse(StrictModel):
+    communication_id: UUID
+    session_credential: str
+    connection_type: Literal["websocket"] = "websocket"
+    dynamic_variables: dict[str, str]
+    expires_at: datetime
+
+
+class VoiceSessionBindRequest(StrictModel):
+    provider_conversation_id: str
+
+
+class VoiceSessionBindResponse(StrictModel):
+    communication_id: UUID
+    case_id: UUID | None = None
+    bound: bool
+
+
+class VoiceSessionEndedRequest(StrictModel):
+    provider_conversation_id: str
+
+
+class VoiceSessionEndedResponse(StrictModel):
+    queued: bool
+
+
+class ToolAckResponse(StrictModel):
+    """Deliberately vague per docs/11: "Return 'Your report is saved;
+    coordination is pending,' not invented operational results" -- the
+    voice agent never sees the coordinator's actual decision synchronously."""
+
+    accepted: bool
+    communication_id: UUID
+    case_id: UUID | None = None
+    message: str
+
+
+class ToolIntakeRequest(StrictModel):
+    correlation_token: str
+    submission: IntakeSubmission
+
+
+class ToolObservationsRequest(StrictModel):
+    correlation_token: str
+    submission: ObservationSubmission
+
+
+class ToolContextRequest(StrictModel):
+    correlation_token: str
+    communication_id: UUID
+
+
+class ConversationContextResponse(StrictModel):
+    communication_id: UUID
+    case_id: UUID | None = None
+    purpose: CommPurpose
+    tenant_display_name: str | None = None
+    property_address: str | None = None
+    issue_summary: str | None = None
+    current_date: datetime
+    timezone: str = "Europe/London"
+
+
+class WebhookAckResponse(StrictModel):
+    receipt_id: UUID
+    status: str
