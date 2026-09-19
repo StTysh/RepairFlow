@@ -1,9 +1,11 @@
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Bell, ChevronDown, MoreHorizontal, Search } from "lucide-react";
+import { ChevronDown, MoreHorizontal, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AppShell, Card } from "@/components/fixi/AppShell";
 import { StatusBadge, UrgencyBadge } from "@/components/fixi/Badge";
 import { NewTicketDialog } from "@/components/fixi/NewTicketDialog";
+import { useCancelCase, useDeleteCase } from "@/hooks/use-case-actions";
 import { useCaseList } from "@/hooks/use-case-list";
 import { useDashboardMetrics } from "@/hooks/use-dashboard-metrics";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -88,10 +90,6 @@ function MaintenancePage() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </label>
-            <button className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-card hover:bg-accent">
-              <Bell className="h-4 w-4" />
-              <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-destructive" />
-            </button>
             <NewTicketDialog />
           </div>
         </header>
@@ -203,9 +201,7 @@ function MaintenancePage() {
                     {formatRelative(t.updated_at)}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button className="rounded-md p-1 text-muted-foreground hover:bg-accent">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </button>
+                    <RowActions caseId={t.id} status={t.status} version={t.version} />
                   </td>
                 </tr>
               ))}
@@ -214,6 +210,89 @@ function MaintenancePage() {
         </Card>
       </div>
     </AppShell>
+  );
+}
+
+/** Row-level "..." menu -- used to be a button with no onClick at all.
+ * Wired to the same Cancel/Delete mutations CaseLifecycleActions uses on
+ * the ticket detail page (window.confirm/prompt + mutateAsync + the
+ * hooks' own onError toast), just reachable without opening the ticket
+ * first. Each row needs its own hook instances since they're keyed on
+ * caseId, so this has to be a component rather than inline JSX inside
+ * the .map(). */
+function RowActions({
+  caseId,
+  status,
+  version,
+}: {
+  caseId: string;
+  status: CaseStatus;
+  version: number;
+}) {
+  const cancel = useCancelCase(caseId);
+  const deleteTicket = useDeleteCase(caseId);
+  const busy = cancel.isPending || deleteTicket.isPending;
+  const canCancel =
+    status === "ACTIVE" || status === "AWAITING_CONFIRMATION" || status === "ESCALATED";
+
+  async function handleCancel() {
+    const reason = window.prompt("Reason for cancelling this case?");
+    if (!reason) return;
+    try {
+      await cancel.mutateAsync({ version, reason });
+    } catch {
+      // handled by onError toast (see use-case-actions.ts)
+    }
+  }
+
+  async function handleDelete() {
+    if (
+      !window.confirm(
+        "Permanently delete this ticket? This removes it and everything on it (events, calls, work orders) -- unlike Cancel, this can't be undone.",
+      )
+    ) {
+      return;
+    }
+    try {
+      await deleteTicket.mutateAsync();
+    } catch {
+      // handled by onError toast
+    }
+  }
+
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          disabled={busy}
+          className="rounded-md p-1 text-muted-foreground hover:bg-accent disabled:opacity-50"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="end"
+          className="z-50 min-w-[160px] rounded-lg border border-border bg-card p-1 shadow-panel"
+        >
+          {canCancel && (
+            <DropdownMenu.Item
+              onSelect={() => void handleCancel()}
+              className="cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium text-destructive outline-none hover:bg-destructive/10"
+            >
+              Cancel case
+            </DropdownMenu.Item>
+          )}
+          <DropdownMenu.Item
+            onSelect={() => void handleDelete()}
+            className="cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium text-destructive outline-none hover:bg-destructive/10"
+          >
+            Delete ticket
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }
 
