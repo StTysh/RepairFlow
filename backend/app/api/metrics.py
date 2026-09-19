@@ -1,0 +1,48 @@
+"""Dashboard summary counts for the operator UI (docs/16-adjacent; added for
+the Fixi UI integration phase). Deliberately derived only from the 5 real
+CaseStatus values and from CASE_RESOLVED CaseEvents -- no derived/richer
+display-status taxonomy, per the project's status-simplification decision.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_session, require_operator
+from app.models import CaseEventModel, RepairCaseModel
+from app.schemas import CaseStatus, DashboardMetricsResponse
+
+router = APIRouter(prefix="/api/v1/metrics", dependencies=[Depends(require_operator)])
+
+
+@router.get("/dashboard")
+async def dashboard_metrics(session: AsyncSession = Depends(get_session)) -> DashboardMetricsResponse:
+    status_rows = (
+        await session.execute(select(RepairCaseModel.status, func.count()).group_by(RepairCaseModel.status))
+    ).all()
+    counts: dict[str, int] = {status.value: 0 for status in CaseStatus}
+    for status, count in status_rows:
+        key = status.value if hasattr(status, "value") else status
+        counts[key] = count
+
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    resolved_this_week = (
+        await session.execute(
+            select(func.count(func.distinct(CaseEventModel.case_id))).where(
+                CaseEventModel.type == "CASE_RESOLVED", CaseEventModel.occurred_at >= week_ago,
+            )
+        )
+    ).scalar_one()
+
+    return DashboardMetricsResponse(
+        active=counts[CaseStatus.ACTIVE.value],
+        awaiting_confirmation=counts[CaseStatus.AWAITING_CONFIRMATION.value],
+        resolved=counts[CaseStatus.RESOLVED.value],
+        escalated=counts[CaseStatus.ESCALATED.value],
+        cancelled=counts[CaseStatus.CANCELLED.value],
+        total=sum(counts.values()),
+        resolved_this_week=resolved_this_week,
+    )

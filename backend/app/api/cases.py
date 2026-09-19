@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_session, require_operator
@@ -17,11 +17,12 @@ from app.domain.errors import ConflictError, NotFoundError, PolicyRejectedError
 from app.domain.services import ActorContext
 from app.domain.transitions import assert_case_transition
 from app.models import (
-    AppointmentModel,
     CaseEventModel,
     CommunicationModel,
     OrchestrationRunModel,
+    PropertyModel,
     RepairCaseModel,
+    RepairIssueModel,
     ResearchSnapshotModel,
 )
 from app.schemas import (
@@ -40,6 +41,7 @@ from app.schemas import (
     IntakeResponse,
     IntakeSubmission,
     OrchestrationRun,
+    PropertyHistoryResponse,
     ReopenCaseRequest,
     ReportSubmission,
     ReportSubmitResponse,
@@ -68,18 +70,52 @@ async def readiness(session: AsyncSession = Depends(get_session)) -> ReadinessRe
 
 @router.get("/cases")
 async def list_cases(
-    limit: int = Query(default=20, le=100), cursor: str | None = None, session: AsyncSession = Depends(get_session),
+    limit: int = Query(default=20, le=100),
+    cursor: str | None = None,
+    status: CaseStatus | None = None,
+    property_id: str | None = None,
+    q: str | None = None,
+    session: AsyncSession = Depends(get_session),
 ) -> CaseListResponse:
-    query = select(RepairCaseModel).order_by(RepairCaseModel.updated_at.desc()).limit(limit + 1)
+    query = (
+        select(RepairCaseModel, PropertyModel.address_line, RepairIssueModel.description)
+        .join(PropertyModel, RepairCaseModel.property_id == PropertyModel.id)
+        .outerjoin(RepairIssueModel, RepairIssueModel.case_id == RepairCaseModel.id)
+        .order_by(RepairCaseModel.updated_at.desc())
+        .limit(limit + 1)
+    )
     if cursor:
         cursor_dt = datetime.fromisoformat(cursor)
-        query = select(RepairCaseModel).where(RepairCaseModel.updated_at < cursor_dt).order_by(RepairCaseModel.updated_at.desc()).limit(limit + 1)
-    rows = (await session.execute(query)).scalars().all()
+        query = query.where(RepairCaseModel.updated_at < cursor_dt)
+    if status is not None:
+        query = query.where(RepairCaseModel.status == status)
+    if property_id is not None:
+        query = query.where(RepairCaseModel.property_id == property_id)
+    if q:
+        like = f"%{q}%"
+        query = query.where(
+            or_(RepairCaseModel.title.like(like), RepairIssueModel.description.like(like))
+        )
+
+    rows = (await session.execute(query)).all()
     next_cursor = None
     if len(rows) > limit:
-        next_cursor = rows[limit - 1].updated_at.isoformat()
+        next_cursor = rows[limit - 1][0].updated_at.isoformat()
         rows = rows[:limit]
-    items = [CaseListItem(id=r.id, title=r.title, status=r.status, version=r.version, updated_at=r.updated_at) for r in rows]
+
+    contractors_by_case = await services.assigned_contractors_for_cases(session, [r[0].id for r in rows])
+
+    items = [
+        CaseListItem(
+            id=case.id, case_number=case.case_number, title=case.title, status=case.status, version=case.version,
+            updated_at=case.updated_at, property_address=address_line,
+            urgency=(case.risk or {}).get("urgency", "UNKNOWN"),
+            assigned_contractor_name=(
+                contractors_by_case[case.id].display_name if case.id in contractors_by_case else None
+            ),
+        )
+        for case, address_line, _description in rows
+    ]
     return CaseListResponse(items=items, next_cursor=next_cursor)
 
 
@@ -209,15 +245,25 @@ async def cancel_case(case_id: str, request: CancelCaseRequest, session: AsyncSe
 
 @router.post("/appointments/{appointment_id}/cancel", status_code=202)
 async def cancel_appointment(appointment_id: str, request: CancellationRequest, session: AsyncSession = Depends(get_session)) -> AppointmentCancelResponse:
-    appointment = await session.get(AppointmentModel, appointment_id)
-    if appointment is None:
-        raise NotFoundError(f"appointment {appointment_id} not found")
-    from app.integrations.booking import mock_booking_connector
+    """Cancels an appointment and, if it was SCHEDULED, puts the work order
+    back to READY and wakes the coordinator (see services.cancel_appointment
+    docstring). This is the whole "reschedule" flow: cancel here, then a
+    fresh ScheduleVisit proposal comes back through the normal
+    coordinator/policy/approval path -- no separate reschedule endpoint."""
+    outcome, case_version = await services.cancel_appointment(
+        session, appointment_id=appointment_id, reason=request.reason,
+        actor=ActorContext("OPERATOR", "operator", str(uuid.uuid4())),
+    )
+    return AppointmentCancelResponse(appointment_id=appointment_id, outcome=outcome, case_version=case_version)
 
-    outcome = await mock_booking_connector.cancel(session, appointment.provider_booking_id or "", f"cancel:{appointment_id}")
-    if outcome.status.value == "CANCELLED":
-        appointment.status = "CANCELLED"
-    return AppointmentCancelResponse(appointment_id=appointment_id, outcome=outcome)
+
+@router.get("/properties/{property_id}/history")
+async def get_property_history(property_id: str, session: AsyncSession = Depends(get_session)) -> PropertyHistoryResponse:
+    prop = await session.get(PropertyModel, property_id)
+    if prop is None:
+        raise NotFoundError(f"property {property_id} not found")
+    items = await services.load_property_history(session, property_id)
+    return PropertyHistoryResponse(property_id=property_id, items=items)
 
 
 @router.get("/communications/{communication_id}")
