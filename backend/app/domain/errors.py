@@ -1,0 +1,48 @@
+"""Domain exceptions, mapped to ToolErrorCode at the API/executor boundary."""
+from __future__ import annotations
+
+from app.schemas import ToolErrorCode
+
+
+class DomainError(Exception):
+    code: ToolErrorCode = ToolErrorCode.VALIDATION_ERROR
+    retryable: bool = False
+    reconciliation_required: bool = False
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+
+class NotFoundError(DomainError):
+    code = ToolErrorCode.NOT_FOUND
+
+
+class ForbiddenError(DomainError):
+    code = ToolErrorCode.FORBIDDEN
+
+
+class StaleVersionError(DomainError):
+    code = ToolErrorCode.STALE_VERSION
+
+    def __init__(self, message: str, current_version: int):
+        super().__init__(message)
+        self.current_version = current_version
+
+
+class PolicyRejectedError(DomainError):
+    code = ToolErrorCode.POLICY_REJECTED
+
+
+class ApprovalRequiredError(DomainError):
+    code = ToolErrorCode.APPROVAL_REQUIRED
+
+
+class ConflictError(DomainError):
+    code = ToolErrorCode.CONFLICT
+
+
+class ExternalResultUnknownError(DomainError):
+    code = ToolErrorCode.EXTERNAL_RESULT_UNKNOWN
+    retryable = False
+    reconciliation_required = True

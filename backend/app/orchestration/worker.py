@@ -1,0 +1,143 @@
+"""Single database-backed worker loop. One process, one worker (docs/05/17):
+claim one due job under a short transaction, do its work, mark it DONE or
+FAILED. No coroutine sleeps for days; FOLLOW_UP/EXECUTE_ACTION/COORDINATE
+are all separate bounded runs woken by rows in `jobs`.
+"""
+from __future__ import annotations
+
+import asyncio
+import traceback
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db import session_scope
+from app.domain import services
+from app.domain.services import ActorContext
+from app.models import JobModel
+from app.orchestration import dispatcher, executor
+from app.orchestration.dispatcher import Coordinator
+from app.schemas import CaseStatus
+
+LEASE_SECONDS = 60
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+async def claim_job(session: AsyncSession) -> JobModel | None:
+    now = utcnow()
+    candidate = (
+        await session.execute(
+            select(JobModel).where(JobModel.status == "PENDING", JobModel.run_at <= now).order_by(JobModel.run_at).limit(1)
+        )
+    ).scalars().first()
+    if candidate is None:
+        candidate = (
+            await session.execute(
+                select(JobModel).where(JobModel.status == "LEASED", JobModel.lease_until < now).order_by(JobModel.lease_until).limit(1)
+            )
+        ).scalars().first()
+    if candidate is None:
+        return None
+    candidate.status = "LEASED"
+    candidate.lease_until = now + timedelta(seconds=LEASE_SECONDS)
+    candidate.attempts += 1
+    await session.flush()
+    return candidate
+
+
+async def _handle_follow_up(case_id: str, payload: dict, coordinator: Coordinator) -> None:
+    async with session_scope() as session:
+        case = await services.load_case(session, case_id)
+        if case.status in (CaseStatus.RESOLVED, CaseStatus.CANCELLED):
+            return
+        event = await services.append_event(
+            session, case_id=case_id, event_type="FOLLOW_UP_DUE", payload={"reason": payload.get("reason")},
+            actor=ActorContext("SYSTEM", "follow-up-timer", case_id),
+            source_event_key=f"followup-due:{case_id}:{utcnow().isoformat()}",
+        )
+        await dispatcher.run_coordinate(session, case_id=case_id, trigger_event_id=event.id, coordinator=coordinator)
+
+
+async def process_one_job(
+    coordinator: Coordinator, *, elevenlabs_configured: bool = False, research_adapter=None, raise_on_error: bool = False,
+) -> bool:
+    """Claims and processes at most one due job. Returns True if a job was
+    processed (regardless of success/failure), False if none was due.
+
+    raise_on_error=True (tests only) re-raises instead of swallowing into
+    JobModel.last_error -- the production default stays False so one bad
+    job can never take down the worker loop."""
+    async with session_scope() as session:
+        job = await claim_job(session)
+        if job is None:
+            return False
+        job_id, kind, payload, case_id = job.id, job.kind, dict(job.payload or {}), job.case_id
+
+    try:
+        if kind == "COORDINATE":
+            async with session_scope() as session:
+                await dispatcher.run_coordinate(
+                    session, case_id=case_id, trigger_event_id=payload["trigger_event_id"], coordinator=coordinator,
+                )
+        elif kind == "EXECUTE_ACTION":
+            await executor.execute_action(
+                payload["action_id"], elevenlabs_configured=elevenlabs_configured, research_adapter=research_adapter,
+            )
+        elif kind == "FOLLOW_UP":
+            await _handle_follow_up(case_id, payload, coordinator)
+        elif kind == "FETCH_RECORDING":
+            from app.integrations import elevenlabs as elevenlabs_integration
+
+            await elevenlabs_integration.fetch_recording(payload["communication_id"])
+        else:
+            raise ValueError(f"unknown job kind {kind}")
+
+        async with session_scope() as session:
+            done_job = await session.get(JobModel, job_id)
+            if done_job is not None:
+                done_job.status = "DONE"
+        return True
+    except Exception as exc:  # noqa: BLE001 - isolate one job's failure from the worker loop
+        async with session_scope() as session:
+            failed_job = await session.get(JobModel, job_id)
+            if failed_job is not None:
+                failed_job.status = "FAILED"
+                failed_job.last_error = f"{exc}\n{traceback.format_exc()}"[:4000]
+        if raise_on_error:
+            raise
+        return True
+
+
+async def drain_due_jobs(
+    coordinator: Coordinator, *, max_jobs: int = 50, elevenlabs_configured: bool = False,
+    research_adapter=None, raise_on_error: bool = False,
+) -> int:
+    """Test/dev helper: process due jobs synchronously until none remain or
+    max_jobs is hit. Returns the number processed."""
+    count = 0
+    while count < max_jobs:
+        processed = await process_one_job(
+            coordinator, elevenlabs_configured=elevenlabs_configured, research_adapter=research_adapter,
+            raise_on_error=raise_on_error,
+        )
+        if not processed:
+            break
+        count += 1
+    return count
+
+
+async def run_worker_loop(
+    coordinator: Coordinator, *, stop_event: asyncio.Event, elevenlabs_configured: bool = False,
+    research_adapter=None, poll_interval: float = 0.75,
+) -> None:
+    while not stop_event.is_set():
+        processed = await process_one_job(coordinator, elevenlabs_configured=elevenlabs_configured, research_adapter=research_adapter)
+        if not processed:
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=poll_interval)
+            except asyncio.TimeoutError:
+                pass

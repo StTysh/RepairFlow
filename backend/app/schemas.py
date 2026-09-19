@@ -1,0 +1,1130 @@
+"""Canonical application DTOs and domain value models.
+
+Source of truth: docs/06_DOMAIN_MODEL.md and docs/10_TOOL_CATALOG.md.
+SQLAlchemy models in models.py store the same vocabulary; this module
+owns the enums and shapes so both layers agree.
+"""
+from __future__ import annotations
+
+import enum
+from datetime import datetime
+from typing import Annotated, Literal, Union
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+
+
+def utcnow() -> datetime:
+    from datetime import timezone
+
+    return datetime.now(timezone.utc)
+
+
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ReadModel(BaseModel):
+    """Output/response shapes: tolerant of extra fields growing over time."""
+
+    model_config = ConfigDict(extra="ignore", from_attributes=True)
+
+
+# --------------------------------------------------------------------------
+# Enums
+# --------------------------------------------------------------------------
+
+
+class Trade(str, enum.Enum):
+    ROOFING = "ROOFING"
+    SCAFFOLDING = "SCAFFOLDING"
+    PLUMBING = "PLUMBING"
+    ELECTRICAL = "ELECTRICAL"
+    OTHER = "OTHER"
+
+
+class Answer(str, enum.Enum):
+    YES = "YES"
+    NO = "NO"
+    UNKNOWN = "UNKNOWN"
+
+
+class RoofResponsibility(str, enum.Enum):
+    LANDLORD = "LANDLORD"
+    OTHER = "OTHER"
+    UNKNOWN = "UNKNOWN"
+
+
+class Provenance(str, enum.Enum):
+    LIVE = "LIVE"
+    SIMULATED = "SIMULATED"
+    FIXTURE = "FIXTURE"
+
+
+class ContractorApprovalStatus(str, enum.Enum):
+    APPROVED = "APPROVED"
+    PENDING = "PENDING"
+    REJECTED = "REJECTED"
+
+
+class ConnectorType(str, enum.Enum):
+    MOCK = "MOCK"
+    HUMAN = "HUMAN"
+
+
+class VerificationStatus(str, enum.Enum):
+    UNVERIFIED = "UNVERIFIED"
+    VERIFIED = "VERIFIED"
+    REJECTED = "REJECTED"
+
+
+class SourceType(str, enum.Enum):
+    EVENT = "EVENT"
+    REPORT = "REPORT"
+    TRANSCRIPT = "TRANSCRIPT"
+    VOICE_TOOL = "VOICE_TOOL"
+    WEB = "WEB"
+    OPERATOR = "OPERATOR"
+
+
+class CaseStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    AWAITING_CONFIRMATION = "AWAITING_CONFIRMATION"
+    RESOLVED = "RESOLVED"
+    ESCALATED = "ESCALATED"
+    CANCELLED = "CANCELLED"
+
+
+class WorkOrderKind(str, enum.Enum):
+    REPAIR = "REPAIR"
+    SCAFFOLD_INSTALL = "SCAFFOLD_INSTALL"
+    SCAFFOLD_REMOVE = "SCAFFOLD_REMOVE"
+
+
+class WorkOrderStatus(str, enum.Enum):
+    READY = "READY"
+    SCHEDULED = "SCHEDULED"
+    IN_PROGRESS = "IN_PROGRESS"
+    AWAITING_REPORT = "AWAITING_REPORT"
+    BLOCKED = "BLOCKED"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+
+
+class DependencyStatus(str, enum.Enum):
+    OPEN = "OPEN"
+    SATISFIED = "SATISFIED"
+    INVALIDATED = "INVALIDATED"
+
+
+class AppointmentStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    CONFIRMED = "CONFIRMED"
+    FINISHED = "FINISHED"
+    CANCELLED = "CANCELLED"
+
+
+class VisitOutcome(str, enum.Enum):
+    COMPLETED = "COMPLETED"
+    BLOCKED = "BLOCKED"
+    NO_ACCESS = "NO_ACCESS"
+    FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
+
+
+class InterpretationStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    APPLIED = "APPLIED"
+    REVIEW = "REVIEW"
+
+
+class PersonType(str, enum.Enum):
+    TENANT = "TENANT"
+    CONTRACTOR = "CONTRACTOR"
+
+
+class CommPurpose(str, enum.Enum):
+    INTAKE = "INTAKE"
+    AVAILABILITY = "AVAILABILITY"
+    FOLLOW_UP = "FOLLOW_UP"
+    CONTRACTOR = "CONTRACTOR"
+
+
+class CommDirection(str, enum.Enum):
+    INBOUND = "INBOUND"
+    OUTBOUND = "OUTBOUND"
+    BROWSER = "BROWSER"
+
+
+class CommState(str, enum.Enum):
+    REQUESTED = "REQUESTED"
+    ACTIVE = "ACTIVE"
+    ENDED = "ENDED"
+    FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
+
+
+class RecordingStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    AVAILABLE = "AVAILABLE"
+    UNAVAILABLE = "UNAVAILABLE"
+    FAILED = "FAILED"
+
+
+class CallOutcomeStatus(str, enum.Enum):
+    ANSWERED = "ANSWERED"
+    NO_ANSWER = "NO_ANSWER"
+    VOICEMAIL = "VOICEMAIL"
+    FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
+
+
+class Speaker(str, enum.Enum):
+    AGENT = "AGENT"
+    USER = "USER"
+    TOOL = "TOOL"
+    UNKNOWN = "UNKNOWN"
+
+
+class Transport(str, enum.Enum):
+    BROWSER = "BROWSER"
+    TWILIO = "TWILIO"
+
+
+class BookingStatus(str, enum.Enum):
+    CONFIRMED = "CONFIRMED"
+    PENDING = "PENDING"
+    REJECTED = "REJECTED"
+    UNKNOWN = "UNKNOWN"
+
+
+class CancellationStatus(str, enum.Enum):
+    CANCELLED = "CANCELLED"
+    PENDING = "PENDING"
+    REJECTED = "REJECTED"
+    UNKNOWN = "UNKNOWN"
+
+
+class EventType(str, enum.Enum):
+    CASE_CREATED = "CASE_CREATED"
+    INFORMATION_RECEIVED = "INFORMATION_RECEIVED"
+    AVAILABILITY_RECEIVED = "AVAILABILITY_RECEIVED"
+    RESEARCH_COMPLETED = "RESEARCH_COMPLETED"
+    WORK_ORDER_CREATED = "WORK_ORDER_CREATED"
+    APPOINTMENT_CONFIRMED = "APPOINTMENT_CONFIRMED"
+    APPOINTMENT_CANCELLED = "APPOINTMENT_CANCELLED"
+    APPOINTMENT_WINDOW_ENDED = "APPOINTMENT_WINDOW_ENDED"
+    CONTRACTOR_REPORT_RECEIVED = "CONTRACTOR_REPORT_RECEIVED"
+    DEPENDENCY_DISCOVERED = "DEPENDENCY_DISCOVERED"
+    WORK_ORDER_COMPLETED = "WORK_ORDER_COMPLETED"
+    DEPENDENCY_SATISFIED = "DEPENDENCY_SATISFIED"
+    TENANT_CONFIRMATION_RECEIVED = "TENANT_CONFIRMATION_RECEIVED"
+    FOLLOW_UP_DUE = "FOLLOW_UP_DUE"
+    APPROVAL_DECIDED = "APPROVAL_DECIDED"
+    CASE_ESCALATED = "CASE_ESCALATED"
+    CASE_RESUMED = "CASE_RESUMED"
+    CASE_RESOLVED = "CASE_RESOLVED"
+    CASE_CANCELLED = "CASE_CANCELLED"
+    CALL_ENDED = "CALL_ENDED"
+    CALL_FAILED = "CALL_FAILED"
+    RECORDING_AVAILABLE = "RECORDING_AVAILABLE"
+    RECORDING_FAILED = "RECORDING_FAILED"
+    ACTION_FAILED = "ACTION_FAILED"
+    ACTION_UNKNOWN = "ACTION_UNKNOWN"
+
+
+class ActionState(str, enum.Enum):
+    PROPOSED = "PROPOSED"
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
+    REJECTED = "REJECTED"
+
+
+class OrchestrationRunState(str, enum.Enum):
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    SUPERSEDED = "SUPERSEDED"
+
+
+class ToolTraceOutcome(str, enum.Enum):
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+class JobKind(str, enum.Enum):
+    COORDINATE = "COORDINATE"
+    EXECUTE_ACTION = "EXECUTE_ACTION"
+    FETCH_RECORDING = "FETCH_RECORDING"
+    FOLLOW_UP = "FOLLOW_UP"
+
+
+class JobStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    LEASED = "LEASED"
+    DONE = "DONE"
+    FAILED = "FAILED"
+
+
+class CommandResultStatus(str, enum.Enum):
+    APPLIED = "APPLIED"
+    NOOP = "NOOP"
+    PENDING = "PENDING"
+    REJECTED = "REJECTED"
+    UNKNOWN = "UNKNOWN"
+
+
+class ToolErrorCode(str, enum.Enum):
+    VALIDATION_ERROR = "VALIDATION_ERROR"
+    NOT_FOUND = "NOT_FOUND"
+    FORBIDDEN = "FORBIDDEN"
+    STALE_VERSION = "STALE_VERSION"
+    POLICY_REJECTED = "POLICY_REJECTED"
+    APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
+    CONFLICT = "CONFLICT"
+    RATE_LIMITED = "RATE_LIMITED"
+    PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
+    EXTERNAL_RESULT_UNKNOWN = "EXTERNAL_RESULT_UNKNOWN"
+
+
+# --------------------------------------------------------------------------
+# Reference records
+# --------------------------------------------------------------------------
+
+
+class Property(ReadModel):
+    id: UUID
+    address_line: str
+    postcode: str
+    timezone: str = "Europe/London"
+    landlord_reference: str
+    roof_responsibility: RoofResponsibility
+    access_notes: str | None = None
+
+
+class Tenant(ReadModel):
+    id: UUID
+    property_id: UUID
+    display_name: str
+    phone_e164: str | None = None
+    preferred_channel: str
+    contact_allowed: bool
+    accessibility_notes: str | None = None
+
+
+class Contractor(ReadModel):
+    id: UUID
+    display_name: str
+    trades: list[Trade]
+    service_postcodes: list[str]
+    approval_status: ContractorApprovalStatus
+    connector: ConnectorType
+    contact_reference: str | None = None
+    verification_note: str | None = None
+    provenance: Provenance
+
+
+class EvidenceRef(StrictModel):
+    source_type: SourceType
+    source_id: UUID
+    locator: str | None = None
+    observed_at: datetime
+    provenance: Provenance
+
+
+class ContractorCandidate(ReadModel):
+    id: UUID
+    case_id: UUID
+    research_id: UUID
+    name: str
+    trades: list[Trade]
+    website: HttpUrl | None = None
+    phone: str | None = None
+    service_area: str | None = None
+    claimed_emergency_service: bool | None = None
+    evidence: list[EvidenceRef]
+    verification_status: VerificationStatus = VerificationStatus.UNVERIFIED
+
+
+# --------------------------------------------------------------------------
+# Repair records
+# --------------------------------------------------------------------------
+
+
+class RepairIssue(ReadModel):
+    id: UUID
+    case_id: UUID
+    description: str
+    location: str
+    started_at: datetime | None = None
+    evidence_refs: list[EvidenceRef]
+    tenant_resolution_confirmed_at: datetime | None = None
+    unresolved_concerns: list[str] = Field(default_factory=list)
+
+
+class RiskAssessment(StrictModel):
+    urgency: Literal["EMERGENCY", "URGENT", "ROUTINE", "UNKNOWN"] = "UNKNOWN"
+    gas: Answer = Answer.UNKNOWN
+    fire: Answer = Answer.UNKNOWN
+    water_near_electrics: Answer = Answer.UNKNOWN
+    structural_danger: Answer = Answer.UNKNOWN
+    uncontrolled_flood: Answer = Answer.UNKNOWN
+    vulnerability_concern: Answer = Answer.UNKNOWN
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+    uncertainties: list[str] = Field(default_factory=list)
+    assessed_at: datetime = Field(default_factory=utcnow)
+
+    @property
+    def is_hazard(self) -> bool:
+        return Answer.YES in (
+            self.gas,
+            self.fire,
+            self.water_near_electrics,
+            self.structural_danger,
+            self.uncontrolled_flood,
+        )
+
+
+class RepairCase(ReadModel):
+    id: UUID
+    property_id: UUID
+    tenant_id: UUID
+    status: CaseStatus
+    version: int
+    title: str
+    risk: RiskAssessment
+    created_at: datetime
+    updated_at: datetime
+    owner_operator_id: str
+    last_decision_summary: str | None = None
+    next_follow_up_at: datetime | None = None
+    escalation_reason: str | None = None
+    resume_status: CaseStatus | None = None
+
+
+class WorkOrder(ReadModel):
+    id: UUID
+    case_id: UUID
+    issue_id: UUID
+    kind: WorkOrderKind
+    trade: Trade
+    scope: str
+    status: WorkOrderStatus
+    contractor_id: UUID | None = None
+    required_for_resolution: bool
+    quote_pence: int | None = None
+    approved_limit_pence: int | None = None
+    completion_report_id: UUID | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class Dependency(ReadModel):
+    id: UUID
+    case_id: UUID
+    prerequisite_work_order_id: UUID
+    dependent_work_order_id: UUID
+    status: DependencyStatus
+    reason: str
+    discovered_from_report_id: UUID
+    satisfied_by_report_id: UUID | None = None
+    created_at: datetime
+    satisfied_at: datetime | None = None
+
+
+class Appointment(ReadModel):
+    id: UUID
+    case_id: UUID
+    work_order_id: UUID
+    contractor_id: UUID
+    slot_id: str
+    start_at: datetime
+    end_at: datetime
+    status: AppointmentStatus
+    visit_outcome: VisitOutcome | None = None
+    connector: ConnectorType
+    provider_booking_id: str | None = None
+    action_id: UUID
+    attempt_number: int
+    availability_revision: int
+    provenance: Provenance
+
+
+class AvailabilityWindow(ReadModel):
+    id: UUID
+    case_id: UUID
+    person_type: PersonType
+    person_id: UUID
+    start_at: datetime
+    end_at: datetime
+    timezone: str
+    confirmed_at: datetime
+    expires_at: datetime
+    source_ref: EvidenceRef
+    revision: int
+
+
+class ContractorReport(ReadModel):
+    id: UUID
+    case_id: UUID
+    work_order_id: UUID
+    appointment_id: UUID
+    contractor_id: UUID
+    text: str
+    observed_at: datetime
+    received_at: datetime
+    source_ref: EvidenceRef
+    provenance: Provenance
+    interpretation_status: InterpretationStatus
+    interpreted_action_id: UUID | None = None
+
+
+# --------------------------------------------------------------------------
+# Communication and recording
+# --------------------------------------------------------------------------
+
+
+class TranscriptTurn(StrictModel):
+    turn_id: str
+    speaker: Speaker
+    text: str
+    time_in_call_secs: float = Field(ge=0)
+    tool_name: str | None = None
+
+
+class Recording(StrictModel):
+    status: RecordingStatus = RecordingStatus.PENDING
+    media_path: str | None = None
+    media_type: str | None = None
+    byte_count: int | None = None
+    sha256: str | None = None
+    acquired_at: datetime | None = None
+    error_code: str | None = None
+
+
+class ObservedFact(StrictModel):
+    field: str
+    value: str | bool | None
+    source_ref: EvidenceRef
+    confirmed_by_speaker: bool
+
+
+class CallOutcome(ReadModel):
+    communication_id: UUID
+    conversation_id: str | None = None
+    outcome: CallOutcomeStatus
+    confirmed_facts: list[ObservedFact] = Field(default_factory=list)
+    availability: list[AvailabilityWindow] = Field(default_factory=list)
+    tenant_confirms_resolved: bool | None = None
+    missing_questions: list[str] = Field(default_factory=list)
+    transcript_refs: list[str] = Field(default_factory=list)
+    ended_at: datetime | None = None
+
+
+class Communication(ReadModel):
+    id: UUID
+    case_id: UUID | None = None
+    tenant_id: UUID | None = None
+    purpose: CommPurpose
+    direction: CommDirection
+    provider: Literal["ELEVENLABS"] = "ELEVENLABS"
+    provider_conversation_id: str | None = None
+    provider_call_sid: str | None = None
+    correlation_token_hash: str
+    state: CommState
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    transcript: list[TranscriptTurn] = Field(default_factory=list)
+    outcome: CallOutcome | None = None
+    recording: Recording = Field(default_factory=Recording)
+    provenance: Provenance
+
+
+class CallRequest(StrictModel):
+    case_id: UUID
+    tenant_id: UUID
+    purpose: CommPurpose
+    transport: Transport
+    allowed_questions: list[str]
+    context_summary: str
+    action_id: UUID | None = None
+
+
+# --------------------------------------------------------------------------
+# Booking and research
+# --------------------------------------------------------------------------
+
+
+class SlotOption(ReadModel):
+    slot_id: str
+    contractor_id: UUID
+    work_order_id: UUID
+    start_at: datetime
+    end_at: datetime
+    expires_at: datetime
+    availability_revision: int
+    provenance: Provenance
+
+
+class BookingRequest(StrictModel):
+    case_id: UUID
+    work_order_id: UUID
+    contractor_id: UUID
+    slot_id: str
+    tenant_availability_ids: list[UUID]
+    access_confirmed: bool
+    authorized_limit_pence: int
+    idempotency_key: str
+
+
+class BookingOutcome(ReadModel):
+    status: BookingStatus
+    provider_booking_id: str | None = None
+    confirmed_start: datetime | None = None
+    confirmed_end: datetime | None = None
+    reason: str | None = None
+    provenance: Provenance
+
+
+class CancellationOutcome(ReadModel):
+    status: CancellationStatus
+    provider_booking_id: str | None = None
+    reason: str | None = None
+    provenance: Provenance
+
+
+class WebEvidence(StrictModel):
+    url: str
+    title: str
+    excerpt: str
+    retrieved_at: datetime
+    provider_score: float | None = None
+
+
+class ResearchSnapshot(ReadModel):
+    id: UUID
+    case_id: UUID
+    query: str
+    provider: Literal["TAVILY"] = "TAVILY"
+    provider_request_id: str | None = None
+    requested_at: datetime
+    completed_at: datetime | None = None
+    result_urls: list[str] = Field(default_factory=list)
+    results: list[WebEvidence] = Field(default_factory=list)
+    provenance: Provenance
+
+
+# --------------------------------------------------------------------------
+# Event, run and job records
+# --------------------------------------------------------------------------
+
+
+class CaseEvent(ReadModel):
+    id: UUID
+    case_id: UUID
+    seq: int
+    type: EventType
+    occurred_at: datetime
+    received_at: datetime
+    actor_type: str
+    actor_id: str
+    source_event_key: str
+    correlation_id: str
+    causation_event_id: UUID | None = None
+    payload_version: int = 1
+    payload: dict
+    provenance: Provenance
+
+
+# --- NextAction discriminated union -----------------------------------
+
+
+class ApplyTriage(StrictModel):
+    kind: Literal["APPLY_TRIAGE"] = "APPLY_TRIAGE"
+    risk: RiskAssessment
+    issue_description: str
+    suggested_trade: Trade
+    scope: str
+
+
+class RequestInformation(StrictModel):
+    kind: Literal["REQUEST_INFORMATION"] = "REQUEST_INFORMATION"
+    recipient: Literal["TENANT", "OPERATOR"]
+    questions: list[str]
+    purpose: CommPurpose
+
+
+class DiscoverContractors(StrictModel):
+    kind: Literal["DISCOVER_CONTRACTORS"] = "DISCOVER_CONTRACTORS"
+    trade: Trade
+    postcode: str
+
+
+class ScheduleVisit(StrictModel):
+    kind: Literal["SCHEDULE_VISIT"] = "SCHEDULE_VISIT"
+    work_order_id: UUID
+    contractor_id: UUID
+    slot_id: str
+    tenant_availability_ids: list[UUID]
+
+
+class AddPrerequisite(StrictModel):
+    kind: Literal["ADD_PREREQUISITE"] = "ADD_PREREQUISITE"
+    report_id: UUID
+    blocked_work_order_id: UUID
+    prerequisite_trade: Trade
+    prerequisite_kind: WorkOrderKind
+    prerequisite_scope: str
+    reason: str
+
+
+class AcceptReport(StrictModel):
+    kind: Literal["ACCEPT_REPORT"] = "ACCEPT_REPORT"
+    report_id: UUID
+    outcome: Literal["COMPLETED", "NO_ACCESS", "FAILED"]
+    completion_evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+
+
+class RequestConfirmation(StrictModel):
+    kind: Literal["REQUEST_CONFIRMATION"] = "REQUEST_CONFIRMATION"
+    issue_id: UUID
+    questions: list[str]
+
+
+class ResolveCase(StrictModel):
+    kind: Literal["RESOLVE_CASE"] = "RESOLVE_CASE"
+    issue_id: UUID
+    confirmation_event_id: UUID
+
+
+class Escalate(StrictModel):
+    kind: Literal["ESCALATE"] = "ESCALATE"
+    reason_code: str
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+    operator_message: str
+
+
+class Wait(StrictModel):
+    kind: Literal["WAIT"] = "WAIT"
+    reason: str
+    waiting_for: str
+    follow_up_at: datetime | None = None
+
+
+NextAction = Annotated[
+    Union[
+        ApplyTriage,
+        RequestInformation,
+        DiscoverContractors,
+        ScheduleVisit,
+        AddPrerequisite,
+        AcceptReport,
+        RequestConfirmation,
+        ResolveCase,
+        Escalate,
+        Wait,
+    ],
+    Field(discriminator="kind"),
+]
+
+NEXT_ACTION_TYPES: tuple[type[StrictModel], ...] = (
+    ApplyTriage,
+    RequestInformation,
+    DiscoverContractors,
+    ScheduleVisit,
+    AddPrerequisite,
+    AcceptReport,
+    RequestConfirmation,
+    ResolveCase,
+    Escalate,
+    Wait,
+)
+
+
+class ActionProposal(StrictModel):
+    case_id: UUID
+    expected_case_version: int
+    trigger_event_id: UUID
+    decision_summary: str = Field(max_length=500)
+    evidence_refs: list[EvidenceRef]
+    action: NextAction
+
+
+class Approval(StrictModel):
+    operator_id: str
+    approved_at: datetime
+    action_payload_hash: str
+    authorized_limit_pence: int | None = None
+    reason: str
+
+
+class ActionRecord(ReadModel):
+    id: UUID
+    case_id: UUID
+    kind: str
+    target_id: UUID | None = None
+    idempotency_key: str
+    # Not itself a business fact -- exposed so the operator UI can echo it
+    # back in ApprovalDecision.action_payload_hash (docs/18: "Approving
+    # sends proposal hash/version"); docs/06 doesn't list it because it's
+    # admission-time plumbing, not domain data.
+    payload_hash: str
+    proposal: ActionProposal
+    state: ActionState
+    approval: Approval | None = None
+    result: dict | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ToolTrace(StrictModel):
+    id: UUID
+    run_id: UUID
+    name: str
+    started_at: datetime
+    finished_at: datetime | None = None
+    outcome: ToolTraceOutcome | None = None
+    input_resource_ids: list[str] = Field(default_factory=list)
+    output_resource_ids: list[str] = Field(default_factory=list)
+    error_code: str | None = None
+
+
+class OrchestrationRun(ReadModel):
+    id: UUID
+    case_id: UUID
+    trigger_event_id: UUID
+    snapshot_version: int
+    model_id: str
+    started_at: datetime
+    finished_at: datetime | None = None
+    state: OrchestrationRunState
+    usage: dict = Field(default_factory=dict)
+    proposal: ActionProposal | None = None
+    tool_calls: list[ToolTrace] = Field(default_factory=list)
+    policy_result: str | None = None
+    error_code: str | None = None
+
+
+class Job(ReadModel):
+    id: UUID
+    case_id: UUID | None = None
+    kind: JobKind
+    dedupe_key: str
+    payload: dict
+    run_at: datetime
+    status: JobStatus
+    attempts: int
+    lease_until: datetime | None = None
+    last_error: str | None = None
+
+
+# --------------------------------------------------------------------------
+# Ingress DTOs (no persisted IDs supplied by an untrusted caller)
+# --------------------------------------------------------------------------
+
+FACT_FIELD_ALLOWLIST = {
+    "description",
+    "location",
+    "started_at",
+    "gas",
+    "fire",
+    "water_near_electrics",
+    "structural_danger",
+    "uncontrolled_flood",
+    "vulnerability_concern",
+    "unresolved_concern",
+}
+
+
+class AvailabilityInput(StrictModel):
+    start_at: datetime
+    end_at: datetime
+    timezone: str
+    spoken_text: str
+    confirmed_by_speaker: bool
+
+
+class FactInput(StrictModel):
+    field: str
+    value: str | bool | None
+    spoken_text: str
+    confirmed_by_speaker: bool
+
+
+class SafetyAnswers(StrictModel):
+    gas: Answer = Answer.UNKNOWN
+    fire: Answer = Answer.UNKNOWN
+    water_near_electrics: Answer = Answer.UNKNOWN
+    structural_danger: Answer = Answer.UNKNOWN
+    uncontrolled_flood: Answer = Answer.UNKNOWN
+    vulnerability_concern: Answer = Answer.UNKNOWN
+
+
+class IntakeSubmission(StrictModel):
+    communication_id: UUID
+    property_id: UUID
+    tenant_id: UUID
+    description: str
+    location: str
+    started_at: datetime | None = None
+    safety_answers: SafetyAnswers = Field(default_factory=SafetyAnswers)
+    availability: list[AvailabilityInput] = Field(default_factory=list)
+    source_text: str
+
+
+class ObservationSubmission(StrictModel):
+    communication_id: UUID
+    facts: list[FactInput] = Field(default_factory=list)
+    availability: list[AvailabilityInput] = Field(default_factory=list)
+    tenant_confirms_resolved: bool | None = None
+    source_text: str
+
+
+class ReportSubmission(StrictModel):
+    work_order_id: UUID
+    appointment_id: UUID
+    contractor_id: UUID
+    text: str
+    observed_at: datetime
+
+
+# --------------------------------------------------------------------------
+# Command / tool infrastructure
+# --------------------------------------------------------------------------
+
+
+class CaseRef(StrictModel):
+    case_id: UUID
+
+
+class RecordRef(StrictModel):
+    case_id: UUID
+    record_id: UUID
+
+
+class ReadEvents(StrictModel):
+    case_id: UUID
+    after_seq: int = 0
+    limit: int = Field(default=50, le=100)
+
+
+class CaseSnapshot(ReadModel):
+    case: RepairCase
+    issue: RepairIssue
+    work_orders: list[WorkOrder]
+    dependencies: list[Dependency]
+    appointments: list[Appointment]
+    latest_reports: list[ContractorReport]
+    communications: list[Communication]
+    availability: list[AvailabilityWindow]
+    approved_contractors: list[Contractor]
+    pending_actions: list[ActionRecord]
+    recent_events: list[CaseEvent]
+    policy_snapshot: dict
+    snapshot_version: int
+
+
+class CommandContext(StrictModel):
+    case_id: UUID
+    expected_case_version: int
+    action_id: UUID | None = None
+    actor_id: str
+    idempotency_key: str
+
+
+class ToolError(StrictModel):
+    code: ToolErrorCode
+    message: str
+    retryable: bool
+    retry_after_seconds: int | None = None
+    reconciliation_required: bool = False
+
+
+class CommandResult(StrictModel):
+    action_id: UUID | None = None
+    status: CommandResultStatus
+    case_version: int
+    event_ids: list[UUID] = Field(default_factory=list)
+    resource_ids: dict[str, UUID] = Field(default_factory=dict)
+    error: ToolError | None = None
+
+
+class ContractorSearchRequest(StrictModel):
+    case_id: UUID
+    trade: Trade
+    postcode: str
+    max_results: int = 5
+
+
+class ContractorSearchResult(StrictModel):
+    research: ResearchSnapshot
+    candidates: list[ContractorCandidate]
+    warnings: list[str] = Field(default_factory=list)
+
+
+class AppointmentQuery(StrictModel):
+    case_id: UUID
+    work_order_id: UUID
+    contractor_id: UUID
+    tenant_availability_ids: list[UUID]
+
+
+class AppointmentOptions(StrictModel):
+    slots: list[SlotOption]
+    reason_if_empty: str | None = None
+
+
+class ApprovalDecision(StrictModel):
+    action_id: UUID
+    expected_case_version: int
+    approve: bool
+    authorized_limit_pence: int | None = None
+    reason: str
+    action_payload_hash: str
+
+
+class CancellationRequest(StrictModel):
+    appointment_id: UUID
+    reason: str
+
+
+class SimulationObservationContractorReport(StrictModel):
+    kind: Literal["CONTRACTOR_REPORT"] = "CONTRACTOR_REPORT"
+    appointment_id: UUID
+    text: str
+    observed_at: datetime
+
+
+class SimulationObservationTenantFeedback(StrictModel):
+    kind: Literal["TENANT_FEEDBACK"] = "TENANT_FEEDBACK"
+    confirms_resolved: bool
+    text: str
+
+
+class SimulationObservationAttendanceWindowEnded(StrictModel):
+    kind: Literal["ATTENDANCE_WINDOW_ENDED"] = "ATTENDANCE_WINDOW_ENDED"
+    appointment_id: UUID
+
+
+SimulationObservation = Annotated[
+    Union[
+        SimulationObservationContractorReport,
+        SimulationObservationTenantFeedback,
+        SimulationObservationAttendanceWindowEnded,
+    ],
+    Field(discriminator="kind"),
+]
+
+
+class VoiceSessionRequest(StrictModel):
+    purpose: CommPurpose
+    tenant_id: UUID
+    case_id: UUID | None = None
+    disclosure_accepted: bool
+
+
+class ResumeCaseRequest(StrictModel):
+    version: int
+    reason: str
+    resolved_hold_evidence: str
+
+
+class ReopenCaseRequest(StrictModel):
+    version: int
+    reason: str
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+
+
+class CancelCaseRequest(StrictModel):
+    version: int
+    reason: str
+
+
+# --------------------------------------------------------------------------
+# HTTP response envelopes (docs/16 routes). These wrap canonical DTOs above
+# for a specific endpoint's JSON body; they are transport shape, not domain
+# data, so they live here rather than being added to docs/06's DTO table.
+# Giving every route a real response_model (instead of -> dict) is what
+# makes the generated OpenAPI schema -- and the frontend TS types built from
+# it -- describe actual response shapes rather than an opaque object.
+# --------------------------------------------------------------------------
+
+
+class ReadinessResponse(StrictModel):
+    database: str
+    gemini_live: bool
+    elevenlabs_live: bool
+    tavily_live: bool
+
+
+class CaseListItem(StrictModel):
+    id: UUID
+    title: str
+    status: CaseStatus
+    version: int
+    updated_at: datetime
+
+
+class CaseListResponse(StrictModel):
+    items: list[CaseListItem]
+    next_cursor: str | None = None
+
+
+class CaseDetailResponse(StrictModel):
+    snapshot: CaseSnapshot
+    latest_event_seq: int
+
+
+class CaseEventsResponse(StrictModel):
+    items: list[CaseEvent]
+    next_cursor: str | None = None
+
+
+class CaseRunsResponse(StrictModel):
+    items: list[OrchestrationRun]
+    next_cursor: str | None = None
+
+
+class IntakeResponse(StrictModel):
+    case_id: UUID
+    communication_id: UUID
+    result: CommandResult
+
+
+class ReportSubmitResponse(StrictModel):
+    report_id: UUID
+    result: CommandResult
+
+
+class CaseVersionResponse(StrictModel):
+    case_id: UUID
+    version: int
+
+
+class AppointmentCancelResponse(StrictModel):
+    appointment_id: UUID
+    outcome: CancellationOutcome
+
+
+class RetryRecordingResponse(StrictModel):
+    queued: bool
+
+
+class ApprovalResponse(StrictModel):
+    result: CommandResult
+
+
+class DemoResetResponse(StrictModel):
+    cleared: bool
+    reason: str | None = None
+    case_count: int = 0
+    preserved_live_cases: int = 0
+
+
+class DemoTenantFeedbackResponse(StrictModel):
+    communication_id: UUID
+    result: CommandResult
