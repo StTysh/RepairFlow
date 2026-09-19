@@ -1,33 +1,16 @@
-import { Link } from "@tanstack/react-router";
-import {
-  Home,
-  Wrench,
-  Building2,
-  HardHat,
-  Users,
-  BarChart3,
-  MessageSquare,
-  FileText,
-} from "lucide-react";
+import { Link, useRouterState } from "@tanstack/react-router";
+import { Wrench, Building2 } from "lucide-react";
 import { useDashboardMetrics } from "@/hooks/use-dashboard-metrics";
 import { cn } from "@/lib/utils";
 
-// "Properties" pointed at /properties/14-king-street/history in the
-// mockup; that route now needs a real property id (and ideally an
-// address, passed via search params -- see properties.$propertyId.history
-// .tsx), which this global nav item has no case in scope to source from.
-// Pointing it at /maintenance rather than leaving it a dead link, pending
-// a real properties list screen (out of scope for this phase). Same
-// reasoning for every other item below that still has no dedicated screen.
+// Contractors/Tenants/Insights/Messages/Reports were removed rather than
+// left pointing at /maintenance: none has a dedicated screen or backing
+// data model (Messages specifically was a deliberate product decision --
+// see docs on the Timeline being the one activity feed, not a generic
+// chat). A nav item that goes nowhere real is worse than no nav item.
 const nav = [
-  { label: "Overview", icon: Home, to: "/maintenance" as const, active: false },
-  { label: "Maintenance", icon: Wrench, to: "/maintenance" as const, active: true },
-  { label: "Properties", icon: Building2, to: "/maintenance" as const, active: false },
-  { label: "Contractors", icon: HardHat, to: "/maintenance" as const, active: false },
-  { label: "Tenants", icon: Users, to: "/maintenance" as const, active: false },
-  { label: "Insights", icon: BarChart3, to: "/maintenance" as const, active: false },
-  { label: "Messages", icon: MessageSquare, to: "/maintenance" as const, active: false },
-  { label: "Reports", icon: FileText, to: "/maintenance" as const, active: false },
+  { label: "Maintenance", icon: Wrench, to: "/maintenance" as const },
+  { label: "Properties", icon: Building2, to: "/properties" as const },
 ];
 
 export function FixiLogo() {
@@ -63,6 +46,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // actually mid-flight) -- not decorative. Pulses only while something is
   // genuinely happening; sits still and grey when idle.
   const agentThinking = metrics.data?.agent_active ?? false;
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
   return (
     <div className="flex min-h-screen w-full bg-background font-sans text-foreground antialiased">
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-4 py-5 lg:flex">
@@ -74,7 +58,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               to={item.to}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] font-medium transition-colors",
-                item.active
+                pathname.startsWith(item.to)
                   ? "bg-sidebar-primary text-sidebar-primary-foreground"
                   : "text-sidebar-foreground hover:bg-sidebar-accent",
               )}

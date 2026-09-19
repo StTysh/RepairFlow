@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as MaintenanceIndexRouteImport } from './routes/maintenance.index'
+import { Route as PropertiesIndexRouteImport } from './routes/properties.index'
 import { Route as PropertiesPropertyIdHistoryRouteImport } from './routes/properties.$propertyId.history'
 import { Route as MaintenanceTicketsTicketIdChar123SectionChar125RouteImport } from './routes/maintenance.tickets.$ticketId.{-$section}'
 
@@ -22,6 +23,11 @@ const IndexRoute = IndexRouteImport.update({
 const MaintenanceIndexRoute = MaintenanceIndexRouteImport.update({
   id: '/maintenance/',
   path: '/maintenance/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PropertiesIndexRoute = PropertiesIndexRouteImport.update({
+  id: '/properties/',
+  path: '/properties/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PropertiesPropertyIdHistoryRoute =
@@ -40,12 +46,14 @@ const MaintenanceTicketsTicketIdChar123SectionChar125Route =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/maintenance/': typeof MaintenanceIndexRoute
+  '/properties/': typeof PropertiesIndexRoute
   '/properties/$propertyId/history': typeof PropertiesPropertyIdHistoryRoute
   '/maintenance/tickets/$ticketId/{-$section}': typeof MaintenanceTicketsTicketIdChar123SectionChar125Route
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/maintenance': typeof MaintenanceIndexRoute
+  '/properties': typeof PropertiesIndexRoute
   '/properties/$propertyId/history': typeof PropertiesPropertyIdHistoryRoute
   '/maintenance/tickets/$ticketId/{-$section}': typeof MaintenanceTicketsTicketIdChar123SectionChar125Route
 }
@@ -53,6 +61,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/maintenance/': typeof MaintenanceIndexRoute
+  '/properties/': typeof PropertiesIndexRoute
   '/properties/$propertyId/history': typeof PropertiesPropertyIdHistoryRoute
   '/maintenance/tickets/$ticketId/{-$section}': typeof MaintenanceTicketsTicketIdChar123SectionChar125Route
 }
@@ -61,18 +70,21 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/maintenance/'
+    | '/properties/'
     | '/properties/$propertyId/history'
     | '/maintenance/tickets/$ticketId/{-$section}'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/maintenance'
+    | '/properties'
     | '/properties/$propertyId/history'
     | '/maintenance/tickets/$ticketId/{-$section}'
   id:
     | '__root__'
     | '/'
     | '/maintenance/'
+    | '/properties/'
     | '/properties/$propertyId/history'
     | '/maintenance/tickets/$ticketId/{-$section}'
   fileRoutesById: FileRoutesById
@@ -80,6 +92,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   MaintenanceIndexRoute: typeof MaintenanceIndexRoute
+  PropertiesIndexRoute: typeof PropertiesIndexRoute
   PropertiesPropertyIdHistoryRoute: typeof PropertiesPropertyIdHistoryRoute
   MaintenanceTicketsTicketIdChar123SectionChar125Route: typeof MaintenanceTicketsTicketIdChar123SectionChar125Route
 }
@@ -98,6 +111,13 @@ declare module '@tanstack/react-router' {
       path: '/maintenance'
       fullPath: '/maintenance/'
       preLoaderRoute: typeof MaintenanceIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/properties/': {
+      id: '/properties/'
+      path: '/properties'
+      fullPath: '/properties/'
+      preLoaderRoute: typeof PropertiesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/properties/$propertyId/history': {
@@ -120,6 +140,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   MaintenanceIndexRoute: MaintenanceIndexRoute,
+  PropertiesIndexRoute: PropertiesIndexRoute,
   PropertiesPropertyIdHistoryRoute: PropertiesPropertyIdHistoryRoute,
   MaintenanceTicketsTicketIdChar123SectionChar125Route:
     MaintenanceTicketsTicketIdChar123SectionChar125Route,

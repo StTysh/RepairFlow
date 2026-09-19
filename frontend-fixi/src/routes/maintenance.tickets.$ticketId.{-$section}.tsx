@@ -143,6 +143,12 @@ function CasePage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {snapshot.agent_active && (
+              <span className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground shadow-card">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Agent thinking…
+              </span>
+            )}
             <StatusBadge status={c.status} className="h-9 px-3.5 text-sm" />
             <CaseLifecycleActions caseId={c.id} status={c.status} version={c.version} />
           </div>
