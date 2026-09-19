@@ -10,13 +10,9 @@ import {
   Loader2,
   Mail,
   MapPin,
-  MessageSquare,
-  MoreHorizontal,
-  Pencil,
   Phone,
   PhoneCall,
   PoundSterling,
-  Share2,
 } from "lucide-react";
 import { AppShell, Card } from "@/components/fixi/AppShell";
 import { Pill, StatusBadge, UrgencyBadge } from "@/components/fixi/Badge";
@@ -106,21 +102,17 @@ function CasePage() {
   return (
     <AppShell>
       <div className="px-8 py-6">
-        <div className="flex items-center justify-between">
-          <Link
-            to="/maintenance"
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="h-4 w-4" /> Back to tickets
-          </Link>
-          <div className="flex items-center gap-2">
-            <ToolbarButton icon={Share2}>Share</ToolbarButton>
-            <ToolbarButton icon={Pencil}>Edit</ToolbarButton>
-            <button className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90">
-              <MoreHorizontal className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
+        {/* Share/Edit/a "..." kebab used to sit here (ToolbarButton, no
+         * onClick at all) -- no share link or case-editing endpoint exists
+         * in this phase's API, and the kebab had no menu behind it, so
+         * there was nothing to wire. CaseLifecycleActions below already
+         * covers every real write this page can make. */}
+        <Link
+          to="/maintenance"
+          className="flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" /> Back to tickets
+        </Link>
 
         <div className="mt-4 flex items-start justify-between gap-6">
           <div>
@@ -353,20 +345,6 @@ function RecordingPlayer({ communicationId }: { communicationId: string }) {
   );
 }
 
-function ToolbarButton({
-  icon: Icon,
-  children,
-}: {
-  icon: typeof Share2;
-  children: React.ReactNode;
-}) {
-  return (
-    <button className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-medium shadow-card hover:bg-accent">
-      <Icon className="h-3.5 w-3.5" /> {children}
-    </button>
-  );
-}
-
 function SectionLink({
   ticketId,
   section,
@@ -448,11 +426,34 @@ function Avatar({ initials: text, tone }: { initials: string; tone: "gray" | "gr
   );
 }
 
-function IconButton({ icon: Icon }: { icon: typeof Phone }) {
+/** Was a plain non-interactive button (no onClick, no href) for
+ * MessageSquare/Mail/Phone. MessageSquare is gone entirely -- this app has
+ * no messaging/chat concept (see AppShell's nav comment). Mail/Phone are
+ * now real mailto:/tel: links off the tenant's actual contact fields, and
+ * honour contact_allowed: a tenant who hasn't consented to contact
+ * doesn't get a live link even if a number/email is on file. */
+function IconButton({
+  icon: Icon,
+  href,
+  title,
+}: {
+  icon: typeof Phone;
+  href?: string | undefined;
+  title: string;
+}) {
+  const className =
+    "flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-card disabled:hover:text-muted-foreground";
+  if (!href) {
+    return (
+      <button type="button" disabled title={title} className={className}>
+        <Icon className="h-3.5 w-3.5" />
+      </button>
+    );
+  }
   return (
-    <button className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground">
+    <a href={href} title={title} className={className}>
       <Icon className="h-3.5 w-3.5" />
-    </button>
+    </a>
   );
 }
 
@@ -510,6 +511,20 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
   const propertyHistory = usePropertyHistory(property.id);
   const cancelAppointment = useCancelAppointment(c.id);
 
+  // Real mailto:/tel: targets off the tenant's actual contact fields --
+  // gated on contact_allowed (a real field, not assumed) so a tenant who
+  // hasn't consented to contact never gets a live link, even if a
+  // number/email happens to be on file.
+  const emailHref = tenant.contact_allowed && tenant.email ? `mailto:${tenant.email}` : undefined;
+  const emailTitle = !tenant.contact_allowed
+    ? "Tenant has not consented to contact"
+    : (tenant.email ?? "No email on file");
+  const phoneHref =
+    tenant.contact_allowed && tenant.phone_e164 ? `tel:${tenant.phone_e164}` : undefined;
+  const phoneTitle = !tenant.contact_allowed
+    ? "Tenant has not consented to contact"
+    : (tenant.phone_e164 ?? "No phone number on file");
+
   async function handleReschedule() {
     if (!next_appointment) return;
     const reason = window.prompt("Reason for rescheduling this visit?") ?? "";
@@ -543,30 +558,30 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
             </div>
           </div>
           <div className="flex gap-1.5">
-            <IconButton icon={MessageSquare} />
-            <IconButton icon={Mail} />
-            <IconButton icon={Phone} />
+            <IconButton icon={Mail} href={emailHref} title={emailTitle} />
+            <IconButton icon={Phone} href={phoneHref} title={phoneTitle} />
           </div>
         </div>
       </div>
 
       <div className="mt-4 border-t border-border pt-4">
         <Label>Assigned contractor</Label>
+        {/* No contractor-profile page exists in this phase (AssignedContractor
+         * has no route/detail endpoint beyond what's already shown inline
+         * here) -- a "View profile" button used to sit here with no onClick
+         * and nowhere to go. */}
         {assigned_contractor ? (
-          <div className="mt-2 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Avatar initials={initials(assigned_contractor.display_name)} tone="green" />
-              <div className="leading-tight">
-                <div className="text-[13px] font-medium">{assigned_contractor.display_name}</div>
-                <div className="text-xs text-muted-foreground">
-                  {assigned_contractor.trade ?? "—"}
-                </div>
-                {assigned_contractor.phone && (
-                  <div className="text-xs text-muted-foreground">{assigned_contractor.phone}</div>
-                )}
+          <div className="mt-2 flex items-center gap-3">
+            <Avatar initials={initials(assigned_contractor.display_name)} tone="green" />
+            <div className="leading-tight">
+              <div className="text-[13px] font-medium">{assigned_contractor.display_name}</div>
+              <div className="text-xs text-muted-foreground">
+                {assigned_contractor.trade ?? "—"}
               </div>
+              {assigned_contractor.phone && (
+                <div className="text-xs text-muted-foreground">{assigned_contractor.phone}</div>
+              )}
             </div>
-            <OutlineButton>View profile</OutlineButton>
           </div>
         ) : (
           <p className="mt-2 text-xs text-muted-foreground">No contractor assigned yet.</p>

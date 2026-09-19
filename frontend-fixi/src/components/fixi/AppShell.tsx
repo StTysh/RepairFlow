@@ -1,6 +1,8 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Wrench, Building2 } from "lucide-react";
 import { useDashboardMetrics } from "@/hooks/use-dashboard-metrics";
+import { useAuthedCreds } from "@/lib/auth-context";
+import { initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 // Contractors/Tenants/Insights/Messages/Reports were removed rather than
@@ -40,6 +42,7 @@ export function FixiLogo() {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const creds = useAuthedCreds();
   const metrics = useDashboardMetrics();
   const activeCount = metrics.data?.active;
   // Real signal from the backend (any job due/leased or a coordinator run
@@ -92,14 +95,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           </div>
+          {/* Real signed-in operator (see LoginGate's "Signed in as" bar) --
+           * used to be a hardcoded "Vlad Shuliar / Roche Properties" from
+           * the original mockup with no backing user/org model anywhere in
+           * this API. No organisation concept exists here, so this only
+           * shows what's actually known: the credential the operator
+           * signed in with. */}
           <div className="flex items-center gap-2.5 px-1">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-status-purple text-[11px] font-semibold text-status-purple-foreground">
-              VS
+              {initials(creds.username)}
             </div>
-            <div className="leading-tight">
-              <div className="text-xs font-semibold">Vlad Shuliar</div>
-              <div className="text-[11px] text-muted-foreground">Roche Properties</div>
-            </div>
+            <div className="text-xs font-semibold">{creds.username}</div>
           </div>
         </div>
       </aside>
