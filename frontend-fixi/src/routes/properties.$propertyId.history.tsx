@@ -1,7 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ChevronRight, FileQuestion, StickyNote, X } from "lucide-react";
 import { useState } from "react";
-import { z } from "zod";
 import { AppShell, Card } from "@/components/fixi/AppShell";
 import { Pill } from "@/components/fixi/Badge";
 import {
@@ -22,13 +21,17 @@ import houseExterior from "@/assets/house-exterior.jpg";
 // property's own address -- there's no property-by-id read endpoint in
 // this phase. Landing here directly (no search params) still works; the
 // header just falls back to showing the raw property id.
-const searchSchema = z.object({
-  address: z.string().optional(),
-  postcode: z.string().optional(),
-});
-
+//
+// No `validateSearch` here (verified live 2026-09-19): this route is the
+// only one in the app using it, and it reproducibly froze the renderer on
+// every load -- a hard navigation here always hits the SPA's 404-fallback
+// shell (only "/" is prerendered; see main.py/flatten-dist.mjs), and
+// TanStack Router's search validation running against that mismatched
+// shell during hydration sent it into a synchronous loop (confirmed:
+// Page.captureScreenshot and even script injection timed out completely,
+// meaning the main thread was fully blocked, not just slow). These two
+// params are cosmetic-only, so reading them unvalidated is safe.
 export const Route = createFileRoute("/properties/$propertyId/history")({
-  validateSearch: searchSchema,
   head: () => ({
     meta: [
       { title: "Property history — Fixi" },
@@ -53,7 +56,14 @@ const tabLabel: Record<Tab, string> = {
 
 function HistoryPage() {
   const { propertyId } = Route.useParams();
-  const { address, postcode } = Route.useSearch();
+  // Read directly rather than via Route.useSearch()/validateSearch -- see
+  // the Route definition above for why. Cosmetic-only (a missing/malformed
+  // value just falls back to showing the raw property id below), so an
+  // unvalidated read is fine here.
+  const searchParams =
+    typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const address = searchParams?.get("address") ?? undefined;
+  const postcode = searchParams?.get("postcode") ?? undefined;
   const [tab, setTab] = useState<Tab>("history");
   const history = usePropertyHistory(propertyId);
   const items = history.data?.items ?? [];
