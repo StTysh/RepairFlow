@@ -4,10 +4,15 @@ import { useState } from "react";
 import { z } from "zod";
 import { AppShell, Card } from "@/components/fixi/AppShell";
 import { Pill } from "@/components/fixi/Badge";
-import { usePropertyHistory } from "@/hooks/use-property-history";
+import {
+  QuotedByTradeDonut,
+  QuotedByYearBars,
+  RecurringIssuesList,
+} from "@/components/fixi/PropertyStatsCharts";
+import { usePropertyHistory, usePropertyStats } from "@/hooks/use-property-history";
 import { useSeedRefs } from "@/hooks/use-new-ticket";
 import { statusTone } from "@/lib/fixi-data";
-import { formatDate, titleCase } from "@/lib/format";
+import { formatDate, formatPence, titleCase } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import houseExterior from "@/assets/house-exterior.jpg";
 
@@ -46,14 +51,18 @@ const tabLabel: Record<Tab, string> = {
   notes: "Notes",
 };
 
-const OPEN_STATUSES = new Set(["ACTIVE", "AWAITING_CONFIRMATION", "ESCALATED"]);
-
 function HistoryPage() {
   const { propertyId } = Route.useParams();
   const { address, postcode } = Route.useSearch();
   const [tab, setTab] = useState<Tab>("history");
   const history = usePropertyHistory(propertyId);
   const items = history.data?.items ?? [];
+  // GET /properties/{id}/stats -- active_count/total_count here are the
+  // canonical counts (same strict "CaseStatus.ACTIVE only" reading
+  // DashboardMetricsResponse uses), not re-derived client-side from the
+  // history items above.
+  const propertyStats = usePropertyStats(propertyId);
+  const statsData = propertyStats.data;
   // Full property record (address/postcode/landlord ref/access notes,
   // tenant name/phone) -- sourced from the demo seed-refs list rather than
   // a dedicated property-by-id endpoint, since none exists in this phase.
@@ -65,13 +74,23 @@ function HistoryPage() {
   const propertyDetails =
     seedRefs.data?.properties.find((p) => p.property_id === propertyId) ?? null;
 
+  const statValue = (n: number | undefined) =>
+    propertyStats.isLoading ? "…" : propertyStats.isError ? "—" : String(n ?? 0);
+
   const stats = [
-    { value: String(items.length), label: "Total tickets" },
+    { value: statValue(statsData?.active_count), label: "Active tickets" },
+    { value: statValue(statsData?.total_count), label: "Total tickets" },
     {
-      value: String(items.filter((i) => OPEN_STATUSES.has(i.status)).length),
-      label: "Active tickets",
+      value: propertyStats.isLoading
+        ? "…"
+        : propertyStats.isError
+          ? "—"
+          : (statsData?.build_year?.toString() ?? "—"),
+      label:
+        !propertyStats.isLoading && !propertyStats.isError && statsData?.build_year == null
+          ? "Build year unknown"
+          : "Build year",
     },
-    { value: String(items.filter((i) => i.status === "RESOLVED").length), label: "Resolved" },
   ];
 
   return (
@@ -133,66 +152,116 @@ function HistoryPage() {
         </div>
 
         {tab === "history" && (
-          <Card className="mt-4 overflow-hidden">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                  <th className="px-4 py-2.5 font-medium">Date ↓</th>
-                  <th className="px-4 py-2.5 font-medium">Issue</th>
-                  <th className="px-4 py-2.5 font-medium">Status</th>
-                  <th className="px-4 py-2.5 font-medium">Outcome</th>
-                  <th className="px-4 py-2.5 font-medium">View</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.isLoading && (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-xs text-muted-foreground">
-                      Loading history…
-                    </td>
+          <>
+            {/* Real GET /properties/{id}/stats data -- see
+             * PropertyStatsCharts.tsx. Gated on isLoading/isError here
+             * (mirrors the "Loading history…" / "Could not load…" rows in
+             * the table below) so "no quoted work yet" is only ever shown
+             * once the backend has actually confirmed `[]` -- not while
+             * still waiting on the request or after it failed. */}
+            <section className="mt-4 grid gap-3 xl:grid-cols-3">
+              {propertyStats.isLoading ? (
+                <Card className="p-4 xl:col-span-3">
+                  <p className="py-6 text-center text-xs text-muted-foreground">
+                    Loading property insights…
+                  </p>
+                </Card>
+              ) : propertyStats.isError ? (
+                <Card className="p-4 xl:col-span-3">
+                  <p className="py-6 text-center text-xs text-destructive">
+                    Could not load property insights.
+                  </p>
+                </Card>
+              ) : (
+                <>
+                  <QuotedByTradeDonut data={statsData?.quoted_by_trade ?? []} />
+                  <QuotedByYearBars data={statsData?.quoted_by_year ?? []} />
+                  <RecurringIssuesList data={statsData?.recurring_issues ?? []} />
+                </>
+              )}
+            </section>
+
+            <Card className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[900px] text-[13px]">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                    <th className="px-4 py-2.5 font-medium">Date ↓</th>
+                    <th className="px-4 py-2.5 font-medium">Issue</th>
+                    <th className="px-4 py-2.5 font-medium">Trade</th>
+                    <th className="px-4 py-2.5 font-medium">Status</th>
+                    <th className="px-4 py-2.5 font-medium">Outcome</th>
+                    <th className="px-4 py-2.5 font-medium">Contractor</th>
+                    <th className="px-4 py-2.5 font-medium">Quoted</th>
+                    <th className="px-4 py-2.5 font-medium">View</th>
                   </tr>
-                )}
-                {history.isError && (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-xs text-destructive">
-                      Could not load property history.
-                    </td>
-                  </tr>
-                )}
-                {!history.isLoading && items.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-xs text-muted-foreground">
-                      No recorded cases for this property yet.
-                    </td>
-                  </tr>
-                )}
-                {items.map((h) => (
-                  <tr
-                    key={h.case_id}
-                    className="border-b border-border last:border-0 transition-colors hover:bg-muted/60"
-                  >
-                    <td className="px-4 py-3 text-muted-foreground">{formatDate(h.created_at)}</td>
-                    <td className="max-w-sm truncate px-4 py-3 font-medium" title={h.title}>
-                      {h.title}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Pill tone={statusTone(h.status)}>{h.status}</Pill>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{h.outcome ?? "—"}</td>
-                    <td className="px-4 py-3">
-                      <Link
-                        to="/maintenance/tickets/$ticketId/{-$section}"
-                        params={{ ticketId: h.case_id, section: undefined }}
-                        className="inline-flex rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                </thead>
+                <tbody>
+                  {history.isLoading && (
+                    <tr>
+                      <td
+                        colSpan={8}
+                        className="px-4 py-8 text-center text-xs text-muted-foreground"
                       >
-                        <ChevronRight className="h-4 w-4" />
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
+                        Loading history…
+                      </td>
+                    </tr>
+                  )}
+                  {history.isError && (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-8 text-center text-xs text-destructive">
+                        Could not load property history.
+                      </td>
+                    </tr>
+                  )}
+                  {!history.isLoading && items.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={8}
+                        className="px-4 py-8 text-center text-xs text-muted-foreground"
+                      >
+                        No recorded cases for this property yet.
+                      </td>
+                    </tr>
+                  )}
+                  {items.map((h) => (
+                    <tr
+                      key={h.case_id}
+                      className="border-b border-border last:border-0 transition-colors hover:bg-muted/60"
+                    >
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {formatDate(h.created_at)}
+                      </td>
+                      <td className="max-w-sm truncate px-4 py-3 font-medium" title={h.title}>
+                        {h.title}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {h.trade ? titleCase(h.trade) : "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Pill tone={statusTone(h.status)}>{h.status}</Pill>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{h.outcome ?? "—"}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {h.contractor_name ?? "—"}
+                      </td>
+                      <td className="px-4 py-3 font-medium">
+                        {formatPence(h.quoted_pence) ?? "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Link
+                          to="/maintenance/tickets/$ticketId/{-$section}"
+                          params={{ ticketId: h.case_id, section: undefined }}
+                          className="inline-flex rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          </>
         )}
 
         {tab === "property" && (

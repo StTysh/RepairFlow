@@ -19,6 +19,7 @@ import type {
   DemoSeedRefs,
   IntakeResponse,
   PropertyHistoryResponse,
+  PropertyStatsResponse,
   ReopenCaseRequest,
   ResumeCaseRequest,
   SimulationObservationRequest,
@@ -75,6 +76,13 @@ export function fetchPropertyHistory(
   propertyId: string,
 ): Promise<PropertyHistoryResponse> {
   return request<PropertyHistoryResponse>(creds, `/api/v1/properties/${propertyId}/history`);
+}
+
+export function fetchPropertyStats(
+  creds: OperatorCredentials,
+  propertyId: string,
+): Promise<PropertyStatsResponse> {
+  return request<PropertyStatsResponse>(creds, `/api/v1/properties/${propertyId}/stats`);
 }
 
 export function fetchDemoSeedRefs(creds: OperatorCredentials): Promise<DemoSeedRefs> {

@@ -372,11 +372,56 @@ export interface PropertyHistoryItem {
   created_at: string;
   resolved_at: string | null;
   outcome: string | null;
+  // Same selection rule as CaseListItem.assigned_contractor_name: null
+  // until some work order on the case actually has a contractor assigned.
+  contractor_name: string | null;
+  // Sum of quote_pence across every work order on the case. Named
+  // "quoted", not "cost"/"spend": nothing here represents money actually
+  // paid. Null when the case has no work orders yet.
+  quoted_pence: number | null;
+  // The case's "primary" trade, for property-history grouping. Null when
+  // the case has no work orders yet.
+  trade: Trade | null;
 }
 
 export interface PropertyHistoryResponse {
   property_id: string;
   items: PropertyHistoryItem[];
+}
+
+// --- Property stats (charts) --------------------------------------------------
+
+export interface TradeQuoteBreakdown {
+  trade: Trade;
+  quoted_pence: number;
+  // This trade's share of quoted_pence across all trades for the
+  // property, 0-100. Real computed value, 0 when the property has no
+  // quoted work at all.
+  percentage: number;
+}
+
+export interface YearlyQuoteTotal {
+  year: number;
+  quoted_pence: number;
+}
+
+export interface RecurringIssue {
+  trade: Trade;
+  occurrence_count: number;
+  last_occurred_at: string;
+}
+
+export interface PropertyStatsResponse {
+  property_id: string;
+  // Count of cases currently CaseStatus.ACTIVE for this property -- the
+  // same strict reading DashboardMetricsResponse uses, not a broader
+  // "still open" definition spanning AWAITING_CONFIRMATION/ESCALATED too.
+  active_count: number;
+  total_count: number;
+  quoted_by_trade: TradeQuoteBreakdown[];
+  quoted_by_year: YearlyQuoteTotal[];
+  recurring_issues: RecurringIssue[];
+  build_year: number | null;
 }
 
 // --- Demo / intake ------------------------------------------------------------
