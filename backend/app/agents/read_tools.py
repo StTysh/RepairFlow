@@ -14,15 +14,25 @@ from app.agents.dependencies import CoordinatorDeps
 from app.db import session_scope
 from app.domain import services
 from app.integrations.booking import mock_booking_connector
-from app.models import AvailabilityWindowModel, CaseEventModel, CommunicationModel, ContractorReportModel
+from app.models import (
+    AvailabilityWindowModel,
+    CaseEventModel,
+    CommunicationModel,
+    ContractorCandidateModel,
+    ContractorReportModel,
+    ResearchSnapshotModel,
+)
 from app.schemas import (
     AppointmentOptions,
     AppointmentQuery,
     CaseEvent,
     Communication,
+    ContractorCandidate,
     ContractorReport,
+    ContractorSearchResult,
     ReadEvents,
     RecordRef,
+    ResearchSnapshot,
 )
 
 
@@ -63,6 +73,28 @@ async def list_case_events(ctx: RunContext[CoordinatorDeps], query: ReadEvents) 
             )
         ).scalars().all()
         return [CaseEvent.model_validate(e) for e in rows]
+
+
+async def read_research(ctx: RunContext[CoordinatorDeps], ref: RecordRef) -> ContractorSearchResult:
+    """Reads a completed DISCOVER_CONTRACTORS result: the ResearchSnapshot
+    plus every UNVERIFIED ContractorCandidate it produced. A candidate here
+    is web evidence, never an approved contractor -- the coordinator must
+    not treat verification_status as anything other than UNVERIFIED from
+    this tool alone (docs/12, CLAUDE.md)."""
+    _check_scope(ctx.deps, ref.case_id)
+    async with session_scope() as session:
+        snapshot = await session.get(ResearchSnapshotModel, str(ref.record_id))
+        if snapshot is None or snapshot.case_id != ctx.deps.case_id:
+            raise ModelRetry(f"no research {ref.record_id} found in this case")
+        candidates = (
+            await session.execute(
+                select(ContractorCandidateModel).where(ContractorCandidateModel.research_id == snapshot.id)
+            )
+        ).scalars().all()
+        return ContractorSearchResult(
+            research=ResearchSnapshot.model_validate(snapshot),
+            candidates=[ContractorCandidate.model_validate(c) for c in candidates],
+        )
 
 
 async def find_appointment_options(ctx: RunContext[CoordinatorDeps], query: AppointmentQuery) -> AppointmentOptions:
