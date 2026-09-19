@@ -215,6 +215,7 @@ export interface CaseSnapshot {
   recent_events: CaseEvent[];
   policy_snapshot: Record<string, unknown>;
   snapshot_version: number;
+  agent_active: boolean;
 }
 
 export interface CaseDetailResponse {
@@ -232,6 +233,7 @@ export interface DashboardMetrics {
   cancelled: number;
   total: number;
   resolved_this_week: number;
+  agent_active: boolean;
 }
 
 // --- Property history --------------------------------------------------------

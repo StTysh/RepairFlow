@@ -1124,6 +1124,8 @@ async def load_case_snapshot(session: AsyncSession, case_id: str):
         ContractorModel,
         ContractorReportModel as ContractorReportModel_,
         DependencyModel as DependencyModel_,
+        JobModel as JobModel_,
+        OrchestrationRunModel as OrchestrationRunModel_,
         PropertyModel,
         TenantModel,
         WorkOrderModel as WorkOrderModel_,
@@ -1184,6 +1186,17 @@ async def load_case_snapshot(session: AsyncSession, case_id: str):
 
     assigned_contractor = (await assigned_contractors_for_cases(session, [case_id])).get(case_id)
 
+    has_pending_job = (
+        await session.execute(
+            select(JobModel_.id).where(JobModel_.case_id == case_id, JobModel_.status.in_(["PENDING", "LEASED"])).limit(1)
+        )
+    ).scalar_one_or_none()
+    has_running_run = (
+        await session.execute(
+            select(OrchestrationRunModel_.id).where(OrchestrationRunModel_.case_id == case_id, OrchestrationRunModel_.state == "RUNNING").limit(1)
+        )
+    ).scalar_one_or_none()
+
     now = utcnow()
     # "Not-yet-passed" means the visit window hasn't ended, not that it
     # hasn't started -- a visit currently in progress (start_at <= now <
@@ -1210,4 +1223,5 @@ async def load_case_snapshot(session: AsyncSession, case_id: str):
         recent_events=list(reversed([CaseEvent.model_validate(e) for e in recent_events])),
         policy_snapshot={"ordinary_authority_limit_pence": policy.ORDINARY_AUTHORITY_LIMIT_PENCE, "policy_version": 1},
         snapshot_version=case.version,
+        agent_active=bool(has_pending_job or has_running_run),
     )

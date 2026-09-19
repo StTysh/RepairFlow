@@ -1029,6 +1029,10 @@ class CaseSnapshot(ReadModel):
     recent_events: list[CaseEvent]
     policy_snapshot: dict
     snapshot_version: int
+    # Honest per-case signal, not a fake spinner: true only while a real
+    # job for THIS case is due/leased or a coordinator run on it is
+    # actually mid-flight.
+    agent_active: bool = False
 
 
 class CommandContext(StrictModel):
@@ -1254,6 +1258,9 @@ class DashboardMetricsResponse(StrictModel):
     cancelled: int
     total: int
     resolved_this_week: int
+    # Honest signal, not a fake spinner: true only while a real job is
+    # due/leased or a coordinator run is actually mid-flight.
+    agent_active: bool
 
 
 class PropertyHistoryItem(StrictModel):

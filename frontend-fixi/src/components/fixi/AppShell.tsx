@@ -59,6 +59,10 @@ export function FixiLogo() {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const metrics = useDashboardMetrics();
   const activeCount = metrics.data?.active;
+  // Real signal from the backend (any job due/leased or a coordinator run
+  // actually mid-flight) -- not decorative. Pulses only while something is
+  // genuinely happening; sits still and grey when idle.
+  const agentThinking = metrics.data?.agent_active ?? false;
   return (
     <div className="flex min-h-screen w-full bg-background font-sans text-foreground antialiased">
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-4 py-5 lg:flex">
@@ -83,11 +87,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="mt-auto space-y-3">
           <div className="flex items-center gap-2.5 rounded-lg border border-sidebar-border bg-card px-3 py-2.5 shadow-card">
             <span className="relative flex h-2.5 w-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-timeline-done opacity-60" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-timeline-done" />
+              {agentThinking && (
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-timeline-done opacity-60" />
+              )}
+              <span
+                className={cn(
+                  "relative inline-flex h-2.5 w-2.5 rounded-full",
+                  agentThinking ? "bg-timeline-done" : "bg-muted-foreground/40",
+                )}
+              />
             </span>
             <div className="leading-tight">
-              <div className="text-xs font-semibold">AI agent active</div>
+              <div className="text-xs font-semibold">
+                {agentThinking ? "AI agent thinking…" : "AI agent idle"}
+              </div>
               <div className="text-[11px] text-muted-foreground">
                 {activeCount !== undefined
                   ? `Handling ${activeCount} active case${activeCount === 1 ? "" : "s"}`

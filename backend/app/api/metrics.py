@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_session, require_operator
-from app.models import CaseEventModel, RepairCaseModel
+from app.models import CaseEventModel, JobModel, OrchestrationRunModel, RepairCaseModel
 from app.schemas import CaseStatus, DashboardMetricsResponse
 
 router = APIRouter(prefix="/api/v1/metrics", dependencies=[Depends(require_operator)])
@@ -37,6 +37,16 @@ async def dashboard_metrics(session: AsyncSession = Depends(get_session)) -> Das
         )
     ).scalar_one()
 
+    # Honest "is the agent doing anything right now" signal, not a fake
+    # spinner: true if any job is due/leased (coordinate, place a call,
+    # fetch a recording, ...) or a coordinator run is mid-flight.
+    has_pending_job = (
+        await session.execute(select(JobModel.id).where(JobModel.status.in_(["PENDING", "LEASED"])).limit(1))
+    ).scalar_one_or_none()
+    has_running_run = (
+        await session.execute(select(OrchestrationRunModel.id).where(OrchestrationRunModel.state == "RUNNING").limit(1))
+    ).scalar_one_or_none()
+
     return DashboardMetricsResponse(
         active=counts[CaseStatus.ACTIVE.value],
         awaiting_confirmation=counts[CaseStatus.AWAITING_CONFIRMATION.value],
@@ -45,4 +55,5 @@ async def dashboard_metrics(session: AsyncSession = Depends(get_session)) -> Das
         cancelled=counts[CaseStatus.CANCELLED.value],
         total=sum(counts.values()),
         resolved_this_week=resolved_this_week,
+        agent_active=bool(has_pending_job or has_running_run),
     )
