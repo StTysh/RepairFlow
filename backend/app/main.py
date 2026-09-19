@@ -14,7 +14,7 @@ from app.config import get_settings
 from app.db import create_all, dispose_engine
 from app.orchestration.worker import run_worker_loop
 
-FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend-fixi" / "dist"
 
 
 @asynccontextmanager
@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI):
     await dispose_engine()
 
 
-app = FastAPI(title="RepairFlow", lifespan=lifespan)
+app = FastAPI(title="Fixi", lifespan=lifespan)
 
 settings = get_settings()
 app.add_middleware(

@@ -1,8 +1,8 @@
-# RepairFlow — autonomous repair coordination
+# Fixi — autonomous repair coordination
 
 **Status:** implemented. Backend (FastAPI + SQLAlchemy + Pydantic AI) and frontend (React + Vite + Tailwind + React Flow) both run locally against a real SQLite database. 52 backend tests pass against a real on-disk file with zero external network calls in the default suite. See [docs/23](docs/23_RISKS_AND_OPEN_QUESTIONS.md) and [docs/26](docs/26_SPECIFICATION_REVIEW.md) for the full, dated implementation log — including every material deviation from the original spec and the exact state of each live-provider gate.
 
-RepairFlow maintains a repair case across calls, appointments and contractor reports. It interprets new evidence, proposes the next action, executes only policy-approved actions, and waits durably for the next real-world event.
+Fixi maintains a repair case across calls, appointments and contractor reports. It interprets new evidence, proposes the next action, executes only policy-approved actions, and waits durably for the next real-world event.
 
 ## Hero demonstration
 
