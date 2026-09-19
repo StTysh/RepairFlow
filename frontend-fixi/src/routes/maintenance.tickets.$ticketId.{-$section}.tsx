@@ -147,7 +147,7 @@ function CasePage() {
           </div>
         </div>
 
-        <div className="mt-5 flex items-center gap-1.5">
+        <div className="mt-5 flex flex-wrap items-center gap-1.5">
           <SectionLink ticketId={ticketId} section={undefined} active={section === null}>
             Overview
           </SectionLink>

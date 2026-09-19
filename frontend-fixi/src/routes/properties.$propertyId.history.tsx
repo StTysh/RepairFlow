@@ -196,7 +196,11 @@ function HistoryPage() {
 
         {tab === "property" && (
           <Card className="mt-4 p-5">
-            {propertyDetails ? (
+            {seedRefs.isLoading ? (
+              <p className="text-xs text-muted-foreground">Loading property details…</p>
+            ) : seedRefs.isError ? (
+              <p className="text-xs text-destructive">Could not load property details.</p>
+            ) : propertyDetails ? (
               <div className="divide-y divide-border">
                 <PropertyDetailRow label="Address" value={propertyDetails.address_line} />
                 <PropertyDetailRow label="Postcode" value={propertyDetails.postcode} />

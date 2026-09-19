@@ -528,3 +528,40 @@ async def test_cancel_appointment_idempotent_on_already_cancelled(app_db):
         assert r2.json()["outcome"]["status"] == "CANCELLED"
         # Second call is a no-op: no additional version bump.
         assert r2.json()["case_version"] == r1.json()["case_version"]
+
+
+@pytest.mark.asyncio
+async def test_seed_is_idempotent_per_row(app_db):
+    """app/seed.py's seed() runs on every backend boot (main.py), so a
+    regression here is a crash-on-startup, not just a bad fixture. Runs it
+    twice against an isolated DB: the second run must insert nothing and
+    must not raise (no per-row IntegrityError from re-adding an existing
+    property/tenant/contractor)."""
+    from app import seed as seed_module
+    from app.models import ContractorModel, PropertyModel, TenantModel
+
+    await seed_module.seed()
+
+    async with session_scope() as session:
+        assert len((await session.execute(select(PropertyModel))).scalars().all()) == len(
+            seed_module.PROPERTIES
+        )
+        assert len((await session.execute(select(TenantModel))).scalars().all()) == len(
+            seed_module.TENANTS
+        )
+        assert len((await session.execute(select(ContractorModel))).scalars().all()) == len(
+            seed_module.CONTRACTORS
+        )
+
+    await seed_module.seed()  # must not raise, and must add nothing further
+
+    async with session_scope() as session:
+        assert len((await session.execute(select(PropertyModel))).scalars().all()) == len(
+            seed_module.PROPERTIES
+        )
+        assert len((await session.execute(select(TenantModel))).scalars().all()) == len(
+            seed_module.TENANTS
+        )
+        assert len((await session.execute(select(ContractorModel))).scalars().all()) == len(
+            seed_module.CONTRACTORS
+        )
