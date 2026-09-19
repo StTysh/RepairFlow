@@ -7,6 +7,13 @@ import { tickets } from "@/lib/fixi-data";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import houseExterior from "@/assets/house-exterior.jpg";
+import mapleRoadExterior from "@/assets/property-maple-road.jpg";
+import stationViewExterior from "@/assets/property-station-view.jpg";
+import oakAvenueExterior from "@/assets/property-oak-avenue.jpg";
+import riverdaleRoadExterior from "@/assets/property-riverdale-road.jpg";
+import wellingtonCloseExterior from "@/assets/property-wellington-close.jpg";
+import birchLaneExterior from "@/assets/property-birch-lane.jpg";
+import churchRoadExterior from "@/assets/property-church-road.jpg";
 
 export const Route = createFileRoute("/maintenance/")({
   head: () => ({ meta: [
@@ -29,7 +36,16 @@ const kpis = [
   { value: "4.7 days", label: "Average time to resolve", trend: "↓ 32%", note: "vs last month", tone: "gray", Icon: BarChart3 },
 ] as const;
 const toneClass = { red: "bg-status-red text-status-red-foreground", blue: "bg-status-blue text-status-blue-foreground", amber: "bg-status-amber text-status-amber-foreground", green: "bg-status-green text-status-green-foreground", gray: "bg-status-gray text-status-gray-foreground" };
-const propertyImages = Array.from({ length: 8 }, () => houseExterior);
+const propertyImages = [
+  houseExterior,
+  mapleRoadExterior,
+  stationViewExterior,
+  oakAvenueExterior,
+  riverdaleRoadExterior,
+  wellingtonCloseExterior,
+  birchLaneExterior,
+  churchRoadExterior,
+];
 const visits = [
   { day: "14", company: "ABC Roofing", address: "14 King Street, E17", time: "15:00 – 17:00" },
   { day: "15", company: "HeatRight", address: "12 Oak Avenue, SE3", time: "10:00 – 12:00" },
