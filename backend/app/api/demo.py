@@ -26,6 +26,7 @@ from app.models import (
     ContractorReportModel,
     DependencyModel,
     JobModel,
+    MessageModel,
     MockReservationModel,
     MockSlotModel,
     OrchestrationRunModel,
@@ -218,7 +219,7 @@ async def demo_replay_case(case_id: str, session: AsyncSession = Depends(get_ses
     for model in (
         DependencyModel, ContractorReportModel, AppointmentModel, OrchestrationRunModel,
         ActionRecordModel, JobModel, ContractorCandidateModel, ResearchSnapshotModel,
-        AvailabilityWindowModel, CaseEventModel, WorkOrderModel,
+        AvailabilityWindowModel, CaseEventModel, MessageModel, WorkOrderModel,
     ):
         await session.execute(delete(model).where(model.case_id == case_id))
     await session.execute(delete(CommunicationModel).where(CommunicationModel.case_id == case_id))
@@ -294,7 +295,7 @@ async def demo_delete_case(case_id: str, session: AsyncSession = Depends(get_ses
     for model in (
         DependencyModel, ContractorReportModel, AppointmentModel, OrchestrationRunModel,
         ActionRecordModel, JobModel, ContractorCandidateModel, ResearchSnapshotModel,
-        AvailabilityWindowModel, CaseEventModel, WorkOrderModel, RepairIssueModel,
+        AvailabilityWindowModel, CaseEventModel, MessageModel, WorkOrderModel, RepairIssueModel,
     ):
         await session.execute(delete(model).where(model.case_id == case_id))
     await session.execute(delete(CommunicationModel).where(CommunicationModel.case_id == case_id))
@@ -343,7 +344,7 @@ async def demo_reset(confirm_reset: bool = Query(default=False), session: AsyncS
     for model in (
         DependencyModel, ContractorReportModel, AppointmentModel, OrchestrationRunModel,
         ActionRecordModel, JobModel, ContractorCandidateModel, ResearchSnapshotModel,
-        AvailabilityWindowModel, CaseEventModel, WorkOrderModel, RepairIssueModel,
+        AvailabilityWindowModel, CaseEventModel, MessageModel, WorkOrderModel, RepairIssueModel,
     ):
         await session.execute(delete(model).where(model.case_id.in_(clearable)))
 

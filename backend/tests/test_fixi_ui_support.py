@@ -1108,3 +1108,51 @@ async def test_notifications_empty_when_nothing_pending(app_db):
 
     assert body["items"] == []
     assert body["unread_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_demo_delete_replay_reset_clear_messages(app_db):
+    """MessageModel was added after demo.py's deletion sequences were
+    written, so it wasn't in any of them. Since messages.case_id is a real
+    FK and SQLite runs with PRAGMA foreign_keys=ON, deleting/replaying/
+    resetting a case that has messages raised an IntegrityError instead of
+    succeeding -- and every seeded demo case now has messages, so "Play
+    demo" and "Delete ticket" would both fail on them."""
+    from app.models import MessageModel
+
+    property_id, tenant_id, _roofer_id, _ = await _seed_reference_data()
+
+    async def case_with_message() -> str:
+        case_id = await _intake(property_id, tenant_id, "Case carrying a message thread")
+        async with session_scope() as session:
+            session.add(
+                MessageModel(
+                    id=uid(), case_id=case_id, sender_type="TENANT",
+                    sender_name="Test Tenant", text="Any update on this?",
+                )
+            )
+        return case_id
+
+    async def message_count(case_id: str) -> int:
+        async with session_scope() as session:
+            rows = (
+                await session.execute(select(MessageModel).where(MessageModel.case_id == case_id))
+            ).scalars().all()
+            return len(rows)
+
+    async with await _client() as client:
+        replay_case = await case_with_message()
+        assert await message_count(replay_case) == 1
+        response = await client.post(f"/api/v1/demo/cases/{replay_case}/replay", auth=AUTH)
+        assert response.status_code == 202, response.text
+        assert await message_count(replay_case) == 0
+
+        delete_case = await case_with_message()
+        response = await client.delete(f"/api/v1/demo/cases/{delete_case}", auth=AUTH)
+        assert response.status_code == 202, response.text
+        assert await message_count(delete_case) == 0
+
+        reset_case = await case_with_message()
+        response = await client.post("/api/v1/demo/reset?confirm_reset=true", auth=AUTH)
+        assert response.status_code == 202, response.text
+        assert await message_count(reset_case) == 0
