@@ -27,6 +27,7 @@ from app.schemas import (
     InterpretationStatus,
     JobKind,
     JobStatus,
+    MessageSenderType,
     OrchestrationRunState,
     PersonType,
     Provenance,
@@ -86,6 +87,10 @@ class PropertyModel(Base):
         RoofResponsibility, default=RoofResponsibility.UNKNOWN
     )
     access_notes: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    # Honest-or-null (CLAUDE.md): only ever a real construction year sourced
+    # from seed/reference data, never a plausible-looking guess. None for
+    # every seeded property today -- no source of truth for it exists yet.
+    build_year: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
 
 
 class TenantModel(Base):
@@ -338,6 +343,25 @@ class CommunicationModel(Base):
     outcome: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     recording: Mapped[dict] = mapped_column(sa.JSON, default=dict)
     provenance: Mapped[Provenance] = enum_column(Provenance, default=Provenance.LIVE)
+
+
+class MessageModel(Base):
+    """Display-only tenant/contractor/operator message-thread row.
+    Deliberately NOT part of CaseSnapshot and never read by the coordinator
+    (CLAUDE.md: "Chat history is not authoritative state") -- simpler than
+    CommunicationModel (no call/transcript/recording semantics), it exists
+    purely so the operator UI can show a per-case thread."""
+
+    __tablename__ = "messages"
+    __table_args__ = (sa.Index("ix_message_case_created", "case_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_uuid)
+    case_id: Mapped[str] = mapped_column(sa.ForeignKey("repair_cases.id"))
+    sender_type: Mapped[MessageSenderType] = enum_column(MessageSenderType)
+    sender_name: Mapped[str] = mapped_column(sa.String(128))
+    text: Mapped[str] = mapped_column(sa.Text)
+    photo_url: Mapped[str | None] = mapped_column(sa.String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
 class WebhookReceiptModel(Base):

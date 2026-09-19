@@ -307,6 +307,9 @@ class Property(ReadModel):
     landlord_reference: str
     roof_responsibility: RoofResponsibility
     access_notes: str | None = None
+    # Honest-or-null: only ever a real value from seed/reference data (see
+    # PropertyModel.build_year); no seeded property has one today.
+    build_year: int | None = None
 
 
 class Tenant(ReadModel):
@@ -1261,6 +1264,20 @@ class DashboardMetricsResponse(StrictModel):
     # Honest signal, not a fake spinner: true only while a real job is
     # due/leased or a coordinator run is actually mid-flight.
     agent_active: bool
+    # Mean hours between a case's created_at and its latest CASE_RESOLVED
+    # event, for cases resolved in the last 30 days. Null when nothing has
+    # resolved in that window -- never a fabricated average.
+    avg_resolution_hours: float | None = None
+    # "vs 7 days ago" trend arrows. See services.reconstructed_status_counts
+    # for exactly what "7 days ago" means here: a documented, deliberately
+    # simplified replay of the append-only CaseEvent log, not a literal
+    # historical audit (AWAITING_CONFIRMATION in particular has no
+    # dedicated CaseEvent, so it folds into ACTIVE for this reconstruction).
+    # Null whenever the percentage change would be undefined/misleading
+    # (nothing existed in that status 7 days ago to compare against).
+    active_delta_pct: float | None = None
+    awaiting_confirmation_delta_pct: float | None = None
+    escalated_delta_pct: float | None = None
 
 
 class PropertyHistoryItem(StrictModel):
@@ -1274,11 +1291,139 @@ class PropertyHistoryItem(StrictModel):
     # this case; null when there is nothing grounded to show -- never a
     # fabricated one-line summary.
     outcome: str | None = None
+    # Same selection rule as CaseListItem.assigned_contractor_name /
+    # CaseSnapshot.assigned_contractor (services._pick_assigned_work_order):
+    # null until some work order on the case actually has a contractor.
+    contractor_name: str | None = None
+    # Sum of WorkOrder.quote_pence across every work order on this case.
+    # Named "quoted", not "cost"/"spend": no field in this schema represents
+    # money actually paid (CLAUDE.md honesty rule; see WorkOrder.quote_pence
+    # vs approved_limit_pence). Null when the case has no work orders yet.
+    quoted_pence: int | None = None
+    # The case's "primary" trade, for property-history grouping/filtering.
+    # Judgment call (no product spec for this): prefer the work order
+    # marked required_for_resolution=True (the primary repair, not a
+    # scaffold/access prerequisite); if several qualify, or none do, take
+    # the first work order created. See services._pick_primary_trade.
+    trade: Trade | None = None
 
 
 class PropertyHistoryResponse(StrictModel):
     property_id: UUID
     items: list[PropertyHistoryItem]
+
+
+class TradeQuoteBreakdown(StrictModel):
+    trade: Trade
+    quoted_pence: int
+    # This trade's share of quoted_pence across all trades for the
+    # property, 0-100. Computed from real sums, never hardcoded; 0.0 when
+    # the property has no quoted work orders at all.
+    percentage: float
+
+
+class YearlyQuoteTotal(StrictModel):
+    year: int
+    quoted_pence: int
+
+
+class RecurringIssue(StrictModel):
+    trade: Trade
+    occurrence_count: int
+    last_occurred_at: datetime
+
+
+class PropertyStatsResponse(StrictModel):
+    """Property-level aggregation for the "breakdown by trade" / "annual
+    quoted total" / "recurring issues" charts. See
+    services.load_property_stats for the exact (documented, judgment-call)
+    computation of each derived field."""
+
+    property_id: UUID
+    # Count of cases currently in CaseStatus.ACTIVE for this property -- the
+    # same strict reading of "active" DashboardMetricsResponse uses (not a
+    # broader "still open" definition spanning AWAITING_CONFIRMATION/
+    # ESCALATED too).
+    active_count: int
+    total_count: int
+    quoted_by_trade: list[TradeQuoteBreakdown]
+    quoted_by_year: list[YearlyQuoteTotal]
+    recurring_issues: list[RecurringIssue]
+    build_year: int | None = None
+
+
+class UpcomingAppointmentItem(StrictModel):
+    """One row for the cross-case "upcoming appointments" list -- enough to
+    render date, contractor, address and time window without a follow-up
+    per-case fetch."""
+
+    appointment_id: UUID
+    case_id: UUID
+    case_number: int
+    case_title: str
+    work_order_id: UUID
+    trade: Trade
+    start_at: datetime
+    end_at: datetime
+    status: AppointmentStatus
+    property_address: str
+    contractor_id: UUID
+    contractor_name: str
+
+
+class UpcomingAppointmentsResponse(StrictModel):
+    items: list[UpcomingAppointmentItem]
+
+
+class MessageSenderType(str, enum.Enum):
+    TENANT = "TENANT"
+    CONTRACTOR = "CONTRACTOR"
+    OPERATOR = "OPERATOR"
+
+
+class Message(ReadModel):
+    """Display-only tenant/contractor/operator message-thread entry
+    (CLAUDE.md: chat history is not authoritative state). Never read by the
+    coordinator -- not part of CaseSnapshot, its prompt, or any tool it can
+    call; this exists purely so the operator UI can show a thread."""
+
+    id: UUID
+    case_id: UUID
+    sender_type: MessageSenderType
+    sender_name: str
+    text: str
+    photo_url: str | None = None
+    created_at: datetime
+
+
+class CaseMessagesResponse(StrictModel):
+    case_id: UUID
+    items: list[Message]
+
+
+class NotificationKind(str, enum.Enum):
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"
+    CASE_ESCALATED = "CASE_ESCALATED"
+
+
+class NotificationItem(StrictModel):
+    """Bell-icon feed row, derived entirely from existing ActionRecord/
+    CaseEvent rows -- see services.load_notifications for exactly how
+    `unread` is defined (there is no separate persisted read-state)."""
+
+    id: str
+    kind: NotificationKind
+    case_id: UUID
+    case_number: int
+    case_title: str
+    occurred_at: datetime
+    message: str
+    unread: bool
+
+
+class NotificationsResponse(StrictModel):
+    items: list[NotificationItem]
+    unread_count: int
 
 
 class DemoPropertyRef(StrictModel):
@@ -1293,6 +1438,7 @@ class DemoPropertyRef(StrictModel):
     landlord_reference: str
     roof_responsibility: RoofResponsibility
     access_notes: str | None = None
+    build_year: int | None = None
     tenant_name: str
     tenant_phone: str | None = None
 

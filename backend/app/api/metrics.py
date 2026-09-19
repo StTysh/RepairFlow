@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_session, require_operator
+from app.domain import services
 from app.models import CaseEventModel, JobModel, OrchestrationRunModel, RepairCaseModel
 from app.schemas import CaseStatus, DashboardMetricsResponse
 
@@ -47,6 +48,12 @@ async def dashboard_metrics(session: AsyncSession = Depends(get_session)) -> Das
         await session.execute(select(OrchestrationRunModel.id).where(OrchestrationRunModel.state == "RUNNING").limit(1))
     ).scalar_one_or_none()
 
+    avg_resolution_hours = await services.average_resolution_hours(session)
+
+    # See services.reconstructed_status_counts for exactly what "7 days
+    # ago" means (a documented simplification, not a literal replay).
+    historical = await services.reconstructed_status_counts(session, week_ago)
+
     return DashboardMetricsResponse(
         active=counts[CaseStatus.ACTIVE.value],
         awaiting_confirmation=counts[CaseStatus.AWAITING_CONFIRMATION.value],
@@ -56,4 +63,10 @@ async def dashboard_metrics(session: AsyncSession = Depends(get_session)) -> Das
         total=sum(counts.values()),
         resolved_this_week=resolved_this_week,
         agent_active=bool(has_pending_job or has_running_run),
+        avg_resolution_hours=avg_resolution_hours,
+        active_delta_pct=services.delta_pct(counts[CaseStatus.ACTIVE.value], historical["ACTIVE"]),
+        awaiting_confirmation_delta_pct=services.delta_pct(
+            counts[CaseStatus.AWAITING_CONFIRMATION.value], historical["AWAITING_CONFIRMATION"]
+        ),
+        escalated_delta_pct=services.delta_pct(counts[CaseStatus.ESCALATED.value], historical["ESCALATED"]),
     )
