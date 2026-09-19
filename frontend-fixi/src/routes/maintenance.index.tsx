@@ -226,8 +226,11 @@ function UrgencyDropdown({
 }) {
   return (
     <label className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent">
+      {/* appearance-none drops the browser's own arrow so only the
+       * ChevronDown below renders -- without it the native select arrow
+       * and this icon would both show. */}
       <select
-        className="bg-transparent outline-none"
+        className="appearance-none bg-transparent outline-none"
         value={value}
         onChange={(e) => onChange(e.target.value as Urgency | "ALL")}
       >

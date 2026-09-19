@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { ChevronRight, X } from "lucide-react";
 import { z } from "zod";
 import { AppShell, Card } from "@/components/fixi/AppShell";
@@ -42,7 +42,6 @@ const OPEN_STATUSES = new Set(["ACTIVE", "AWAITING_CONFIRMATION", "ESCALATED"]);
 function HistoryPage() {
   const { propertyId } = Route.useParams();
   const { address, postcode } = Route.useSearch();
-  const router = useRouter();
   const history = usePropertyHistory(propertyId);
   const items = history.data?.items ?? [];
 
@@ -59,13 +58,15 @@ function HistoryPage() {
     <AppShell>
       <div className="px-8 py-6">
         <div className="flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => router.history.back()}
+          {/* A plain Link rather than router.history.back(): landing here
+           * directly (bookmark, shared link, refresh) leaves no history
+           * entry to go back to, which would make Close a dead end. */}
+          <Link
+            to="/maintenance"
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
           >
             <X className="h-4 w-4" /> Close
-          </button>
+          </Link>
         </div>
 
         <div className="mt-4 flex items-start justify-between gap-6">

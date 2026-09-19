@@ -113,8 +113,11 @@ function CasePage() {
         <div className="mt-4 flex items-start justify-between gap-6">
           <div>
             <UrgencyBadge urgency={c.risk.urgency} />
-            <h1 className="mt-2 max-w-2xl text-2xl font-bold tracking-tight" title={c.title}>
-              #{c.case_number} – <span className="line-clamp-2">{c.title}</span>
+            <h1
+              className="mt-2 line-clamp-2 max-w-2xl text-2xl font-bold tracking-tight"
+              title={c.title}
+            >
+              #{c.case_number} – {c.title}
             </h1>
             <div className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
               <MapPin className="h-3.5 w-3.5" /> {address}
