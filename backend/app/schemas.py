@@ -1274,11 +1274,32 @@ class PropertyHistoryResponse(StrictModel):
     items: list[PropertyHistoryItem]
 
 
+class DemoPropertyRef(StrictModel):
+    """One seeded property + its tenant, for the "+ New Ticket" property
+    picker and the property-history "Property details" tab. Demo-only glue
+    (see DemoSeedRefs docstring) -- not a general properties API."""
+
+    property_id: UUID
+    tenant_id: UUID
+    address_line: str
+    postcode: str
+    landlord_reference: str
+    roof_responsibility: RoofResponsibility
+    access_notes: str | None = None
+    tenant_name: str
+    tenant_phone: str | None = None
+
+
 class DemoSeedRefs(StrictModel):
     property_id: UUID
     tenant_id: UUID
     roofer_id: UUID
     scaffolder_id: UUID
+    # All seeded properties (including the one above, which stays first for
+    # backward compatibility with anything defaulting to it). Queried live
+    # from the DB rather than the seed module's constants, so this is
+    # honest even if seeding hasn't (yet) inserted everything it defines.
+    properties: list[DemoPropertyRef] = []
 
 
 # --------------------------------------------------------------------------

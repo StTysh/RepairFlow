@@ -6,6 +6,7 @@ import {
   Calendar,
   Check,
   Copy,
+  FileQuestion,
   Mail,
   MapPin,
   MessageSquare,
@@ -13,6 +14,7 @@ import {
   Pencil,
   Phone,
   PhoneCall,
+  PoundSterling,
   Share2,
 } from "lucide-react";
 import { AppShell, Card } from "@/components/fixi/AppShell";
@@ -24,12 +26,17 @@ import { useCaseEvents } from "@/hooks/use-case-events";
 import { useCancelAppointment } from "@/hooks/use-case-actions";
 import { usePropertyHistory } from "@/hooks/use-property-history";
 import { useAuthedCreds } from "@/lib/auth-context";
-import type { Appointment, CaseSnapshot, Communication } from "@/api/types";
+import type { Appointment, CaseSnapshot, Communication, WorkOrder } from "@/api/types";
 import { statusTone } from "@/lib/fixi-data";
-import { formatDateRange, formatRelative, initials } from "@/lib/format";
+import { formatDateRange, formatPence, formatRelative, initials, titleCase } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const sections = ["summary", "timeline", "calls"] as const;
+// "property"/"files"/"costs" used to be a second, dead button row above
+// this one ("Overview/Property/Files/Costs" with no onClick at all) --
+// folded into this single functional tab set instead of leaving two rows
+// where only one worked. "Overview" (the null/undefined section) keeps its
+// old "All" behaviour: summary + timeline + calls together.
+const sections = ["summary", "timeline", "calls", "property", "files", "costs"] as const;
 type Section = (typeof sections)[number];
 
 export const Route = createFileRoute("/maintenance/tickets/$ticketId/{-$section}")({
@@ -140,25 +147,9 @@ function CasePage() {
           </div>
         </div>
 
-        <div className="mt-5 flex gap-6 border-b border-border text-sm">
-          {["Overview", "Property", "Files", "Costs"].map((t, i) => (
-            <button
-              key={t}
-              className={cn(
-                "-mb-px border-b-2 pb-2.5 font-medium transition-colors",
-                i === 0
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-
         <div className="mt-5 flex items-center gap-1.5">
           <SectionLink ticketId={ticketId} section={undefined} active={section === null}>
-            All
+            Overview
           </SectionLink>
           <SectionLink ticketId={ticketId} section="summary" active={section === "summary"}>
             Summary
@@ -169,6 +160,15 @@ function CasePage() {
           <SectionLink ticketId={ticketId} section="calls" active={section === "calls"}>
             Calls
           </SectionLink>
+          <SectionLink ticketId={ticketId} section="property" active={section === "property"}>
+            Property
+          </SectionLink>
+          <SectionLink ticketId={ticketId} section="files" active={section === "files"}>
+            Files
+          </SectionLink>
+          <SectionLink ticketId={ticketId} section="costs" active={section === "costs"}>
+            Costs
+          </SectionLink>
         </div>
 
         <div
@@ -177,6 +177,9 @@ function CasePage() {
           {show("summary") && <SummaryColumn snapshot={snapshot} />}
           {show("timeline") && <TimelineColumn caseId={c.id} />}
           {show("calls") && <CallsColumn communications={snapshot.communications} />}
+          {section === "property" && <PropertyColumn snapshot={snapshot} />}
+          {section === "files" && <FilesColumn />}
+          {section === "costs" && <CostsColumn workOrders={snapshot.work_orders} />}
         </div>
       </div>
     </AppShell>
@@ -644,6 +647,127 @@ function TimelineColumn({ caseId }: { caseId: string }) {
           );
         })}
       </ol>
+    </Card>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-2 text-[13px]">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="text-right font-medium">{value}</span>
+    </div>
+  );
+}
+
+const roofResponsibilityLabel: Record<string, string> = {
+  LANDLORD: "Landlord",
+  OTHER: "Other",
+  UNKNOWN: "Unknown",
+};
+
+/** Real property + tenant data already fetched as part of the case
+ * snapshot (snapshot.property / snapshot.tenant) -- this tab was dead
+ * before; every field here is a real render target, not mock data. */
+function PropertyColumn({ snapshot }: { snapshot: CaseSnapshot }) {
+  const { property, tenant } = snapshot;
+  return (
+    <Card className="p-5">
+      <SectionHeader title="Property" />
+      <div className="mt-2 divide-y divide-border">
+        <DetailRow label="Address" value={property.address_line} />
+        <DetailRow label="Postcode" value={property.postcode} />
+        <DetailRow label="Landlord reference" value={property.landlord_reference || "—"} />
+        <DetailRow
+          label="Roof responsibility"
+          value={roofResponsibilityLabel[property.roof_responsibility] ?? property.roof_responsibility}
+        />
+        <DetailRow label="Access notes" value={property.access_notes ?? "No access notes recorded."} />
+      </div>
+
+      <SectionHeader title="Tenant" />
+      <div className="mt-2 divide-y divide-border">
+        <DetailRow label="Name" value={tenant.display_name} />
+        <DetailRow label="Phone" value={tenant.phone_e164 ?? "No phone on file"} />
+        <DetailRow label="Email" value={tenant.email ?? "No email on file"} />
+        <DetailRow label="Preferred channel" value={titleCase(tenant.preferred_channel)} />
+        <DetailRow label="Contact allowed" value={tenant.contact_allowed ? "Yes" : "No"} />
+        <DetailRow
+          label="Accessibility notes"
+          value={tenant.accessibility_notes ?? "None recorded."}
+        />
+      </div>
+    </Card>
+  );
+}
+
+/** No file-attachment model exists anywhere in this codebase yet (backend
+ * or frontend) -- this is an honest empty state, not a stand-in for a real
+ * upload feature (that's separate, larger scope). Making the tab navigate
+ * and render this is the fix for the dead button; inventing a fake file
+ * list would not be. */
+function FilesColumn() {
+  return (
+    <Card className="flex flex-col items-center justify-center gap-2 p-10 text-center">
+      <FileQuestion className="h-8 w-8 text-muted-foreground" />
+      <p className="text-[13px] font-medium">No files attached to this ticket yet.</p>
+      <p className="max-w-xs text-xs text-muted-foreground">
+        File uploads aren't part of this build. Evidence for this ticket lives in the call
+        recordings and transcripts under the Calls tab.
+      </p>
+    </Card>
+  );
+}
+
+const workOrderKindLabel: Record<string, string> = {
+  REPAIR: "Repair",
+  SCAFFOLD_INSTALL: "Scaffold install",
+  SCAFFOLD_REMOVE: "Scaffold removal",
+};
+
+/** Real quote_pence/approved_limit_pence per work order, already on the
+ * snapshot -- labelled as a quote/approved ceiling rather than an actual
+ * invoiced cost, since that's what these fields actually are (docs/06). */
+function CostsColumn({ workOrders }: { workOrders: WorkOrder[] }) {
+  return (
+    <Card className="p-5">
+      <SectionHeader
+        title="Costs"
+        subtitle="Quotes and approved spend limits per work order -- not final invoiced costs."
+      />
+      {workOrders.length === 0 && (
+        <p className="mt-4 text-xs text-muted-foreground">No costs recorded yet.</p>
+      )}
+      <ul className="mt-4 space-y-3">
+        {workOrders.map((wo) => (
+          <li key={wo.id} className="rounded-lg border border-border p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-[13px] font-semibold">
+                  {workOrderKindLabel[wo.kind] ?? titleCase(wo.kind)}
+                  <Pill tone="gray">{titleCase(wo.trade)}</Pill>
+                </div>
+                <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{wo.scope}</p>
+              </div>
+              <Pill tone={wo.status === "COMPLETED" ? "green" : "blue"}>{titleCase(wo.status)}</Pill>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 border-t border-border pt-2.5 text-xs">
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <PoundSterling className="h-3 w-3" /> Quoted
+              </div>
+              <div className="text-right font-medium">
+                {formatPence(wo.quote_pence) ?? "No quote recorded"}
+              </div>
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <PoundSterling className="h-3 w-3" /> Approved limit
+              </div>
+              <div className="text-right font-medium">
+                {formatPence(wo.approved_limit_pence) ?? "No approved limit set"}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
     </Card>
   );
 }

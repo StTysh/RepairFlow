@@ -1,14 +1,14 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Plus, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useCreateTicket, useSeedRefs } from "@/hooks/use-new-ticket";
 
-/** "+ New Ticket" -- creates a real case via POST /api/v1/demo/intake,
- * using the single seeded demo property/tenant from GET
- * /api/v1/demo/seed-refs (there's no properties/tenants picker in this
- * phase; every ticket created here attaches to that one demo property,
- * matching how the rest of the seeded demo data works). Deliberately
- * minimal -- two fields -- per the "don't over-build this" guidance; no
+/** "+ New Ticket" -- creates a real case via POST /api/v1/demo/intake. The
+ * operator picks which seeded property/tenant it's reported against (GET
+ * /api/v1/demo/seed-refs now returns every seeded property, not just one),
+ * defaulting to the original hero-path property so the rehearsed demo
+ * flow's default behaviour doesn't change. Deliberately minimal beyond
+ * that picker -- per the "don't over-build this" guidance; no
  * safety-answers UI, no availability picker.
  *
  * Built directly on @radix-ui/react-dialog (already a dependency, no
@@ -17,25 +17,37 @@ import { useCreateTicket, useSeedRefs } from "@/hooks/use-new-ticket";
  * more than one field to fill in. */
 export function NewTicketDialog() {
   const [open, setOpen] = useState(false);
+  const [propertyId, setPropertyId] = useState<string | null>(null);
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
   const seedRefs = useSeedRefs();
   const createTicket = useCreateTicket();
 
-  const canSubmit = location.trim().length > 0 && description.trim().length > 0 && !!seedRefs.data;
+  // Default to the original hero-path property once refs load, unless the
+  // operator has already picked something else.
+  useEffect(() => {
+    if (seedRefs.data && propertyId === null) {
+      setPropertyId(seedRefs.data.property_id);
+    }
+  }, [seedRefs.data, propertyId]);
+
+  const selected = seedRefs.data?.properties.find((p) => p.property_id === propertyId) ?? null;
+  const canSubmit =
+    location.trim().length > 0 && description.trim().length > 0 && !!seedRefs.data && !!selected;
 
   function reset() {
     setLocation("");
     setDescription("");
+    setPropertyId(seedRefs.data?.property_id ?? null);
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!seedRefs.data) return;
+    if (!selected) return;
     try {
       await createTicket.mutateAsync({
-        property_id: seedRefs.data.property_id,
-        tenant_id: seedRefs.data.tenant_id,
+        property_id: selected.property_id,
+        tenant_id: selected.tenant_id,
         description: description.trim(),
         location: location.trim(),
         source_text: description.trim(),
@@ -70,7 +82,7 @@ export function NewTicketDialog() {
                 New maintenance ticket
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs text-muted-foreground">
-                Reported against the demo property. A case is created immediately.
+                Pick a property and reported issue. A case is created immediately.
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
@@ -86,6 +98,26 @@ export function NewTicketDialog() {
           <form onSubmit={(e) => void handleSubmit(e)}>
             <label
               className="mt-4 block text-xs font-medium text-muted-foreground"
+              htmlFor="new-ticket-property"
+            >
+              Property
+            </label>
+            <select
+              id="new-ticket-property"
+              className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              value={propertyId ?? ""}
+              onChange={(e) => setPropertyId(e.target.value)}
+              disabled={!seedRefs.data}
+            >
+              {(seedRefs.data?.properties ?? []).map((p) => (
+                <option key={p.property_id} value={p.property_id}>
+                  {p.address_line}
+                </option>
+              ))}
+            </select>
+
+            <label
+              className="mt-3 block text-xs font-medium text-muted-foreground"
               htmlFor="new-ticket-location"
             >
               Location
