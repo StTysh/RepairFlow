@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1032,12 +1032,11 @@ def _pick_assigned_work_order(work_orders: list[WorkOrderModel]) -> WorkOrderMod
     return pool[0]
 
 
-async def assigned_contractors_for_cases(session: AsyncSession, case_ids: list[str]) -> dict[str, "AssignedContractor"]:
-    """Batched version of the same selection rule, for the case-list
-    endpoint (avoids one query per row)."""
-    from app.models import ContractorModel
-    from app.schemas import AssignedContractor
-
+async def _work_orders_by_case_id(session: AsyncSession, case_ids: list[str]) -> dict[str, list[WorkOrderModel]]:
+    """Shared batched fetch: every work order for a set of cases, grouped by
+    case_id. Used anywhere that needs "this case's work orders" for more
+    than one case at a time (contractor selection, property history/stats)
+    so it isn't one query per row."""
     if not case_ids:
         return {}
     rows = (
@@ -1046,6 +1045,44 @@ async def assigned_contractors_for_cases(session: AsyncSession, case_ids: list[s
     by_case: dict[str, list[WorkOrderModel]] = {}
     for wo in rows:
         by_case.setdefault(wo.case_id, []).append(wo)
+    return by_case
+
+
+def _pick_primary_trade(work_orders: list[WorkOrderModel]) -> Trade | None:
+    """Trade shown for a case in property-history/stats views -- "what kind
+    of work is this", not "who is doing it" (that's
+    _pick_assigned_work_order, a different rule that only considers work
+    orders with a contractor already attached, so it can't answer this for
+    a case nobody has been assigned to yet).
+
+    Judgment call, not a documented product spec (CLAUDE.md docs/06 has no
+    "primary trade" concept): a CANCELLED work order is excluded first --
+    work that was called off is not what the case is "about" any more, and
+    counting it would distort quoted_by_trade/recurring_issues with a
+    trade nobody is actually doing. Among what's left, prefer the work
+    order marked required_for_resolution=True (the primary repair, not a
+    scaffold/access prerequisite discovered later); if several qualify, or
+    none do, take the one created first. None if every work order on the
+    case was cancelled (no active "primary trade" to report), not a
+    fallback to the cancelled one.
+    """
+    live = [wo for wo in work_orders if wo.status != WorkOrderStatus.CANCELLED]
+    if not live:
+        return None
+    required = [wo for wo in live if wo.required_for_resolution]
+    pool = sorted(required or live, key=lambda wo: wo.created_at)
+    return pool[0].trade
+
+
+async def assigned_contractors_for_cases(session: AsyncSession, case_ids: list[str]) -> dict[str, "AssignedContractor"]:
+    """Batched version of the same selection rule, for the case-list
+    endpoint (avoids one query per row)."""
+    from app.models import ContractorModel
+    from app.schemas import AssignedContractor
+
+    if not case_ids:
+        return {}
+    by_case = await _work_orders_by_case_id(session, case_ids)
 
     contractor_ids = {wo.contractor_id for wos in by_case.values() for wo in wos if wo.contractor_id}
     contractors_by_id: dict[str, ContractorModel] = {}
@@ -1074,8 +1111,9 @@ async def assigned_contractors_for_cases(session: AsyncSession, case_ids: list[s
 async def load_property_history(session: AsyncSession, property_id: str) -> list["PropertyHistoryItem"]:
     """Past (and current) cases for a property, each with an honest
     `outcome` when one is grounded in real data -- never a fabricated
-    summary (decision F: no cost/built-year/repeat-issue fields, those have
-    no backing data yet)."""
+    summary. contractor_name/quoted_pence/trade reuse the same selection
+    rules as the case-list endpoint and _pick_primary_trade, so this view
+    never disagrees with those."""
     from app.models import ContractorReportModel as ContractorReportModel_
     from app.schemas import PropertyHistoryItem
 
@@ -1084,6 +1122,9 @@ async def load_property_history(session: AsyncSession, property_id: str) -> list
             select(RepairCaseModel).where(RepairCaseModel.property_id == property_id).order_by(RepairCaseModel.created_at.desc())
         )
     ).scalars().all()
+    case_ids = [c.id for c in cases]
+    contractors_by_case = await assigned_contractors_for_cases(session, case_ids)
+    work_orders_by_case = await _work_orders_by_case_id(session, case_ids)
 
     items: list[PropertyHistoryItem] = []
     for case in cases:
@@ -1116,13 +1157,311 @@ async def load_property_history(session: AsyncSession, property_id: str) -> list
         if latest_completion_report is not None:
             outcome = latest_completion_report.text
 
+        case_work_orders = work_orders_by_case.get(case.id, [])
+        # A CANCELLED work order's quote is money that will never be spent
+        # -- excluded here for the same reason _pick_primary_trade excludes
+        # it from trade selection (honesty rule: don't count called-off
+        # work as "quoted").
+        priced = [
+            wo.quote_pence for wo in case_work_orders
+            if wo.quote_pence is not None and wo.status != WorkOrderStatus.CANCELLED
+        ]
+        quoted_pence = sum(priced) if priced else None
+        contractor = contractors_by_case.get(case.id)
+
         items.append(
             PropertyHistoryItem(
                 case_id=case.id, case_number=case.case_number, title=case.title, status=case.status,
                 created_at=case.created_at, resolved_at=resolved_at, outcome=outcome,
+                contractor_name=contractor.display_name if contractor else None,
+                quoted_pence=quoted_pence, trade=_pick_primary_trade(case_work_orders),
             )
         )
     return items
+
+
+async def load_property_stats(session: AsyncSession, property_id: str, build_year: int | None) -> "PropertyStatsResponse":
+    """Property-level chart data for the "breakdown by trade" / "annual
+    quoted total" / "recurring issues" views. Every number here is summed
+    from real WorkOrder.quote_pence rows or counted from real RepairCase
+    rows -- CLAUDE.md's "never fabricate data" applies as much to a chart
+    input as to a headline figure.
+
+    recurring_issues heuristic (a judgment call -- there is no documented
+    product spec for this, so it's spelled out here): group the property's
+    cases by their _pick_primary_trade, and report any trade with 2 or more
+    cases, most-recently-occurring first. "Occurred" is a case's
+    created_at (when the issue was first reported), not its resolution
+    date -- an unresolved recurring issue should still show up.
+    """
+    from app.schemas import PropertyStatsResponse, RecurringIssue, TradeQuoteBreakdown, YearlyQuoteTotal
+
+    cases = (
+        await session.execute(select(RepairCaseModel).where(RepairCaseModel.property_id == property_id))
+    ).scalars().all()
+    case_ids = [c.id for c in cases]
+    active_count = sum(1 for c in cases if c.status == CaseStatus.ACTIVE)
+    total_count = len(cases)
+
+    work_orders_by_case = await _work_orders_by_case_id(session, case_ids)
+
+    trade_totals: dict[Trade, int] = {}
+    year_totals: dict[int, int] = {}
+    trade_occurrences: dict[Trade, list[datetime]] = {}
+    for case in cases:
+        case_work_orders = work_orders_by_case.get(case.id, [])
+        for wo in case_work_orders:
+            # Same rule as load_property_history: a CANCELLED work order's
+            # quote is money that will never be spent, so it doesn't belong
+            # in a "quoted" total (see _pick_primary_trade's docstring).
+            if wo.quote_pence is None or wo.status == WorkOrderStatus.CANCELLED:
+                continue
+            trade_totals[wo.trade] = trade_totals.get(wo.trade, 0) + wo.quote_pence
+            year_totals[case.created_at.year] = year_totals.get(case.created_at.year, 0) + wo.quote_pence
+
+        primary_trade = _pick_primary_trade(case_work_orders)
+        if primary_trade is not None:
+            trade_occurrences.setdefault(primary_trade, []).append(case.created_at)
+
+    grand_total = sum(trade_totals.values())
+    quoted_by_trade = [
+        TradeQuoteBreakdown(
+            trade=trade, quoted_pence=amount,
+            percentage=round(amount / grand_total * 100, 1) if grand_total else 0.0,
+        )
+        for trade, amount in sorted(trade_totals.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+    quoted_by_year = [
+        YearlyQuoteTotal(year=year, quoted_pence=amount) for year, amount in sorted(year_totals.items())
+    ]
+    recurring_issues = sorted(
+        (
+            RecurringIssue(trade=trade, occurrence_count=len(occurrences), last_occurred_at=max(occurrences))
+            for trade, occurrences in trade_occurrences.items()
+            if len(occurrences) >= 2
+        ),
+        key=lambda item: item.last_occurred_at, reverse=True,
+    )
+
+    return PropertyStatsResponse(
+        property_id=property_id, active_count=active_count, total_count=total_count,
+        quoted_by_trade=quoted_by_trade, quoted_by_year=quoted_by_year,
+        recurring_issues=recurring_issues, build_year=build_year,
+    )
+
+
+# --- Dashboard trend deltas -------------------------------------------
+#
+# "vs N days ago" needs a historical snapshot, and this project has no
+# separate metrics-history table -- only the append-only CaseEvent log.
+# reconstructed_status_counts replays that log to approximate case status
+# as of a past cutoff. This is a *documented simplification*, not a full
+# state-machine replay: AWAITING_CONFIRMATION has no dedicated CaseEvent
+# (maybe_advance_to_awaiting_confirmation flips it silently, inferred live
+# from required-work-order completion state, which isn't itself
+# event-sourced), so it can never be reconstructed here and always comes
+# back as 0 -- which, combined with _delta_pct's "0 historical -> None"
+# rule below, means awaiting_confirmation_delta_pct is honestly always None
+# rather than a fabricated number.
+
+_STATUS_EVENT_MAP: dict[str, CaseStatus] = {
+    "CASE_CREATED": CaseStatus.ACTIVE,
+    "CASE_RESUMED": CaseStatus.ACTIVE,
+    "CASE_RESOLVED": CaseStatus.RESOLVED,
+    "CASE_ESCALATED": CaseStatus.ESCALATED,
+    "CASE_CANCELLED": CaseStatus.CANCELLED,
+}
+
+
+async def reconstructed_status_counts(session: AsyncSession, cutoff: datetime) -> dict[str, int]:
+    """Approximate ACTIVE/AWAITING_CONFIRMATION/ESCALATED case counts as of
+    `cutoff`. See the module-level comment above this function for what is
+    and isn't reconstructable."""
+    cases = (await session.execute(select(RepairCaseModel.id, RepairCaseModel.created_at))).all()
+    events = (
+        await session.execute(
+            select(CaseEventModel.case_id, CaseEventModel.type)
+            .where(CaseEventModel.occurred_at <= cutoff)
+            .order_by(CaseEventModel.occurred_at, CaseEventModel.seq)
+        )
+    ).all()
+
+    latest_status: dict[str, CaseStatus] = {}
+    for case_id, event_type in events:
+        mapped = _STATUS_EVENT_MAP.get(event_type)
+        if mapped is not None:
+            latest_status[case_id] = mapped
+
+    counts = {"ACTIVE": 0, "AWAITING_CONFIRMATION": 0, "ESCALATED": 0}
+    for case_id, created_at in cases:
+        if created_at > cutoff:
+            continue
+        status = latest_status.get(case_id, CaseStatus.ACTIVE)
+        if status.value in counts:
+            counts[status.value] += 1
+    return counts
+
+
+def delta_pct(current: int, historical: int) -> float | None:
+    """Percent change from `historical` to `current`. None (not a fake
+    number) whenever that's mathematically undefined or would mislead:
+    zero historical cases in that status means "no baseline to compare
+    against", not "infinite growth"."""
+    if historical == 0:
+        return None
+    return round((current - historical) / historical * 100, 1)
+
+
+async def average_resolution_hours(session: AsyncSession, window_days: int = 30) -> float | None:
+    """Mean hours between a case's created_at and its latest CASE_RESOLVED
+    event's occurred_at, restricted to cases that resolved within the last
+    `window_days` days. None when nothing resolved in that window -- never
+    an average over zero samples."""
+    cutoff = utcnow() - timedelta(days=window_days)
+    resolved_rows = (
+        await session.execute(
+            select(CaseEventModel.case_id, func.max(CaseEventModel.occurred_at))
+            .where(CaseEventModel.type == "CASE_RESOLVED")
+            .group_by(CaseEventModel.case_id)
+        )
+    ).all()
+    recent = {case_id: resolved_at for case_id, resolved_at in resolved_rows if resolved_at is not None and resolved_at >= cutoff}
+    if not recent:
+        return None
+
+    created_rows = (
+        await session.execute(select(RepairCaseModel.id, RepairCaseModel.created_at).where(RepairCaseModel.id.in_(recent.keys())))
+    ).all()
+    durations = [(recent[case_id] - created_at).total_seconds() / 3600 for case_id, created_at in created_rows]
+    if not durations:
+        return None
+    return round(sum(durations) / len(durations), 2)
+
+
+async def load_upcoming_appointments(session: AsyncSession, limit: int = 100) -> list["UpcomingAppointmentItem"]:
+    """Confirmed appointments starting in the future, across every case --
+    for a cross-case "upcoming visits" list. Only CONFIRMED appointments
+    with start_at in the future (a cancelled/finished/pending attempt never
+    appears here); ordered soonest first.
+
+    Deliberately `start_at >= now`, not `end_at >= now` like
+    load_case_snapshot's `next_appointment` (which intentionally keeps
+    showing a visit that's currently in progress). That means the two views
+    can disagree about a visit happening right now: the case-detail card
+    still shows it, this cross-case list has already dropped it. A "next
+    visits" list not including one already underway is the intended
+    behaviour here, not a bug -- flagged because it's easy to mistake for
+    an inconsistency between the two endpoints.
+    """
+    from app.models import ContractorModel, PropertyModel
+    from app.schemas import AppointmentStatus as AppointmentStatus_
+    from app.schemas import UpcomingAppointmentItem
+
+    now = utcnow()
+    rows = (
+        await session.execute(
+            select(
+                AppointmentModel, WorkOrderModel.trade, RepairCaseModel.case_number, RepairCaseModel.title,
+                PropertyModel.address_line, ContractorModel.display_name,
+            )
+            .join(WorkOrderModel, WorkOrderModel.id == AppointmentModel.work_order_id)
+            .join(RepairCaseModel, RepairCaseModel.id == AppointmentModel.case_id)
+            .join(PropertyModel, PropertyModel.id == RepairCaseModel.property_id)
+            .join(ContractorModel, ContractorModel.id == AppointmentModel.contractor_id)
+            .where(AppointmentModel.status == AppointmentStatus_.CONFIRMED, AppointmentModel.start_at >= now)
+            .order_by(AppointmentModel.start_at.asc())
+            .limit(limit)
+        )
+    ).all()
+    return [
+        UpcomingAppointmentItem(
+            appointment_id=appt.id, case_id=appt.case_id, case_number=case_number, case_title=case_title,
+            work_order_id=appt.work_order_id, trade=trade, start_at=appt.start_at, end_at=appt.end_at,
+            status=appt.status, property_address=address_line, contractor_id=appt.contractor_id,
+            contractor_name=contractor_name,
+        )
+        for appt, trade, case_number, case_title, address_line, contractor_name in rows
+    ]
+
+
+async def load_case_messages(session: AsyncSession, case_id: str) -> list["Message"]:
+    """Display-only message thread for a case, oldest first. Never fed to
+    the coordinator -- see MessageModel's docstring."""
+    from app.models import MessageModel
+    from app.schemas import Message
+
+    rows = (
+        await session.execute(
+            select(MessageModel).where(MessageModel.case_id == case_id).order_by(MessageModel.created_at.asc())
+        )
+    ).scalars().all()
+    return [Message.model_validate(m) for m in rows]
+
+
+async def load_notifications(session: AsyncSession, limit: int = 50) -> list["NotificationItem"]:
+    """Bell-icon feed, derived entirely from existing ActionRecord/CaseEvent
+    rows -- no separate notification-authoring system, and (per the task
+    that added this) no persisted read/unread-tracking table either, so
+    `unread` has to be defined deterministically from data that already
+    exists:
+
+    - AWAITING_APPROVAL: this query only ever returns actions currently in
+      that state, so every row here is, by construction, still awaiting an
+      operator decision -- always unread=True. Once approved/rejected the
+      action moves to a different `state` and simply stops appearing.
+    - CASE_ESCALATED: the escalation CaseEvent itself is permanent (append-
+      only log), but whether it still needs attention is not -- unread is
+      True only while the case's *current* status is still ESCALATED right
+      now; once resumed/resolved/cancelled, the same historical event stays
+      visible (so the feed doesn't silently forget it happened) but flips
+      to read.
+    """
+    from app.models import ActionRecordModel
+    from app.schemas import NotificationItem, NotificationKind
+
+    pending_actions = (
+        await session.execute(
+            select(ActionRecordModel, RepairCaseModel.case_number, RepairCaseModel.title)
+            .join(RepairCaseModel, RepairCaseModel.id == ActionRecordModel.case_id)
+            .where(ActionRecordModel.state == "AWAITING_APPROVAL")
+            .order_by(ActionRecordModel.updated_at.desc())
+            .limit(limit)
+        )
+    ).all()
+    escalations = (
+        await session.execute(
+            select(CaseEventModel, RepairCaseModel.case_number, RepairCaseModel.title, RepairCaseModel.status)
+            .join(RepairCaseModel, RepairCaseModel.id == CaseEventModel.case_id)
+            .where(CaseEventModel.type == "CASE_ESCALATED")
+            .order_by(CaseEventModel.occurred_at.desc())
+            .limit(limit)
+        )
+    ).all()
+
+    items: list[NotificationItem] = []
+    for action, case_number, title in pending_actions:
+        proposal = action.proposal or {}
+        message = proposal.get("decision_summary") or f"{action.kind} awaiting approval"
+        items.append(
+            NotificationItem(
+                id=f"action:{action.id}", kind=NotificationKind.AWAITING_APPROVAL, case_id=action.case_id,
+                case_number=case_number, case_title=title, occurred_at=action.updated_at,
+                message=message, unread=True,
+            )
+        )
+    for event, case_number, title, case_status in escalations:
+        payload = event.payload or {}
+        message = payload.get("reason") or "Case escalated"
+        items.append(
+            NotificationItem(
+                id=f"event:{event.id}", kind=NotificationKind.CASE_ESCALATED, case_id=event.case_id,
+                case_number=case_number, case_title=title, occurred_at=event.occurred_at,
+                message=message, unread=(case_status == CaseStatus.ESCALATED),
+            )
+        )
+
+    items.sort(key=lambda item: item.occurred_at, reverse=True)
+    return items[:limit]
 
 
 async def load_case_snapshot(session: AsyncSession, case_id: str):

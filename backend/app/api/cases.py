@@ -24,6 +24,8 @@ from app.models import (
     RepairCaseModel,
     RepairIssueModel,
     ResearchSnapshotModel,
+    TenantModel,
+    WorkOrderModel,
 )
 from app.schemas import (
     AppointmentCancelResponse,
@@ -33,6 +35,7 @@ from app.schemas import (
     CaseEventsResponse,
     CaseListItem,
     CaseListResponse,
+    CaseMessagesResponse,
     CaseRunsResponse,
     CaseStatus,
     CaseVersionResponse,
@@ -42,12 +45,14 @@ from app.schemas import (
     IntakeSubmission,
     OrchestrationRun,
     PropertyHistoryResponse,
+    PropertyStatsResponse,
     ReopenCaseRequest,
     ReportSubmission,
     ReportSubmitResponse,
     ResearchSnapshot,
     RetryRecordingResponse,
     ResumeCaseRequest,
+    UpcomingAppointmentsResponse,
     EvidenceRef,
     Provenance,
     SourceType,
@@ -75,12 +80,16 @@ async def list_cases(
     status: CaseStatus | None = None,
     property_id: str | None = None,
     q: str | None = None,
+    contractor_id: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> CaseListResponse:
     query = (
         select(RepairCaseModel, PropertyModel.address_line, RepairIssueModel.description)
         .join(PropertyModel, RepairCaseModel.property_id == PropertyModel.id)
         .outerjoin(RepairIssueModel, RepairIssueModel.case_id == RepairCaseModel.id)
+        # Only needed for the `q` search below (tenant display name), but
+        # tenant_id is a NOT NULL FK so this can't drop any case row.
+        .join(TenantModel, TenantModel.id == RepairCaseModel.tenant_id)
         .order_by(RepairCaseModel.updated_at.desc())
         .limit(limit + 1)
     )
@@ -97,8 +106,27 @@ async def list_cases(
     if q:
         like = f"%{q}%"
         query = query.where(
-            or_(RepairCaseModel.title.like(like), RepairIssueModel.description.like(like))
+            or_(
+                RepairCaseModel.title.like(like),
+                RepairIssueModel.description.like(like),
+                PropertyModel.address_line.like(like),
+                TenantModel.display_name.like(like),
+            )
         )
+    if contractor_id is not None:
+        # "Active work order" = not finished (COMPLETED/CANCELLED); a case
+        # whose only work order for this contractor is long since done
+        # shouldn't show up under a live "filter by contractor" control.
+        active_work_order_for_contractor = (
+            select(WorkOrderModel.id)
+            .where(
+                WorkOrderModel.case_id == RepairCaseModel.id,
+                WorkOrderModel.contractor_id == contractor_id,
+                WorkOrderModel.status.notin_(["COMPLETED", "CANCELLED"]),
+            )
+            .exists()
+        )
+        query = query.where(active_work_order_for_contractor)
 
     rows = (await session.execute(query)).all()
     next_cursor = None
@@ -260,6 +288,17 @@ async def cancel_appointment(appointment_id: str, request: CancellationRequest, 
     return AppointmentCancelResponse(appointment_id=appointment_id, outcome=outcome, case_version=case_version)
 
 
+@router.get("/appointments/upcoming")
+async def get_upcoming_appointments(
+    limit: int = Query(default=100, ge=1, le=200), session: AsyncSession = Depends(get_session),
+) -> UpcomingAppointmentsResponse:
+    """Cross-case "next visits" list -- date, contractor, property address
+    and time window for every CONFIRMED appointment starting in the
+    future, soonest first."""
+    items = await services.load_upcoming_appointments(session, limit=limit)
+    return UpcomingAppointmentsResponse(items=items)
+
+
 @router.get("/properties/{property_id}/history")
 async def get_property_history(property_id: str, session: AsyncSession = Depends(get_session)) -> PropertyHistoryResponse:
     prop = await session.get(PropertyModel, property_id)
@@ -267,6 +306,27 @@ async def get_property_history(property_id: str, session: AsyncSession = Depends
         raise NotFoundError(f"property {property_id} not found")
     items = await services.load_property_history(session, property_id)
     return PropertyHistoryResponse(property_id=property_id, items=items)
+
+
+@router.get("/properties/{property_id}/stats")
+async def get_property_stats(property_id: str, session: AsyncSession = Depends(get_session)) -> PropertyStatsResponse:
+    prop = await session.get(PropertyModel, property_id)
+    if prop is None:
+        raise NotFoundError(f"property {property_id} not found")
+    return await services.load_property_stats(session, property_id, prop.build_year)
+
+
+@router.get("/cases/{case_id}/messages")
+async def get_case_messages(case_id: str, session: AsyncSession = Depends(get_session)) -> CaseMessagesResponse:
+    """Read-only tenant/contractor/operator message thread for a case
+    (CLAUDE.md: chat history is not authoritative state -- display only,
+    never fed to the coordinator). No write endpoint exists yet, so this
+    is honestly empty until one does."""
+    case = await session.get(RepairCaseModel, case_id)
+    if case is None:
+        raise NotFoundError(f"case {case_id} not found")
+    items = await services.load_case_messages(session, case_id)
+    return CaseMessagesResponse(case_id=case_id, items=items)
 
 
 @router.get("/communications/{communication_id}")

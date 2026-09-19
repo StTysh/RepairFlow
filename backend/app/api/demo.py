@@ -91,6 +91,7 @@ async def demo_seed_refs(session: AsyncSession = Depends(get_session)) -> DemoSe
             landlord_reference=prop.landlord_reference,
             roof_responsibility=prop.roof_responsibility,
             access_notes=prop.access_notes,
+            build_year=prop.build_year,
             tenant_name=tenant.display_name,
             tenant_phone=tenant.phone_e164,
         )

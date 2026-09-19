@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -565,3 +566,477 @@ async def test_seed_is_idempotent_per_row(app_db):
         assert len((await session.execute(select(ContractorModel))).scalars().all()) == len(
             seed_module.CONTRACTORS
         )
+
+
+# --------------------------------------------------------------------------
+# G. Property history enrichment (contractor_name / quoted_pence / trade)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_property_history_enriched_fields(app_db):
+    property_id, tenant_id, roofer_id, _ = await _seed_reference_data()
+    scheduled_case_id, _c, _wo, _appt = await _drive_case_to_scheduled(property_id, tenant_id, roofer_id, "Enriched history test")
+    plain_case_id = await _intake(property_id, tenant_id, "Just reported, no work order yet")
+
+    async with await _client() as client:
+        r = await client.get(f"/api/v1/properties/{property_id}/history", auth=AUTH)
+        assert r.status_code == 200
+        by_case = {item["case_id"]: item for item in r.json()["items"]}
+
+    scheduled_item = by_case[scheduled_case_id]
+    assert scheduled_item["contractor_name"] == "Apex Roofing"
+    assert scheduled_item["quoted_pence"] == 10_000
+    assert scheduled_item["trade"] == "ROOFING"
+
+    plain_item = by_case[plain_case_id]
+    assert plain_item["contractor_name"] is None
+    assert plain_item["quoted_pence"] is None
+    assert plain_item["trade"] is None
+
+
+@pytest.mark.asyncio
+async def test_property_history_and_stats_exclude_cancelled_work_orders(app_db):
+    """A CANCELLED work order's quote is money that will never be spent, and
+    its trade isn't what the case is actually "about" any more -- both
+    services._pick_primary_trade and the quoted_pence/quoted_by_trade sums
+    must exclude it. No domain service currently cancels a work order
+    in-place, so this sets WorkOrderModel.status directly to exercise the
+    query-level exclusion in isolation."""
+    property_id, tenant_id, roofer_id, _ = await _seed_reference_data()
+    case_id, _c, repair_wo, _appt = await _drive_case_to_scheduled(property_id, tenant_id, roofer_id, "Cancelled work order test")
+
+    async with session_scope() as session:
+        wo = await session.get(WorkOrderModel, repair_wo.id)
+        issue_id = wo.issue_id
+        wo.status = "CANCELLED"
+        session.add(
+            WorkOrderModel(
+                id=uid(), case_id=case_id, issue_id=issue_id, kind="SCAFFOLD_INSTALL", trade="SCAFFOLDING",
+                scope="Erect scaffold.", status="READY", required_for_resolution=True, quote_pence=30_000,
+            )
+        )
+
+    async with await _client() as client:
+        history = (await client.get(f"/api/v1/properties/{property_id}/history", auth=AUTH)).json()
+        stats = (await client.get(f"/api/v1/properties/{property_id}/stats", auth=AUTH)).json()
+
+    item = next(i for i in history["items"] if i["case_id"] == case_id)
+    assert item["trade"] == "SCAFFOLDING"
+    assert item["quoted_pence"] == 30_000  # cancelled REPAIR's 10_000 excluded
+
+    by_trade = {row["trade"]: row for row in stats["quoted_by_trade"]}
+    assert by_trade.keys() == {"SCAFFOLDING"}
+    assert by_trade["SCAFFOLDING"]["quoted_pence"] == 30_000
+
+
+# --------------------------------------------------------------------------
+# H. Property build_year (honest-or-null)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_property_build_year_honestly_null_for_seeded_properties(app_db):
+    from app import seed as seed_module
+
+    await seed_module.seed()
+
+    async with await _client() as client:
+        r = await client.get("/api/v1/demo/seed-refs", auth=AUTH)
+        assert r.status_code == 200
+        body = r.json()
+
+    assert body["properties"], "expected seeded demo properties"
+    assert all(p["build_year"] is None for p in body["properties"])
+
+
+# --------------------------------------------------------------------------
+# I. Property-level stats endpoint
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_property_stats_breakdown_and_recurring_issues(app_db):
+    property_id, tenant_id, roofer_id, _ = await _seed_reference_data()
+
+    first_case, _c1, _wo1, _a1 = await _drive_case_to_scheduled(property_id, tenant_id, roofer_id, "First roof leak")
+    second_case, _c2, _wo2, _a2 = await _drive_case_to_scheduled(property_id, tenant_id, roofer_id, "Second roof leak")
+
+    async with await _client() as client:
+        r = await client.get(f"/api/v1/properties/{property_id}/stats", auth=AUTH)
+        assert r.status_code == 200
+        body = r.json()
+
+    assert body["property_id"] == property_id
+    assert body["total_count"] == 2
+    # Both cases are still ACTIVE (SCHEDULED work order, not yet
+    # AWAITING_CONFIRMATION).
+    assert body["active_count"] == 2
+    assert body["build_year"] is None
+
+    by_trade = {row["trade"]: row for row in body["quoted_by_trade"]}
+    assert by_trade.keys() == {"ROOFING"}
+    assert by_trade["ROOFING"]["quoted_pence"] == 20_000  # 10_000 REPAIR quote x 2 cases
+    assert by_trade["ROOFING"]["percentage"] == 100.0
+
+    assert len(body["quoted_by_year"]) == 1
+    assert body["quoted_by_year"][0]["quoted_pence"] == 20_000
+
+    recurring = {row["trade"]: row for row in body["recurring_issues"]}
+    assert recurring.keys() == {"ROOFING"}
+    assert recurring["ROOFING"]["occurrence_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_property_stats_unknown_property_404s(app_db):
+    async with await _client() as client:
+        r = await client.get(f"/api/v1/properties/{uid()}/stats", auth=AUTH)
+        assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_property_stats_empty_property_returns_honest_zeros(app_db):
+    property_id, _tenant_id, _roofer_id, _ = await _seed_reference_data()
+
+    async with await _client() as client:
+        r = await client.get(f"/api/v1/properties/{property_id}/stats", auth=AUTH)
+        assert r.status_code == 200
+        body = r.json()
+
+    assert body["total_count"] == 0
+    assert body["active_count"] == 0
+    assert body["quoted_by_trade"] == []
+    assert body["quoted_by_year"] == []
+    assert body["recurring_issues"] == []
+
+
+# --------------------------------------------------------------------------
+# J. Dashboard metrics: avg_resolution_hours + trend deltas
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dashboard_metrics_delta_pct_and_avg_resolution_hours(app_db):
+    property_id, tenant_id, roofer_id, _ = await _seed_reference_data()
+    case_id = await _intake(property_id, tenant_id, "Backdated case for trend test")
+
+    ten_days_ago = datetime.now(timezone.utc) - timedelta(days=10)
+    async with session_scope() as session:
+        case = await session.get(RepairCaseModel, case_id)
+        case.created_at = ten_days_ago
+        created_event = (
+            await session.execute(
+                select(services.CaseEventModel).where(
+                    services.CaseEventModel.case_id == case_id, services.CaseEventModel.type == "CASE_CREATED",
+                )
+            )
+        ).scalars().first()
+        created_event.occurred_at = ten_days_ago
+
+    await _broad_tenant_window(case_id, tenant_id)
+    coordinator = FixtureCoordinator()
+    coordinator.queue(_triage_builder("Backdated case for trend test"))
+    coordinator.queue(_schedule_builder(Trade.ROOFING, roofer_id, "REPAIR"))
+    await worker.drain_due_jobs(coordinator, raise_on_error=True)
+
+    repair_wo = await _work_order(case_id, "REPAIR")
+    appointment = await _appointment_for(repair_wo.id, attempt_number=1)
+    await _inject_report(work_order_id=repair_wo.id, appointment_id=appointment.id, contractor_id=roofer_id, text="Roof repair complete.")
+    coordinator.queue(_accept_report_builder("REPAIR"))
+    coordinator.queue(_request_confirmation_builder)
+    await worker.drain_due_jobs(coordinator, raise_on_error=True)
+
+    async with session_scope() as session:
+        confirmation_comm = (
+            await session.execute(select(CommunicationModel).where(CommunicationModel.case_id == case_id, CommunicationModel.purpose == "FOLLOW_UP"))
+        ).scalars().first()
+        confirmation_comm_id = confirmation_comm.id
+    async with session_scope() as session:
+        await services.record_observations(
+            session, case_id=case_id, communication_id=confirmation_comm_id,
+            submission=ObservationSubmission(communication_id=uuid.UUID(confirmation_comm_id), tenant_confirms_resolved=True, source_text="Yes, thanks!"),
+            actor=ActorContext("VOICE_TOOL", confirmation_comm_id, uid()),
+        )
+    coordinator.queue(_resolve_builder)
+    await worker.drain_due_jobs(coordinator, raise_on_error=True)
+
+    async with await _client() as client:
+        r = await client.get("/api/v1/metrics/dashboard", auth=AUTH)
+        assert r.status_code == 200
+        body = r.json()
+
+    assert body["resolved"] == 1
+    assert body["active"] == 0
+    # Resolved "now", created ~10 days ago -> well over 100 hours.
+    assert body["avg_resolution_hours"] is not None
+    assert body["avg_resolution_hours"] > 100
+    # 7 days ago this case's only event was CASE_CREATED -> reconstructed
+    # ACTIVE; today it's RESOLVED (0 ACTIVE) -> a full swing to -100%.
+    assert body["active_delta_pct"] == -100.0
+    # No CaseEvent ever marks entry into AWAITING_CONFIRMATION, so this must
+    # always come back None rather than a fabricated number (see
+    # services.reconstructed_status_counts).
+    assert body["awaiting_confirmation_delta_pct"] is None
+
+
+@pytest.mark.asyncio
+async def test_dashboard_metrics_no_resolutions_yields_null_avg(app_db):
+    property_id, tenant_id, _, _ = await _seed_reference_data()
+    await _intake(property_id, tenant_id, "Still open, nothing resolved")
+
+    async with await _client() as client:
+        r = await client.get("/api/v1/metrics/dashboard", auth=AUTH)
+        assert r.status_code == 200
+        body = r.json()
+
+    assert body["resolved"] == 0
+    assert body["avg_resolution_hours"] is None
+    # No case existed 7 days ago either -> nothing to compare against.
+    assert body["active_delta_pct"] is None
+    assert body["escalated_delta_pct"] is None
+
+
+# --------------------------------------------------------------------------
+# K. Cross-case upcoming appointments
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_upcoming_appointments_list(app_db):
+    property_id, tenant_id, roofer_id, _ = await _seed_reference_data()
+    case_id, _coordinator, _wo, appointment = await _drive_case_to_scheduled(property_id, tenant_id, roofer_id, "Upcoming visit test")
+
+    async with await _client() as client:
+        r = await client.get("/api/v1/appointments/upcoming", auth=AUTH)
+        assert r.status_code == 200
+        items = r.json()["items"]
+
+    assert len(items) == 1
+    item = items[0]
+    assert item["appointment_id"] == appointment.id
+    assert item["case_id"] == case_id
+    assert item["trade"] == "ROOFING"
+    assert item["property_address"] == "1 Test St"
+    assert item["contractor_id"] == roofer_id
+    assert item["contractor_name"] == "Apex Roofing"
+    assert item["status"] == "CONFIRMED"
+
+
+@pytest.mark.asyncio
+async def test_upcoming_appointments_excludes_past_start(app_db):
+    """The single appointment in test_upcoming_appointments_list happens to
+    be in the future either way, so that test alone can't prove the
+    start_at >= now filter is doing anything. Backdate it directly and
+    confirm it drops out."""
+    from app.models import AppointmentModel
+
+    property_id, tenant_id, roofer_id, _ = await _seed_reference_data()
+    _case_id, _coordinator, _wo, appointment = await _drive_case_to_scheduled(property_id, tenant_id, roofer_id, "Past visit test")
+
+    now = datetime.now(timezone.utc)
+    async with session_scope() as session:
+        appt = await session.get(AppointmentModel, appointment.id)
+        appt.start_at = now - timedelta(days=2)
+        appt.end_at = now - timedelta(days=1)
+
+    async with await _client() as client:
+        r = await client.get("/api/v1/appointments/upcoming", auth=AUTH)
+        assert r.status_code == 200
+        assert r.json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_upcoming_appointments_excludes_cancelled(app_db):
+    property_id, tenant_id, roofer_id, _ = await _seed_reference_data()
+    _case_id, _coordinator, _wo, appointment = await _drive_case_to_scheduled(property_id, tenant_id, roofer_id, "Cancelled visit test")
+
+    async with await _client() as client:
+        r = await client.post(
+            f"/api/v1/appointments/{appointment.id}/cancel",
+            json={"appointment_id": appointment.id, "reason": "no longer needed"}, auth=AUTH,
+        )
+        assert r.status_code == 202
+
+        r = await client.get("/api/v1/appointments/upcoming", auth=AUTH)
+        assert r.status_code == 200
+        assert r.json()["items"] == []
+
+
+# --------------------------------------------------------------------------
+# L. Broader case search + contractor filter
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_case_list_search_widened_and_contractor_filter(app_db):
+    property_id, tenant_id, roofer_id, scaffolder_id = await _seed_reference_data()
+    scheduled_case_id, _c, _wo, _appt = await _drive_case_to_scheduled(property_id, tenant_id, roofer_id, "Leaky roof over kitchen")
+    plain_case_id = await _intake(property_id, tenant_id, "Broken window latch")
+
+    async with await _client() as client:
+        # Property address match.
+        r = await client.get("/api/v1/cases", params={"q": "Test St"}, auth=AUTH)
+        result_ids = {i["id"] for i in r.json()["items"]}
+        assert scheduled_case_id in result_ids and plain_case_id in result_ids
+
+        # Tenant display name match.
+        r = await client.get("/api/v1/cases", params={"q": "Jordan Hale"}, auth=AUTH)
+        result_ids = {i["id"] for i in r.json()["items"]}
+        assert scheduled_case_id in result_ids and plain_case_id in result_ids
+
+        # contractor_id filter: only the case with an active roofer work order.
+        r = await client.get("/api/v1/cases", params={"contractor_id": roofer_id}, auth=AUTH)
+        result_ids = {i["id"] for i in r.json()["items"]}
+        assert result_ids == {scheduled_case_id}
+
+        r = await client.get("/api/v1/cases", params={"contractor_id": scaffolder_id}, auth=AUTH)
+        assert r.json()["items"] == []
+
+
+# --------------------------------------------------------------------------
+# M. Read-only messages panel
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_case_messages_empty_then_ordered(app_db):
+    from app.models import MessageModel
+
+    property_id, tenant_id, _, _ = await _seed_reference_data()
+    case_id = await _intake(property_id, tenant_id, "Message thread test")
+
+    async with await _client() as client:
+        r = await client.get(f"/api/v1/cases/{case_id}/messages", auth=AUTH)
+        assert r.status_code == 200
+        assert r.json() == {"case_id": case_id, "items": []}
+
+    now = datetime.now(timezone.utc)
+    async with session_scope() as session:
+        session.add(
+            MessageModel(
+                id=uid(), case_id=case_id, sender_type="TENANT", sender_name="Jordan Hale",
+                text="Hi, any update?", created_at=now - timedelta(hours=1),
+            )
+        )
+        session.add(
+            MessageModel(
+                id=uid(), case_id=case_id, sender_type="OPERATOR", sender_name="Operator",
+                text="On it, roofer booked for tomorrow.", created_at=now,
+            )
+        )
+
+    async with await _client() as client:
+        r = await client.get(f"/api/v1/cases/{case_id}/messages", auth=AUTH)
+        assert r.status_code == 200
+        items = r.json()["items"]
+
+    assert [i["sender_type"] for i in items] == ["TENANT", "OPERATOR"]
+    assert items[0]["text"] == "Hi, any update?"
+    assert items[0]["photo_url"] is None
+    assert items[1]["sender_name"] == "Operator"
+
+
+@pytest.mark.asyncio
+async def test_case_messages_unknown_case_404s(app_db):
+    async with await _client() as client:
+        r = await client.get(f"/api/v1/cases/{uid()}/messages", auth=AUTH)
+        assert r.status_code == 404
+
+
+# --------------------------------------------------------------------------
+# N. Notifications feed
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_notifications_awaiting_approval_and_escalation(app_db):
+    from tests.test_hero_path import _approve_latest_awaiting
+    from tests.test_phase2_reliability import _drive_to_blocked_repair
+
+    property_id, tenant_id, roofer_id, scaffolder_id = await _seed_reference_data()
+    blocked_case_id, _report_id, _coordinator = await _drive_to_blocked_repair(
+        uid(), property_id, tenant_id, roofer_id, scaffolder_id
+    )
+
+    escalated_case_id = await _intake(property_id, tenant_id, "Gas smell reported")
+    await _broad_tenant_window(escalated_case_id, tenant_id)
+
+    async def hazard_triage(snapshot, trigger_event_id) -> ActionProposal:
+        return ActionProposal(
+            case_id=snapshot.case.id, expected_case_version=snapshot.snapshot_version, trigger_event_id=trigger_event_id,
+            decision_summary="Possible gas hazard; escalate immediately.", evidence_refs=[],
+            action=ApplyTriage(
+                risk=RiskAssessment(
+                    urgency="EMERGENCY", gas="YES", fire="NO", water_near_electrics="NO",
+                    structural_danger="NO", uncontrolled_flood="NO", vulnerability_concern="NO",
+                ),
+                issue_description="Gas smell reported", suggested_trade=Trade.OTHER, scope="Investigate gas smell.",
+            ),
+        )
+
+    hazard_coordinator = FixtureCoordinator()
+    hazard_coordinator.queue(hazard_triage)
+    await worker.drain_due_jobs(hazard_coordinator, raise_on_error=True)
+
+    # A hazardous triage is itself gated behind operator approval (docs/19)
+    # -- ApplyTriage lands as an AWAITING_APPROVAL action first; approving
+    # it is what actually runs apply_triage and flips the case to
+    # ESCALATED + fires CASE_ESCALATED.
+    await _approve_latest_awaiting(escalated_case_id, "Reviewed; genuine gas hazard, escalate.", limit_pence=None)
+    await worker.drain_due_jobs(hazard_coordinator, raise_on_error=True)
+
+    async with session_scope() as session:
+        escalated_case = await services.load_case(session, escalated_case_id)
+        assert escalated_case.status == "ESCALATED"
+        escalated_version = escalated_case.version
+
+    async with await _client() as client:
+        r = await client.get("/api/v1/notifications", auth=AUTH)
+        assert r.status_code == 200
+        body = r.json()
+
+    by_kind: dict[str, list[dict]] = {}
+    for item in body["items"]:
+        by_kind.setdefault(item["kind"], []).append(item)
+
+    assert {i["case_id"] for i in by_kind.get("AWAITING_APPROVAL", [])} >= {blocked_case_id}
+    assert all(i["unread"] for i in by_kind["AWAITING_APPROVAL"])
+
+    escalation_items = {i["case_id"]: i for i in by_kind.get("CASE_ESCALATED", [])}
+    assert escalated_case_id in escalation_items
+    assert escalation_items[escalated_case_id]["unread"] is True
+    assert body["unread_count"] == sum(1 for i in body["items"] if i["unread"])
+
+    # Once the case is resumed (no longer ESCALATED), the same historical
+    # escalation event must flip to read rather than disappearing.
+    async with await _client() as client:
+        r = await client.post(
+            f"/api/v1/cases/{escalated_case_id}/resume",
+            json={
+                "version": escalated_version, "reason": "Gas Safe engineer confirmed no leak.",
+                "resolved_hold_evidence": "Gas Safe engineer report received.",
+            },
+            auth=AUTH,
+        )
+        assert r.status_code == 202
+
+        r = await client.get("/api/v1/notifications", auth=AUTH)
+        assert r.status_code == 200
+        body = r.json()
+
+    escalation_items = {i["case_id"]: i for i in body["items"] if i["kind"] == "CASE_ESCALATED"}
+    assert escalation_items[escalated_case_id]["unread"] is False
+
+
+@pytest.mark.asyncio
+async def test_notifications_empty_when_nothing_pending(app_db):
+    property_id, tenant_id, _, _ = await _seed_reference_data()
+    await _intake(property_id, tenant_id, "Ordinary case, nothing pending")
+
+    async with await _client() as client:
+        r = await client.get("/api/v1/notifications", auth=AUTH)
+        assert r.status_code == 200
+        body = r.json()
+
+    assert body["items"] == []
+    assert body["unread_count"] == 0
