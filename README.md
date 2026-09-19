@@ -1,38 +1,68 @@
 # RepairFlow — autonomous repair coordination
 
-**Status:** researched architectural specification; no application implemented.  
-**Research snapshot:** 19 September 2026. **Target:** one-day {Tech: Europe} Agentic AI Hack, London.
+**Status:** implemented. Backend (FastAPI + SQLAlchemy + Pydantic AI) and frontend (React + Vite + Tailwind + React Flow) both run locally against a real SQLite database. 52 backend tests pass against a real on-disk file with zero external network calls in the default suite. See [docs/23](docs/23_RISKS_AND_OPEN_QUESTIONS.md) and [docs/26](docs/26_SPECIFICATION_REVIEW.md) for the full, dated implementation log — including every material deviation from the original spec and the exact state of each live-provider gate.
 
 RepairFlow maintains a repair case across calls, appointments and contractor reports. It interprets new evidence, proposes the next action, executes only policy-approved actions, and waits durably for the next real-world event.
 
-The buyer hypothesis is a UK residential letting agency's head of property management. The operator supervises exceptions; residents and approved contractors supply information. The strongest published operational evidence comes from English social housing, which is adjacent to, but not identical to, the initial buyer segment. See [business research](docs/02_BUSINESS_PROBLEM_RESEARCH.md).
-
 ## Hero demonstration
 
-A roof visit cannot proceed without scaffolding. The coordinator interprets the contractor's report, preserves the original unresolved issue, creates a prerequisite, and blocks roofing. A manager approves the simulated scaffolding commitment. When installation and access handover are reported complete, the original roofing order becomes actionable and is rebooked. Tenant confirmation and all required follow-on work gate resolution.
+A roof visit cannot proceed without scaffolding. The coordinator interprets the contractor's report, preserves the original unresolved issue, creates a prerequisite, and blocks roofing. An operator approves the simulated scaffolding commitment. When installation and access handover are reported complete, the original roofing order becomes actionable and is rebooked. Tenant confirmation and all required follow-on work gate resolution.
 
-The demo compresses days into minutes. Contractor organisations, calendars, bookings and physical work are **SIMULATED IN MVP**. Gemini decisions and one ElevenLabs browser voice conversation are intended to be live. Tavily can supply real, cited contractor candidates, which remain unverified and cannot be booked automatically.
+This full loop passes deterministically end-to-end in `backend/tests/test_hero_path.py` using a scripted fixture coordinator. It has also been exercised manually against the real Gemini API through simpler cases (see docs/26's 2026-09-19 correction entry) — the model correctly proposed a context-specific triage, correctly waited when nothing was actionable, and correctly escalated to a human rather than inventing a contractor when no approved supplier existed for the required trade.
 
-The live-call acceptance gate requires playable recorded audio, the full speaker-labelled transcript and a structured outcome linked to the case. Tavily queries and returned evidence also remain inspectable.
+## What's live vs simulated
 
-## Recommended stack
+Contractor organisations, calendars, bookings and physical work are always **SIMULATED** (`MockBookingConnector`; no real contractor is ever contacted, no real booking is ever made).
 
-| Responsibility | Choice |
-|---|---|
-| UI | React + TypeScript + Vite; Tailwind/shadcn/ui; React Flow |
-| API and worker | Python 3.12, FastAPI, one Uvicorn process |
-| Reasoning framework | Pydantic AI `Agent`, typed tools/dependencies/output |
-| Reasoning model | `gemini-3.8-flash`; explicit access/capability smoke test |
-| Voice | ElevenLabs Agents browser session; telephony is stretch scope |
-| Research | Tavily Search; bounded Extract only if needed |
-| State | SQLite on persistent local disk, SQLAlchemy 2.0, Pydantic v2 |
-| Resumption | Database jobs and action ledger; one application worker |
-| Updates | Versioned HTTP polling, not SSE |
-| Diagnostics | Structured local logs; optional redacted Logfire traces |
-| Demo deployment | FastAPI serves the built UI; HTTPS tunnel for webhooks |
-| Excluded from MVP | Modal, Conduct integration, Graph runtime, multiple operational agents |
+| Provider | State in this repo | Notes |
+|---|---|---|
+| Gemini (coordinator reasoning) | **Live when `GEMINI_API_KEY` is set** | Falls back to a labelled, conservative fixture coordinator otherwise. Every proposal is provenance-tagged so the UI never conflates a real decision with a fixture one. |
+| ElevenLabs (browser voice) | Code-complete, live acceptance gate intentionally not pursued for this MVP | Signed session creation, post-call webhook (HMAC-verified), transcript/audio persistence, and the three dedicated-secret server tools are all built and tested (`backend/tests/test_voice.py`) against synthetic signatures and a monkeypatched network boundary — never the real ElevenLabs API. Wiring a specific live agent was explicitly descoped by product decision; fixture/simulated mode is sufficient for this MVP. |
+| Tavily (contractor research) | Code-complete, untested against the live API | No `TAVILY_API_KEY` was available. `TavilyResearchAdapter` is exercised against a stubbed HTTP transport (`backend/tests/test_research.py`); the always-available `FixtureResearchAdapter` is the default. Tavily is SHOULD-HAVE, not a hard gate. |
 
-This is an architectural choice, not an assertion that sponsors require this stack. Official current model/provider evidence is in [Gemini integration](docs/13_GEMINI_INTEGRATION.md).
+## Running locally
+
+Requires Python 3.12 and Node 20+.
+
+### Backend
+
+```
+cd backend
+uv sync                       # or: python -m venv .venv && .venv/Scripts/pip install -e .
+cp .env.example .env          # optional -- fixture mode works with no keys at all
+uv run uvicorn app.main:app --port 8000
+```
+
+Run uvicorn from inside `backend/` (or point `--app-dir` at it) so `app` is importable. Demo reference data (one property, one tenant, two approved fictional contractors) is seeded automatically and idempotently on startup — no separate seed step needed.
+
+### Frontend
+
+```
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`. Sign in with the operator credentials from `backend/.env` (default `operator` / `repairflow-demo`). The frontend polls the backend directly over CORS; no build step is required for local dev.
+
+### Tests
+
+```
+cd backend
+uv run pytest tests/ -q
+```
+
+52 tests, real on-disk SQLite, zero external network calls. Provider-specific tests (`test_voice.py`, `test_research.py`) exercise real signature/mapping logic against synthetic or stubbed data, never a live API — see docs/22 for the testing strategy and docs/23 for exactly which live-provider checks were never run.
+
+### Resetting demo data
+
+`POST /api/v1/demo/reset?confirm_reset=true` (operator auth) clears all non-LIVE cases — any case containing a real recorded call is preserved.
+
+## Known gaps
+
+- **Frontend was not verified in an actual browser.** The Chrome automation extension was unavailable in the implementation environment. `npm run build` (type-check + production bundle) passes cleanly, and the full backend API surface it depends on was exercised for real over HTTP, but the React runtime itself — 304-aware polling, the React Flow graph render, the approval round trip as clicked rather than curled — was not click-tested. Verify this manually before a live demo.
+- **ElevenLabs live voice** is code-complete but its acceptance gate (real audio, real transcript, real webhook delivery) was not run — see the table above.
+- **Tavily** is code-complete but untested against the real API.
 
 ## Documentation index
 
@@ -49,14 +79,8 @@ This is an architectural choice, not an assertion that sponsors require this sta
 | Experience and boundaries | [18 UI](docs/18_FRONTEND_UX.md), [19 Safety](docs/19_SAFETY_AND_ESCALATION.md) |
 | Execution | [20 Demo](docs/20_DEMO_SCRIPT.md), [21 Build plan](docs/21_IMPLEMENTATION_PLAN.md), [22 Testing](docs/22_TESTING_STRATEGY.md) |
 | Due diligence | [23 Risks](docs/23_RISKS_AND_OPEN_QUESTIONS.md), [24 Sources](docs/24_RESEARCH_SOURCES.md) |
-| Review | [25 Questions answered](docs/25_RESEARCH_QUESTIONS_ANSWERED.md), [26 Consistency review](docs/26_SPECIFICATION_REVIEW.md) |
+| Review | [25 Questions answered](docs/25_RESEARCH_QUESTIONS_ANSWERED.md), [26 Implementation log](docs/26_SPECIFICATION_REVIEW.md) |
 
 ## MVP acceptance
 
-One persistent case completes the unexpected dependency loop without direct UI status editing. Duplicate delivery causes no duplicate commitment. A backend restart while roofing is blocked preserves the case and allows continuation. A gas/electrical-danger variant pauses automation. The UI identifies evidence, proposed action, executed result and simulated activity separately.
-
-## Start implementation later
-
-Read [CLAUDE.md](CLAUDE.md), then give the coding agent [IMPLEMENTATION_PROMPT.md](prompts/IMPLEMENTATION_PROMPT.md). Begin with the tested dependency loop and a minimal visible UI; voice and web search come after that path works.
-
-No runtime commands, deployed service, provider credentials, measured savings, or passing application tests are claimed by this documentation release.
+One persistent case completes the unexpected dependency loop without direct UI status editing. Duplicate delivery causes no duplicate commitment (`test_phase2_reliability.py`). A backend restart while roofing is blocked preserves the case and allows continuation (`test_phase2_reliability.py`). A gas/electrical-danger variant pauses automation before any model call (`test_coordinator.py`'s hazard-gate test). The UI identifies evidence, proposed action, executed result and simulated activity separately via per-event provenance badges (LIVE/SIMULATED/FIXTURE).
