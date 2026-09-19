@@ -129,6 +129,17 @@ export function cancelCase(
   });
 }
 
+/** Demo-only: permanently removes a test/duplicate ticket, unlike Cancel
+ * (which just marks it terminal but keeps it around). */
+export function deleteCase(
+  creds: OperatorCredentials,
+  caseId: string,
+): Promise<{ cleared: boolean }> {
+  return request<{ cleared: boolean }>(creds, `/api/v1/demo/cases/${caseId}`, {
+    method: "DELETE",
+  });
+}
+
 /** Cancelling an appointment IS the reschedule flow (no separate
  * reschedule endpoint): cancel here, then the coordinator proposes a
  * fresh visit through the normal policy/approval path. */

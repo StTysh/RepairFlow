@@ -1,7 +1,9 @@
-import { Play } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { Play, Trash2 } from "lucide-react";
 import type { CaseStatus } from "@/lib/fixi-data";
 import {
   useCancelCase,
+  useDeleteCase,
   useReopenCase,
   useReplayCase,
   useResumeCase,
@@ -33,12 +35,35 @@ export function CaseLifecycleActions({
   status: CaseStatus;
   version: number;
 }) {
+  const navigate = useNavigate();
   const resume = useResumeCase(caseId);
   const reopen = useReopenCase(caseId);
   const cancel = useCancelCase(caseId);
   const replay = useReplayCase(caseId);
+  const deleteTicket = useDeleteCase(caseId);
 
-  const busy = resume.isPending || reopen.isPending || cancel.isPending || replay.isPending;
+  const busy =
+    resume.isPending ||
+    reopen.isPending ||
+    cancel.isPending ||
+    replay.isPending ||
+    deleteTicket.isPending;
+
+  async function handleDelete() {
+    if (
+      !window.confirm(
+        "Permanently delete this ticket? This removes it and everything on it (events, calls, work orders) -- unlike Cancel, this can't be undone.",
+      )
+    ) {
+      return;
+    }
+    try {
+      await deleteTicket.mutateAsync();
+      void navigate({ to: "/maintenance" });
+    } catch {
+      // handled by onError toast
+    }
+  }
 
   async function handleReplay() {
     if (
@@ -134,6 +159,15 @@ export function CaseLifecycleActions({
           Cancel
         </button>
       )}
+      <button
+        type="button"
+        className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-destructive shadow-card transition-colors hover:bg-destructive/10 disabled:opacity-50"
+        disabled={busy}
+        onClick={() => void handleDelete()}
+        title="Permanently delete this ticket"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
     </div>
   );
 }

@@ -237,6 +237,41 @@ async def demo_replay_case(case_id: str, session: AsyncSession = Depends(get_ses
     )
 
 
+@router.delete("/cases/{case_id}", status_code=202)
+async def demo_delete_case(case_id: str, session: AsyncSession = Depends(get_session)) -> DemoResetResponse:
+    """Demo-only: permanently removes ONE case and everything under it --
+    for cleaning up a test/duplicate ticket, not a production operation
+    (CLAUDE.md's event-sourced/append-only model is deliberately not what
+    this does; that's exactly why it lives under /demo, same as /reset and
+    /replay). Unlike /reset, this is a single named case an operator
+    explicitly chose to remove, so -- like /replay -- it does not check
+    provenance before deleting; picking one specific ticket to delete is
+    itself the safety boundary, not a blanket sweep."""
+    case = await services.load_case(session, case_id)  # 404s cleanly if already gone
+
+    work_order_ids = set(
+        (await session.execute(select(WorkOrderModel.id).where(WorkOrderModel.case_id == case_id))).scalars().all()
+    )
+    if work_order_ids:
+        slot_ids = set(
+            (await session.execute(select(MockReservationModel.slot_id).where(MockReservationModel.work_order_id.in_(work_order_ids)))).scalars().all()
+        )
+        await session.execute(delete(MockReservationModel).where(MockReservationModel.work_order_id.in_(work_order_ids)))
+        if slot_ids:
+            await session.execute(update(MockSlotModel).where(MockSlotModel.slot_id.in_(slot_ids)).values(is_reserved=False))
+
+    for model in (
+        DependencyModel, ContractorReportModel, AppointmentModel, OrchestrationRunModel,
+        ActionRecordModel, JobModel, ContractorCandidateModel, ResearchSnapshotModel,
+        AvailabilityWindowModel, CaseEventModel, WorkOrderModel, RepairIssueModel,
+    ):
+        await session.execute(delete(model).where(model.case_id == case_id))
+    await session.execute(delete(CommunicationModel).where(CommunicationModel.case_id == case_id))
+    await session.delete(case)
+
+    return DemoResetResponse(cleared=True, case_count=1, preserved_live_cases=0)
+
+
 @router.post("/reset", status_code=202)
 async def demo_reset(confirm_reset: bool = Query(default=False), session: AsyncSession = Depends(get_session)) -> DemoResetResponse:
     """Clears synthetic case data. Preserves any Communication carrying LIVE

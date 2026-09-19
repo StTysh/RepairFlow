@@ -1,6 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { cancelAppointment, cancelCase, reopenCase, replayCase, resumeCase } from "@/api/endpoints";
+import {
+  cancelAppointment,
+  cancelCase,
+  deleteCase,
+  reopenCase,
+  replayCase,
+  resumeCase,
+} from "@/api/endpoints";
 import type { CancelCaseRequest, ReopenCaseRequest, ResumeCaseRequest } from "@/api/types";
 import { caseDetailQueryKey } from "@/hooks/use-case-detail";
 import { useAuthedCreds } from "@/lib/auth-context";
@@ -57,6 +64,23 @@ export function useCancelCase(caseId: string) {
       toast.success("Case cancelled");
     },
     onError: (error: Error) => toast.error(`Could not cancel case: ${error.message}`),
+  });
+}
+
+/** Demo-only: permanently removes this ticket. Unlike the other lifecycle
+ * actions, there's no case-detail query left to invalidate afterward (the
+ * ticket is gone) -- the caller is responsible for navigating away. */
+export function useDeleteCase(caseId: string) {
+  const creds = useAuthedCreds();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => deleteCase(creds, caseId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["cases"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
+      toast.success("Ticket deleted");
+    },
+    onError: (error: Error) => toast.error(`Could not delete ticket: ${error.message}`),
   });
 }
 
