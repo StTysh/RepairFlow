@@ -17,6 +17,7 @@ import {
 import { AppShell, Card } from "@/components/fixi/AppShell";
 import { Pill, StatusBadge, UrgencyBadge } from "@/components/fixi/Badge";
 import { CaseLifecycleActions } from "@/components/fixi/CaseLifecycleActions";
+import { DecisionCard } from "@/components/fixi/DecisionCard";
 import { authHeader, BASE_URL } from "@/api/client";
 import { useCaseDetail } from "@/hooks/use-case-detail";
 import { useCaseEvents } from "@/hooks/use-case-events";
@@ -145,6 +146,8 @@ function CasePage() {
             <CaseLifecycleActions caseId={c.id} status={c.status} version={c.version} />
           </div>
         </div>
+
+        <DecisionCard caseId={c.id} pendingActions={snapshot.pending_actions} />
 
         <div className="mt-5 flex flex-wrap items-center gap-1.5">
           <SectionLink ticketId={ticketId} section={undefined} active={section === null}>

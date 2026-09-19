@@ -115,6 +115,52 @@ export interface RiskAssessment {
   [key: string]: unknown;
 }
 
+// --- Pending actions (approvals) --------------------------------------------
+
+export type ActionState =
+  | "PROPOSED"
+  | "AWAITING_APPROVAL"
+  | "PENDING"
+  | "RUNNING"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "UNKNOWN"
+  | "REJECTED";
+
+/** The coordinator's typed NextAction union (backend/app/schemas.py) has ~10
+ * variants (APPLY_TRIAGE, SCHEDULE_VISIT, ESCALATE, ...), each with its own
+ * fields beyond `kind`. Only `kind` is modelled precisely here since that's
+ * all the approval card renders -- see DecisionCard.tsx. */
+export interface ActionRecordAction {
+  kind: string;
+  [key: string]: unknown;
+}
+
+export interface ActionRecordProposal {
+  case_id: string;
+  expected_case_version: number;
+  trigger_event_id: string;
+  decision_summary: string;
+  evidence_refs: unknown[];
+  action: ActionRecordAction;
+}
+
+/** A proposed write the coordinator wants to make. Most auto-apply; ones the
+ * policy flags as risky/costly (backend/app/domain/policy.py) sit in state
+ * AWAITING_APPROVAL until an operator approves/rejects via
+ * POST /actions/{id}/approval -- see DecisionCard.tsx and
+ * hooks/use-case-actions.ts's useDecideApproval. */
+export interface ActionRecord {
+  id: string;
+  case_id: string;
+  kind: string;
+  target_id: string | null;
+  idempotency_key: string;
+  payload_hash: string;
+  proposal: ActionRecordProposal;
+  state: ActionState;
+}
+
 export interface RepairCase {
   id: string;
   case_number: number;
@@ -217,11 +263,12 @@ export interface Communication {
   provenance: Provenance;
 }
 
-// pending_actions / dependencies / communications / approved_contractors
-// are explicitly out of scope for this phase (the next phase builds
-// WorkGraph/DecisionCard/VoicePanel/provenance badges on top of them) --
-// typed as unknown[] here so CaseSnapshot is complete and nothing needs
-// `as any` when reading the other fields. work_orders IS typed (Costs tab).
+// dependencies / latest_reports / availability / approved_contractors are
+// still explicitly out of scope for this phase (WorkGraph/VoicePanel/
+// provenance badges build on them later) -- typed as unknown[] here so
+// CaseSnapshot is complete and nothing needs `as any` when reading the
+// other fields. work_orders and pending_actions ARE typed (Costs tab /
+// DecisionCard approval card).
 export interface CaseSnapshot {
   case: RepairCase;
   issue: RepairIssue;
@@ -236,7 +283,7 @@ export interface CaseSnapshot {
   communications: Communication[];
   availability: unknown[];
   approved_contractors: unknown[];
-  pending_actions: unknown[];
+  pending_actions: ActionRecord[];
   recent_events: CaseEvent[];
   policy_snapshot: Record<string, unknown>;
   snapshot_version: number;
@@ -334,6 +381,24 @@ export interface CommandResult {
 export interface IntakeResponse {
   case_id: string;
   communication_id: string;
+  result: CommandResult;
+}
+
+// --- Action approvals -----------------------------------------------------------
+
+/** Body for POST /api/v1/actions/{action_id}/approval. `expected_case_version`
+ * comes from the ActionRecord's proposal.expected_case_version and
+ * `action_payload_hash` from its payload_hash -- both echoed back so the
+ * backend can detect a stale/tampered decision (docs/18). */
+export interface ApprovalDecisionRequest {
+  action_id: string;
+  expected_case_version: number;
+  approve: boolean;
+  reason: string;
+  action_payload_hash: string;
+}
+
+export interface ApprovalResponse {
   result: CommandResult;
 }
 

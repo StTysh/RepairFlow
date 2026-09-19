@@ -6,6 +6,8 @@
 import { request, requestOrNotModified, type OperatorCredentials } from "@/api/client";
 import type {
   AppointmentCancelResponse,
+  ApprovalDecisionRequest,
+  ApprovalResponse,
   CancelCaseRequest,
   CancellationRequest,
   CaseDetailResponse,
@@ -137,6 +139,21 @@ export function deleteCase(
 ): Promise<{ cleared: boolean }> {
   return request<{ cleared: boolean }>(creds, `/api/v1/demo/cases/${caseId}`, {
     method: "DELETE",
+  });
+}
+
+/** Approve or reject an ActionRecord sitting in AWAITING_APPROVAL. The
+ * caller supplies expected_case_version/action_payload_hash echoed from
+ * that ActionRecord (see ApprovalDecisionRequest) so the backend can
+ * reject a stale or tampered decision. */
+export function decideActionApproval(
+  creds: OperatorCredentials,
+  actionId: string,
+  body: ApprovalDecisionRequest,
+): Promise<ApprovalResponse> {
+  return request<ApprovalResponse>(creds, `/api/v1/actions/${actionId}/approval`, {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }
 
