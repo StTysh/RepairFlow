@@ -265,6 +265,40 @@ async def test_case_snapshot_assigned_contractor_and_next_appointment(app_db):
 
 
 @pytest.mark.asyncio
+async def test_assigned_contractor_tie_break_prefers_repair_and_list_matches_detail(app_db):
+    """`_pick_assigned_work_order`'s whole reason to exist is a case with
+    more than one contractor at once (hero path: roofer + scaffolder). Get
+    there via test_phase2_reliability's shared blocked-repair setup, then
+    approve+execute the scaffold booking too, so REPAIR (BLOCKED, roofer)
+    and SCAFFOLD_INSTALL (SCHEDULED, scaffolder) both carry a contractor_id
+    -- the real tie-break case, not the trivial single-candidate one every
+    other test here exercises. Also proves the list and detail endpoints
+    agree, which is the entire point of sharing one selection function.
+    """
+    from tests.test_hero_path import _approve_latest_awaiting
+    from tests.test_phase2_reliability import _drive_to_blocked_repair
+
+    property_id, tenant_id, roofer_id, scaffolder_id = await _seed_reference_data()
+    case_id, _report_id, coordinator = await _drive_to_blocked_repair(uid(), property_id, tenant_id, roofer_id, scaffolder_id)
+
+    await _approve_latest_awaiting(case_id, "Approved scaffold installation booking.", limit_pence=30_000)
+    await worker.drain_due_jobs(coordinator, raise_on_error=True)
+
+    repair_wo = await _work_order(case_id, "REPAIR")
+    scaffold_wo = await _work_order(case_id, "SCAFFOLD_INSTALL")
+    assert repair_wo.status == "BLOCKED" and repair_wo.contractor_id == roofer_id
+    assert scaffold_wo.status == "SCHEDULED" and scaffold_wo.contractor_id == scaffolder_id
+
+    async with await _client() as client:
+        detail = (await client.get(f"/api/v1/cases/{case_id}", auth=AUTH)).json()["snapshot"]
+        list_items = {i["id"]: i for i in (await client.get("/api/v1/cases", auth=AUTH)).json()["items"]}
+
+    assert detail["assigned_contractor"]["id"] == roofer_id
+    assert detail["assigned_contractor"]["trade"] == "ROOFING"
+    assert list_items[case_id]["assigned_contractor_name"] == "Apex Roofing"
+
+
+@pytest.mark.asyncio
 async def test_case_snapshot_no_contractor_or_appointment_before_scheduling(app_db):
     property_id, tenant_id, _, _ = await _seed_reference_data()
     case_id = await _intake(property_id, tenant_id, "Just reported, nothing scheduled yet")

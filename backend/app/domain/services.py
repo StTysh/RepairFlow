@@ -839,6 +839,13 @@ async def cancel_appointment(
         if work_order is not None and work_order.status == WorkOrderStatus.SCHEDULED:
             assert_work_order_transition(work_order.status, WorkOrderStatus.READY)
             work_order.status = WorkOrderStatus.READY
+            # Nobody is currently committed to this work order once its
+            # only visit is cancelled -- assigned_contractor is a "who's
+            # attending" projection, not a history log (that's
+            # PropertyHistoryItem.outcome's job). Clear it so the case list
+            # and detail view stop showing a contractor for a visit that no
+            # longer exists; a rebooking sets it again on confirmation.
+            work_order.contractor_id = None
             work_order.updated_at = utcnow()
         bump_version(case)
         event = await append_event(
@@ -1168,7 +1175,11 @@ async def load_case_snapshot(session: AsyncSession, case_id: str):
     assigned_contractor = (await assigned_contractors_for_cases(session, [case_id])).get(case_id)
 
     now = utcnow()
-    upcoming = [a for a in appointments if a.status == AppointmentStatus_.CONFIRMED and a.start_at >= now]
+    # "Not-yet-passed" means the visit window hasn't ended, not that it
+    # hasn't started -- a visit currently in progress (start_at <= now <
+    # end_at) still belongs on a "next appointment" card; only a window
+    # that has fully ended should drop off.
+    upcoming = [a for a in appointments if a.status == AppointmentStatus_.CONFIRMED and a.end_at >= now]
     next_appointment_row = min(upcoming, key=lambda a: a.start_at) if upcoming else None
 
     return CaseSnapshot(

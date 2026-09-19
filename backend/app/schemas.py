@@ -997,8 +997,10 @@ class CaseSnapshot(ReadModel):
     # selection rule -- also used by the case-list endpoint so the two
     # views never disagree about who's "the" contractor for a case.
     assigned_contractor: AssignedContractor | None = None
-    # Soonest CONFIRMED, not-yet-passed appointment by start_at. Never a
-    # fabricated future step -- null when there is none on record.
+    # Soonest CONFIRMED appointment whose window hasn't fully ended yet
+    # (covers a visit currently in progress, not just ones yet to start),
+    # ordered by start_at. Never a fabricated future step -- null when
+    # there is none on record.
     next_appointment: Appointment | None = None
     work_orders: list[WorkOrder]
     dependencies: list[Dependency]
