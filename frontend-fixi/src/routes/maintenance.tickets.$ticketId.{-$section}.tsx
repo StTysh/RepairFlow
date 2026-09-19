@@ -20,7 +20,7 @@ import { useCaseDetail } from "@/hooks/use-case-detail";
 import { useCaseEvents } from "@/hooks/use-case-events";
 import { useCancelAppointment } from "@/hooks/use-case-actions";
 import { usePropertyHistory } from "@/hooks/use-property-history";
-import type { CaseSnapshot } from "@/api/types";
+import type { Appointment, CaseSnapshot } from "@/api/types";
 import { statusTone } from "@/lib/fixi-data";
 import { formatDateRange, formatRelative, initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -275,6 +275,34 @@ function IconButton({ icon: Icon }: { icon: typeof Phone }) {
   );
 }
 
+function NextAppointmentRow({
+  appointment,
+  onReschedule,
+  rescheduling,
+}: {
+  appointment: Appointment;
+  onReschedule: () => void;
+  rescheduling: boolean;
+}) {
+  const { date, time } = formatDateRange(appointment.start_at, appointment.end_at);
+  return (
+    <div className="mt-2 flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground">
+          <Calendar className="h-4 w-4" />
+        </div>
+        <div className="leading-tight">
+          <div className="text-[13px] font-medium">{date}</div>
+          <div className="text-xs text-muted-foreground">{time}</div>
+        </div>
+      </div>
+      <OutlineButton onClick={onReschedule} disabled={rescheduling}>
+        Reschedule
+      </OutlineButton>
+    </div>
+  );
+}
+
 function OutlineButton({
   children,
   onClick,
@@ -367,27 +395,11 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
       <div className="mt-4 border-t border-border pt-4">
         <Label>Next appointment</Label>
         {next_appointment ? (
-          <div className="mt-2 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground">
-                <Calendar className="h-4 w-4" />
-              </div>
-              <div className="leading-tight">
-                <div className="text-[13px] font-medium">
-                  {formatDateRange(next_appointment.start_at, next_appointment.end_at).date}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {formatDateRange(next_appointment.start_at, next_appointment.end_at).time}
-                </div>
-              </div>
-            </div>
-            <OutlineButton
-              onClick={() => void handleReschedule()}
-              disabled={cancelAppointment.isPending}
-            >
-              Reschedule
-            </OutlineButton>
-          </div>
+          <NextAppointmentRow
+            appointment={next_appointment}
+            onReschedule={() => void handleReschedule()}
+            rescheduling={cancelAppointment.isPending}
+          />
         ) : (
           <p className="mt-2 text-xs text-muted-foreground">No appointment scheduled yet.</p>
         )}
