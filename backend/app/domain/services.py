@@ -11,6 +11,7 @@ provider between the two, outside any open transaction.
 from __future__ import annotations
 
 import dataclasses
+import re
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select
@@ -154,6 +155,40 @@ async def enqueue_job(
     return job
 
 
+async def next_case_number(session: AsyncSession) -> int:
+    """Allocates the next human-readable case_number as
+    SELECT COALESCE(MAX(case_number), 0) + 1 inside the caller's existing
+    transaction, then relies on RepairCaseModel's `uq_case_number` UNIQUE
+    constraint as the actual correctness guarantee.
+
+    Why not a dedicated counter row with its own UPDATE statement: that
+    still needs the same UNIQUE constraint as a backstop (demo_reset()
+    deletes case rows, so a counter table would need its own reset-aware
+    bookkeeping or it would hand out numbers a deleted case already used --
+    MAX()+1 self-heals against that for free). Why not a retry loop: this
+    function is called mid-way through a larger multi-statement transaction
+    (submit_intake also creates the issue row, availability windows, etc.),
+    and a failed flush here would poison that whole transaction, not just
+    this statement.
+
+    Concurrency note for SQLite: this repo runs one worker process, but two
+    concurrent HTTP requests can still race between this SELECT and the
+    caller's later INSERT while both are on separate connections/transactions
+    (SQLite does not take a write lock on a plain SELECT, so there is a real
+    TOCTOU window here, not just a theoretical one). Accepted tradeoff for a
+    one-process SQLite MVP: the loser's INSERT trips the UNIQUE constraint
+    and that single request fails with a clear DB error instead of silently
+    handing out a duplicate case_number. If concurrent-create volume ever
+    matters, replace this with an atomic single-statement counter row
+    (UPDATE counter SET value = value + 1 ...), which SQLite does serialize
+    correctly because the write lock is taken by that statement itself.
+    """
+    current_max = (
+        await session.execute(select(func.max(RepairCaseModel.case_number)))
+    ).scalar_one_or_none() or 0
+    return current_max + 1
+
+
 async def load_case(session: AsyncSession, case_id: str) -> RepairCaseModel:
     case = await session.get(RepairCaseModel, case_id)
     if case is None:
@@ -214,6 +249,7 @@ async def submit_intake(
     case_id = new_uuid()
     case = RepairCaseModel(
         id=case_id,
+        case_number=await next_case_number(session),
         property_id=str(submission.property_id),
         tenant_id=str(submission.tenant_id),
         status=CaseStatus.ACTIVE,
@@ -762,6 +798,68 @@ async def mark_attendance_window_ended(session: AsyncSession, *, case_id: str, a
     return CommandResult(status=CommandResultStatus.APPLIED, case_version=case.version, event_ids=[event.id])
 
 
+async def cancel_appointment(
+    session: AsyncSession, *, appointment_id: str, reason: str, actor: ActorContext
+) -> tuple[CancellationOutcome, int]:
+    """Operator-initiated cancellation, used both standalone and as the
+    first half of "reschedule" (decision: reschedule is never an in-place
+    edit -- it's cancel, then a fresh ScheduleVisit proposal through the
+    normal coordinator/policy/approval path, same as any other action).
+
+    The work order that was SCHEDULED for this appointment goes back to
+    READY ("cancellation confirmed" is a named edge in transitions.py's
+    graph) and a COORDINATE job is enqueued, exactly like every other
+    state-changing command in this module -- that enqueue *is* the "nudge"
+    that lets the coordinator notice the work order is READY again with
+    tenant availability still on file, and propose a new ScheduleVisit on
+    its own. No separate "request reschedule" endpoint is needed; this
+    function is what the previous version of the cancel route was missing.
+    """
+    from app.integrations.booking import mock_booking_connector
+    from app.schemas import AppointmentStatus, CancellationOutcome, CancellationStatus
+
+    appointment = await session.get(AppointmentModel, appointment_id)
+    if appointment is None:
+        raise NotFoundError(f"appointment {appointment_id} not found")
+    case = await load_case(session, appointment.case_id)
+
+    if appointment.status == AppointmentStatus.CANCELLED:
+        outcome = CancellationOutcome(
+            status=CancellationStatus.CANCELLED, provider_booking_id=appointment.provider_booking_id,
+            provenance=appointment.provenance,
+        )
+        return outcome, case.version
+
+    outcome = await mock_booking_connector.cancel(
+        session, appointment.provider_booking_id or "", f"cancel:{appointment_id}"
+    )
+    if outcome.status == CancellationStatus.CANCELLED:
+        appointment.status = AppointmentStatus.CANCELLED
+        work_order = await session.get(WorkOrderModel, appointment.work_order_id)
+        if work_order is not None and work_order.status == WorkOrderStatus.SCHEDULED:
+            assert_work_order_transition(work_order.status, WorkOrderStatus.READY)
+            work_order.status = WorkOrderStatus.READY
+            # Nobody is currently committed to this work order once its
+            # only visit is cancelled -- assigned_contractor is a "who's
+            # attending" projection, not a history log (that's
+            # PropertyHistoryItem.outcome's job). Clear it so the case list
+            # and detail view stop showing a contractor for a visit that no
+            # longer exists; a rebooking sets it again on confirmation.
+            work_order.contractor_id = None
+            work_order.updated_at = utcnow()
+        bump_version(case)
+        event = await append_event(
+            session, case_id=case.id, event_type="APPOINTMENT_CANCELLED",
+            payload={"appointment_id": appointment.id, "work_order_id": appointment.work_order_id, "reason": reason},
+            actor=actor, source_event_key=f"appointment-cancel:{appointment.id}:{case.version}",
+        )
+        await enqueue_job(
+            session, case_id=case.id, kind=JobKind.COORDINATE, dedupe_key=f"coordinate:{case.id}:{case.version}",
+            payload={"trigger_event_id": event.id},
+        )
+    return outcome, case.version
+
+
 async def request_information(session: AsyncSession, *, case_id: str, action: RequestInformation, elevenlabs_configured: bool, actor: ActorContext) -> CommandResult:
     case = await load_case(session, case_id)
     existing = (
@@ -888,6 +986,133 @@ async def wait_for_event(session: AsyncSession, *, case_id: str, action: Wait, a
 # Read: composed case snapshot (used by the coordinator, API and UI)
 # --------------------------------------------------------------------------
 
+_PHONE_LIKE = re.compile(r"^\+?[0-9][0-9 ()-]{6,}$")
+
+
+def _phone_like(value: str | None) -> str | None:
+    """Only ever returns a value that actually looks like a phone number.
+    Seed/demo contractor `contact_reference` values are placeholders like
+    "mock:apex-roofing" -- those must surface as null, not a fabricated
+    phone number (CLAUDE.md: no invented facts)."""
+    if value and _PHONE_LIKE.match(value.strip()):
+        return value
+    return None
+
+
+def _pick_assigned_work_order(work_orders: list[WorkOrderModel]) -> WorkOrderModel | None:
+    """Single shared rule for "the" contractor shown for a case, used by
+    both the case-list endpoint and the case-detail snapshot so the two
+    views can never disagree. A case can have several work orders with
+    different contractors at once (the hero path's roofer + scaffolder), so
+    this is a deliberate, documented tie-break rather than an arbitrary
+    pick: prefer a work order that still has an assigned contractor and
+    isn't finished (COMPLETED/CANCELLED); among those, prefer the primary
+    REPAIR work order over a prerequisite (scaffold) one; then prefer the
+    most recently updated.
+    """
+    candidates = [wo for wo in work_orders if wo.contractor_id is not None]
+    if not candidates:
+        return None
+    open_candidates = [
+        wo for wo in candidates if wo.status not in (WorkOrderStatus.COMPLETED, WorkOrderStatus.CANCELLED)
+    ]
+    pool = open_candidates or candidates
+    pool.sort(key=lambda wo: (0 if wo.kind == WorkOrderKind.REPAIR else 1, -wo.updated_at.timestamp()))
+    return pool[0]
+
+
+async def assigned_contractors_for_cases(session: AsyncSession, case_ids: list[str]) -> dict[str, "AssignedContractor"]:
+    """Batched version of the same selection rule, for the case-list
+    endpoint (avoids one query per row)."""
+    from app.models import ContractorModel
+    from app.schemas import AssignedContractor
+
+    if not case_ids:
+        return {}
+    rows = (
+        await session.execute(select(WorkOrderModel).where(WorkOrderModel.case_id.in_(case_ids)))
+    ).scalars().all()
+    by_case: dict[str, list[WorkOrderModel]] = {}
+    for wo in rows:
+        by_case.setdefault(wo.case_id, []).append(wo)
+
+    contractor_ids = {wo.contractor_id for wos in by_case.values() for wo in wos if wo.contractor_id}
+    contractors_by_id: dict[str, ContractorModel] = {}
+    if contractor_ids:
+        contractor_rows = (
+            await session.execute(select(ContractorModel).where(ContractorModel.id.in_(contractor_ids)))
+        ).scalars().all()
+        contractors_by_id = {c.id: c for c in contractor_rows}
+
+    result: dict[str, AssignedContractor] = {}
+    for case_id, wos in by_case.items():
+        chosen = _pick_assigned_work_order(wos)
+        if chosen is None:
+            continue
+        contractor = contractors_by_id.get(chosen.contractor_id)
+        if contractor is None:
+            continue
+        result[case_id] = AssignedContractor(
+            id=contractor.id, display_name=contractor.display_name, trade=chosen.trade,
+            contact_reference=contractor.contact_reference, phone=_phone_like(contractor.contact_reference),
+            provenance=contractor.provenance,
+        )
+    return result
+
+
+async def load_property_history(session: AsyncSession, property_id: str) -> list["PropertyHistoryItem"]:
+    """Past (and current) cases for a property, each with an honest
+    `outcome` when one is grounded in real data -- never a fabricated
+    summary (decision F: no cost/built-year/repeat-issue fields, those have
+    no backing data yet)."""
+    from app.models import ContractorReportModel as ContractorReportModel_
+    from app.schemas import PropertyHistoryItem
+
+    cases = (
+        await session.execute(
+            select(RepairCaseModel).where(RepairCaseModel.property_id == property_id).order_by(RepairCaseModel.created_at.desc())
+        )
+    ).scalars().all()
+
+    items: list[PropertyHistoryItem] = []
+    for case in cases:
+        resolved_at = None
+        outcome = None
+        if case.status == CaseStatus.RESOLVED:
+            resolved_event = (
+                await session.execute(
+                    select(CaseEventModel).where(
+                        CaseEventModel.case_id == case.id, CaseEventModel.type == "CASE_RESOLVED",
+                    ).order_by(CaseEventModel.occurred_at.desc()).limit(1)
+                )
+            ).scalars().first()
+            if resolved_event is not None:
+                resolved_at = resolved_event.occurred_at
+
+        latest_completion_report = (
+            await session.execute(
+                select(ContractorReportModel_)
+                .join(WorkOrderModel, WorkOrderModel.id == ContractorReportModel_.work_order_id)
+                .where(
+                    ContractorReportModel_.case_id == case.id,
+                    WorkOrderModel.status == WorkOrderStatus.COMPLETED,
+                    WorkOrderModel.completion_report_id == ContractorReportModel_.id,
+                )
+                .order_by(ContractorReportModel_.received_at.desc())
+                .limit(1)
+            )
+        ).scalars().first()
+        if latest_completion_report is not None:
+            outcome = latest_completion_report.text
+
+        items.append(
+            PropertyHistoryItem(
+                case_id=case.id, case_number=case.case_number, title=case.title, status=case.status,
+                created_at=case.created_at, resolved_at=resolved_at, outcome=outcome,
+            )
+        )
+    return items
+
 
 async def load_case_snapshot(session: AsyncSession, case_id: str):
     from app.models import (
@@ -899,11 +1124,14 @@ async def load_case_snapshot(session: AsyncSession, case_id: str):
         ContractorModel,
         ContractorReportModel as ContractorReportModel_,
         DependencyModel as DependencyModel_,
+        PropertyModel,
+        TenantModel,
         WorkOrderModel as WorkOrderModel_,
     )
     from app.schemas import (
         ActionRecord,
         Appointment,
+        AppointmentStatus as AppointmentStatus_,
         AvailabilityWindow,
         CaseEvent,
         CaseSnapshot,
@@ -911,13 +1139,21 @@ async def load_case_snapshot(session: AsyncSession, case_id: str):
         Contractor,
         ContractorReport,
         Dependency,
+        Property as Property_,
         RepairCase,
         RepairIssue,
+        Tenant as Tenant_,
         WorkOrder,
     )
 
     case = await load_case(session, case_id)
     issue = await load_issue(session, case_id)
+    property_row = await session.get(PropertyModel, case.property_id)
+    tenant_row = await session.get(TenantModel, case.tenant_id)
+    if property_row is None:
+        raise NotFoundError(f"property {case.property_id} not found")
+    if tenant_row is None:
+        raise NotFoundError(f"tenant {case.tenant_id} not found")
 
     work_orders = (await session.execute(select(WorkOrderModel_).where(WorkOrderModel_.case_id == case_id))).scalars().all()
     dependencies = (await session.execute(select(DependencyModel_).where(DependencyModel_.case_id == case_id))).scalars().all()
@@ -946,9 +1182,23 @@ async def load_case_snapshot(session: AsyncSession, case_id: str):
         )
     ).scalars().all()
 
+    assigned_contractor = (await assigned_contractors_for_cases(session, [case_id])).get(case_id)
+
+    now = utcnow()
+    # "Not-yet-passed" means the visit window hasn't ended, not that it
+    # hasn't started -- a visit currently in progress (start_at <= now <
+    # end_at) still belongs on a "next appointment" card; only a window
+    # that has fully ended should drop off.
+    upcoming = [a for a in appointments if a.status == AppointmentStatus_.CONFIRMED and a.end_at >= now]
+    next_appointment_row = min(upcoming, key=lambda a: a.start_at) if upcoming else None
+
     return CaseSnapshot(
         case=RepairCase.model_validate(case),
         issue=RepairIssue.model_validate(issue),
+        property=Property_.model_validate(property_row),
+        tenant=Tenant_.model_validate(tenant_row),
+        assigned_contractor=assigned_contractor,
+        next_appointment=Appointment.model_validate(next_appointment_row) if next_appointment_row else None,
         work_orders=[WorkOrder.model_validate(w) for w in work_orders],
         dependencies=[Dependency.model_validate(d) for d in dependencies],
         appointments=[Appointment.model_validate(a) for a in appointments],

@@ -95,6 +95,7 @@ class TenantModel(Base):
     property_id: Mapped[str] = mapped_column(sa.ForeignKey("properties.id"), index=True)
     display_name: Mapped[str] = mapped_column(sa.String(128))
     phone_e164: Mapped[str | None] = mapped_column(sa.String(20), nullable=True)
+    email: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
     preferred_channel: Mapped[str] = mapped_column(sa.String(32))
     contact_allowed: Mapped[bool] = mapped_column(sa.Boolean, default=True)
     accessibility_notes: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
@@ -125,9 +126,17 @@ class RepairCaseModel(Base):
     __table_args__ = (
         sa.CheckConstraint("version > 0", name="ck_case_version_positive"),
         sa.Index("ix_case_status_updated", "status", "updated_at"),
+        sa.Index("ix_case_property", "property_id"),
+        sa.UniqueConstraint("case_number", name="uq_case_number"),
     )
 
     id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_uuid)
+    # Human-readable, auto-incrementing display number (e.g. "#1042"). The
+    # UUID `id` above stays the one canonical identifier for routing/lookup;
+    # this is display-only. Assigned by services.next_case_number() inside
+    # the same transaction that inserts the case row -- see that function's
+    # docstring for the concurrency reasoning and the UNIQUE constraint's role.
+    case_number: Mapped[int] = mapped_column(sa.Integer)
     property_id: Mapped[str] = mapped_column(sa.ForeignKey("properties.id"))
     tenant_id: Mapped[str] = mapped_column(sa.ForeignKey("tenants.id"))
     status: Mapped[CaseStatus] = enum_column(CaseStatus, default=CaseStatus.ACTIVE)

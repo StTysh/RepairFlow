@@ -379,6 +379,13 @@ async def _apply_schedule_result(action_id: str, work_order_id: str, booking_req
             session.add(appointment)
             assert_work_order_transition(work_order.status, WorkOrderStatus.SCHEDULED)
             work_order.status = WorkOrderStatus.SCHEDULED
+            # WorkOrderModel.contractor_id existed on the model/schema but was
+            # never actually written anywhere -- a real gap, found while
+            # wiring the "assigned contractor" projection (decision B, which
+            # explicitly resolves it via WorkOrder.contractor_id). A booking
+            # confirmation is exactly the fact that assigns a contractor to
+            # the work order, so record it here.
+            work_order.contractor_id = str(booking_request.contractor_id)
             work_order.updated_at = utcnow()
             services.bump_version(case)
             event = await services.append_event(

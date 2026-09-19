@@ -49,6 +49,7 @@ async def test_create_and_reload_case(db_session, new_id):
     db_session.add(
         RepairCaseModel(
             id=case_id,
+            case_number=1,
             property_id=property_id,
             tenant_id=tenant_id,
             status=CaseStatus.ACTIVE,
@@ -97,7 +98,7 @@ async def test_duplicate_source_event_key_rejected(db_session, new_id):
     case_id = new_id()
     db_session.add(
         RepairCaseModel(
-            id=case_id, property_id=property_id, tenant_id=tenant_id,
+            id=case_id, case_number=1, property_id=property_id, tenant_id=tenant_id,
             status=CaseStatus.ACTIVE, version=1, title="Case", risk={},
         )
     )
@@ -129,7 +130,7 @@ async def test_duplicate_idempotency_key_rejected(db_session, new_id):
     case_id = new_id()
     db_session.add(
         RepairCaseModel(
-            id=case_id, property_id=property_id, tenant_id=tenant_id,
+            id=case_id, case_number=1, property_id=property_id, tenant_id=tenant_id,
             status=CaseStatus.ACTIVE, version=1, title="Case", risk={},
         )
     )
@@ -154,7 +155,7 @@ async def test_naive_datetime_rejected(db_session, new_id):
     case_id = new_id()
     db_session.add(
         RepairCaseModel(
-            id=case_id, property_id=property_id, tenant_id=tenant_id,
+            id=case_id, case_number=1, property_id=property_id, tenant_id=tenant_id,
             status=CaseStatus.ACTIVE, version=1, title="Case", risk={},
             created_at=datetime(2026, 1, 1),  # naive: no tzinfo
         )

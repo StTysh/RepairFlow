@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Annotated, Literal, Union
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 
 def utcnow() -> datetime:
@@ -314,6 +314,7 @@ class Tenant(ReadModel):
     property_id: UUID
     display_name: str
     phone_e164: str | None = None
+    email: str | None = None
     preferred_channel: str
     contact_allowed: bool
     accessibility_notes: str | None = None
@@ -335,6 +336,23 @@ class Contractor(ReadModel):
     verification_note: str | None = None
     provenance: Provenance
     workers: list[ContractorWorker] = Field(default_factory=list)
+
+
+class AssignedContractor(ReadModel):
+    """Projection of the contractor working the case's active work order --
+    distinct from CaseSnapshot.approved_contractors (the whole approved
+    roster). `phone` is populated only when `contact_reference` is actually
+    phone-shaped (seed data uses placeholders like "mock:apex-roofing");
+    otherwise it stays null rather than inventing a number. `provenance`
+    rides along so the UI can label a fictional/simulated contractor as such
+    (CLAUDE.md: "All demo physical activity ... carry simulation provenance")."""
+
+    id: UUID
+    display_name: str
+    trade: Trade | None = None
+    contact_reference: str | None = None
+    phone: str | None = None
+    provenance: Provenance
 
 
 class EvidenceRef(StrictModel):
@@ -400,6 +418,7 @@ class RiskAssessment(StrictModel):
 
 class RepairCase(ReadModel):
     id: UUID
+    case_number: int
     property_id: UUID
     tenant_id: UUID
     status: CaseStatus
@@ -632,6 +651,48 @@ class ResearchSnapshot(ReadModel):
 # --------------------------------------------------------------------------
 
 
+# Human-readable projection per EventType, for the Timeline UI (docs/18).
+# Deliberately a plain constant table computed from `type` alone -- never
+# from `payload`, which stays untouched/unparsed here. Any EventType not
+# listed falls back to a humanized version of its enum name so a new event
+# type added later never breaks display, just looks generic until mapped.
+_EVENT_DISPLAY: dict[str, tuple[str, str]] = {
+    "CASE_CREATED": ("Case opened", "A new repair case was created from the reported issue."),
+    "INFORMATION_RECEIVED": ("Details updated", "New information was recorded about the issue."),
+    "AVAILABILITY_RECEIVED": ("Availability recorded", "New tenant availability was recorded."),
+    "RESEARCH_COMPLETED": ("Contractor research completed", "Web research for candidate contractors finished."),
+    "WORK_ORDER_CREATED": ("Work order created", "A new work order was opened for this case."),
+    "APPOINTMENT_CONFIRMED": ("Visit confirmed", "A contractor visit was booked and confirmed."),
+    "APPOINTMENT_CANCELLED": ("Visit cancelled", "A scheduled visit was cancelled."),
+    "APPOINTMENT_WINDOW_ENDED": ("Visit window ended", "The scheduled visit window ended; awaiting a report."),
+    "CONTRACTOR_REPORT_RECEIVED": ("Contractor report received", "A contractor submitted a report from the visit."),
+    "DEPENDENCY_DISCOVERED": ("Prerequisite discovered", "Further work is required before this can proceed."),
+    "WORK_ORDER_COMPLETED": ("Work order completed", "A work order was marked complete."),
+    "DEPENDENCY_SATISFIED": ("Prerequisite satisfied", "A blocking prerequisite was resolved."),
+    "TENANT_CONFIRMATION_RECEIVED": ("Tenant responded", "The tenant confirmed or disputed resolution."),
+    "FOLLOW_UP_DUE": ("Follow-up due", "A scheduled follow-up became due."),
+    "APPROVAL_DECIDED": ("Approval decided", "An operator approved or rejected a proposed action."),
+    "CASE_ESCALATED": ("Case escalated", "The case was escalated for human review."),
+    "CASE_RESUMED": ("Case resumed", "The case resumed normal handling."),
+    "CASE_RESOLVED": ("Case resolved", "The issue was confirmed resolved."),
+    "CASE_CANCELLED": ("Case cancelled", "The case was cancelled."),
+    "CALL_ENDED": ("Call ended", "A voice call ended."),
+    "CALL_FAILED": ("Call failed", "A voice call failed to connect."),
+    "RECORDING_AVAILABLE": ("Recording available", "The call recording became available."),
+    "RECORDING_FAILED": ("Recording failed", "The call recording could not be retrieved."),
+    "ACTION_FAILED": ("Action failed", "A proposed action failed to execute."),
+    "ACTION_UNKNOWN": ("Action outcome unknown", "An action's outcome could not be confirmed."),
+}
+
+
+def _humanize_event_type(event_type: "EventType | str") -> tuple[str, str]:
+    key = event_type.value if hasattr(event_type, "value") else str(event_type)
+    if key in _EVENT_DISPLAY:
+        return _EVENT_DISPLAY[key]
+    label = key.replace("_", " ").title()
+    return label, label
+
+
 class CaseEvent(ReadModel):
     id: UUID
     case_id: UUID
@@ -647,6 +708,18 @@ class CaseEvent(ReadModel):
     payload_version: int = 1
     payload: dict
     provenance: Provenance
+    display_title: str = ""
+    display_description: str = ""
+
+    @model_validator(mode="after")
+    def _apply_display_defaults(self) -> "CaseEvent":
+        if not self.display_title or not self.display_description:
+            title, description = _humanize_event_type(self.type)
+            if not self.display_title:
+                self.display_title = title
+            if not self.display_description:
+                self.display_description = description
+        return self
 
 
 # --- NextAction discriminated union -----------------------------------
@@ -924,6 +997,20 @@ class ReadEvents(StrictModel):
 class CaseSnapshot(ReadModel):
     case: RepairCase
     issue: RepairIssue
+    property: Property
+    tenant: Tenant
+    # The contractor assigned to the case's currently-relevant work order
+    # (docs/06 distinguishes this from `approved_contractors`, the whole
+    # roster). None until a work order has a contractor. See
+    # services.assigned_contractors_for_cases for the single shared
+    # selection rule -- also used by the case-list endpoint so the two
+    # views never disagree about who's "the" contractor for a case.
+    assigned_contractor: AssignedContractor | None = None
+    # Soonest CONFIRMED appointment whose window hasn't fully ended yet
+    # (covers a visit currently in progress, not just ones yet to start),
+    # ordered by start_at. Never a fabricated future step -- null when
+    # there is none on record.
+    next_appointment: Appointment | None = None
     work_orders: list[WorkOrder]
     dependencies: list[Dependency]
     appointments: list[Appointment]
@@ -1073,10 +1160,17 @@ class ReadinessResponse(StrictModel):
 
 class CaseListItem(StrictModel):
     id: UUID
+    case_number: int
     title: str
     status: CaseStatus
     version: int
     updated_at: datetime
+    property_address: str
+    # A different axis from `status` -- RiskAssessment.urgency, already
+    # stored per-case (decision: keep it, don't build a derived display
+    # status). "UNKNOWN" until triage has run.
+    urgency: Literal["EMERGENCY", "URGENT", "ROUTINE", "UNKNOWN"] = "UNKNOWN"
+    assigned_contractor_name: str | None = None
 
 
 class CaseListResponse(StrictModel):
@@ -1118,6 +1212,7 @@ class CaseVersionResponse(StrictModel):
 class AppointmentCancelResponse(StrictModel):
     appointment_id: UUID
     outcome: CancellationOutcome
+    case_version: int
 
 
 class RetryRecordingResponse(StrictModel):
@@ -1138,6 +1233,38 @@ class DemoResetResponse(StrictModel):
 class DemoTenantFeedbackResponse(StrictModel):
     communication_id: UUID
     result: CommandResult
+
+
+class DashboardMetricsResponse(StrictModel):
+    """Counts derived directly from the 5 real CaseStatus values plus
+    CASE_RESOLVED CaseEvents -- no derived/richer display-status layer
+    (decision: keep the status taxonomy honest and simple)."""
+
+    active: int
+    awaiting_confirmation: int
+    resolved: int
+    escalated: int
+    cancelled: int
+    total: int
+    resolved_this_week: int
+
+
+class PropertyHistoryItem(StrictModel):
+    case_id: UUID
+    case_number: int
+    title: str
+    status: CaseStatus
+    created_at: datetime
+    resolved_at: datetime | None = None
+    # From the latest ContractorReport.text on a COMPLETED work order for
+    # this case; null when there is nothing grounded to show -- never a
+    # fabricated one-line summary.
+    outcome: str | None = None
+
+
+class PropertyHistoryResponse(StrictModel):
+    property_id: UUID
+    items: list[PropertyHistoryItem]
 
 
 class DemoSeedRefs(StrictModel):
