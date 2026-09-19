@@ -57,6 +57,14 @@ PROPERTIES: list[dict] = [
         landlord_reference="LL-2201",
         roof_responsibility=RoofResponsibility.LANDLORD,
         access_notes="Terraced house; roof accessed from rear garden only.",
+        # Fictional-but-plausible construction year for this demo persona
+        # (CLAUDE.md's honesty boundary is about not touching a
+        # LIVE-provenance case/communication, not about leaving fictional
+        # property metadata null forever -- a build year on a fictional
+        # address is exactly the kind of invented detail seed data exists
+        # for). Applied via the update-if-null pass below for rows that
+        # already exist from a prior seed run.
+        build_year=1961,
     ),
     dict(
         id=DEMO_PROPERTY_2_ID,
@@ -66,6 +74,7 @@ PROPERTIES: list[dict] = [
         landlord_reference="LL-2202",
         roof_responsibility=RoofResponsibility.LANDLORD,
         access_notes="Flat 3B, top floor; roof access via communal stairwell, managing agent holds the key.",
+        build_year=2005,
     ),
     dict(
         id=DEMO_PROPERTY_3_ID,
@@ -75,6 +84,7 @@ PROPERTIES: list[dict] = [
         landlord_reference="LL-2203",
         roof_responsibility=RoofResponsibility.OTHER,
         access_notes="Mid-terrace; loft hatch access only, no external ladder point.",
+        build_year=1978,
     ),
     dict(
         id=DEMO_PROPERTY_4_ID,
@@ -84,6 +94,7 @@ PROPERTIES: list[dict] = [
         landlord_reference="LL-2204",
         roof_responsibility=RoofResponsibility.UNKNOWN,
         access_notes="Ground-floor flat; shared roof, access managed by the freeholder.",
+        build_year=1967,
     ),
 ]
 
@@ -184,11 +195,19 @@ CONTRACTORS: list[dict] = [
 async def seed() -> None:
     await create_all()
     added_properties = added_tenants = added_contractors = 0
+    updated_properties = 0
     async with session_scope() as session:
         for row in PROPERTIES:
-            if await session.get(PropertyModel, row["id"]) is None:
+            existing_property = await session.get(PropertyModel, row["id"])
+            if existing_property is None:
                 session.add(PropertyModel(**row))
                 added_properties += 1
+            elif existing_property.build_year is None and row.get("build_year") is not None:
+                # Backfill for a property inserted by an earlier seed run,
+                # before build_year existed/was populated here. Never
+                # overwrites a build_year that's already set.
+                existing_property.build_year = row["build_year"]
+                updated_properties += 1
         for row in TENANTS:
             if await session.get(TenantModel, row["id"]) is None:
                 session.add(TenantModel(**row))
@@ -199,7 +218,8 @@ async def seed() -> None:
                 added_contractors += 1
     print(
         f"Seed complete: {added_properties} propert(y/ies), {added_tenants} tenant(s), "
-        f"{added_contractors} contractor(s) newly added "
+        f"{added_contractors} contractor(s) newly added, {updated_properties} propert(y/ies) "
+        f"backfilled with build_year "
         f"({len(PROPERTIES)} properties / {len(TENANTS)} tenants / {len(CONTRACTORS)} contractors total)."
     )
 
