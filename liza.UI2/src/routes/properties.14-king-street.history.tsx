@@ -1,116 +1,39 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ChevronRight, X } from "lucide-react";
+import { ArrowLeft, Building2, CheckCircle2, ChevronRight, FileText, Home, RefreshCw, Wrench } from "lucide-react";
 import { AppShell, Card } from "@/components/fixi/AppShell";
+import { UtilityBar } from "@/components/fixi/UtilityBar";
 import { Pill } from "@/components/fixi/Badge";
-import { propertyHistory, propertyStats } from "@/lib/fixi-data";
+import { propertyHistory } from "@/lib/fixi-data";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import houseExterior from "@/assets/house-exterior.jpg";
 
 export const Route = createFileRoute("/properties/14-king-street/history")({
-  head: () => ({
-    meta: [
-      { title: "Property history — 14 King Street — Fixi" },
-      { name: "description", content: "Full maintenance history for 14 King Street, Walthamstow: every issue, outcome, contractor and cost since 2021." },
-      { property: "og:title", content: "Property history — 14 King Street — Fixi" },
-      { property: "og:description", content: "Full maintenance history for 14 King Street, Walthamstow." },
-    ],
-  }),
-  component: HistoryPage,
+  head: () => ({ meta: [
+    { title: "Property History — 14 King Street — Fixi" },
+    { name: "description", content: "Maintenance history, recurring issues and annual spend for 14 King Street, Walthamstow." },
+    { property: "og:title", content: "Property History — 14 King Street — Fixi" },
+    { property: "og:description", content: "Maintenance history and property insights for 14 King Street." },
+    { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary_large_image" },
+  ] }), component: HistoryPage,
 });
-
 const tabs = ["Maintenance history", "Property details", "Documents", "Notes"];
+const stats = [
+  { value:"3", label:"Active tickets", meta:"↑ 50%", rest:"vs last year", Icon:FileText, tone:"red" },
+  { value:"8", label:"Total tickets", meta:"↑ 14%", rest:"vs last year", Icon:CheckCircle2, tone:"blue" },
+  { value:"2", label:"Repeat issues", meta:"25%", rest:"of total issues", Icon:RefreshCw, tone:"amber" },
+  { value:"2021", label:"Built", meta:"4 years old", rest:"", Icon:Building2, tone:"gray" },
+] as const;
+const toneClass={red:"bg-status-red text-status-red-foreground",blue:"bg-status-blue text-status-blue-foreground",amber:"bg-status-amber text-status-amber-foreground",gray:"bg-status-gray text-status-gray-foreground"};
 
-function HistoryPage() {
-  return (
-    <AppShell>
-      <div className="px-8 py-6">
-        <div className="flex items-center justify-between">
-          <Link
-            to="/maintenance/tickets/$ticketId/{-$section}"
-            params={{ ticketId: "1042", section: undefined }}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-4 w-4" /> Close
-          </Link>
-          <Link
-            to="/maintenance/tickets/$ticketId/{-$section}"
-            params={{ ticketId: "1042", section: undefined }}
-            className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </Link>
-        </div>
+function HistoryPage(){return <AppShell><div className="mx-auto max-w-[1510px] px-6 py-4 xl:px-7"><UtilityBar/><div className="mt-1 flex items-end justify-between gap-4"><div><Link to="/maintenance/tickets/$ticketId/{-$section}" params={{ticketId:"1042",section:undefined}} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4"/>Back</Link><h1 className="mt-3 text-[28px] font-bold">Property history</h1><p className="text-sm text-muted-foreground">14 King Street, Walthamstow, E17 6QX</p></div><img src={houseExterior} alt="14 King Street" width={912} height={736} className="h-[72px] w-32 rounded-lg object-cover"/></div>
+  <section className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">{stats.map(({value,label,meta,rest,Icon,tone})=><Card key={label} className="flex min-h-[88px] items-center gap-4 px-4 py-3"><span className={cn("flex h-11 w-11 items-center justify-center rounded-full",toneClass[tone])}><Icon className="h-5 w-5"/></span><div><div className="text-xl font-bold">{value}</div><div className="text-xs text-muted-foreground">{label}</div><div className={cn("mt-1 text-[10px]", tone==="red"?"text-destructive":"text-primary")}>{meta} <span className="ml-1 text-muted-foreground">{rest}</span></div></div></Card>)}</section>
+  <div className="mt-4 flex gap-8 border-b border-border text-xs">{tabs.map((t,i)=><button key={t} className={cn("-mb-px border-b-2 px-0.5 pb-2.5 font-medium",i===0?"border-primary text-foreground":"border-transparent text-muted-foreground")}>{t}</button>)}</div>
+  <section className="mt-3 grid gap-3 xl:grid-cols-3"><IssueBreakdown/><AnnualSpend/><RecurringIssues/></section>
+  <Card className="mt-3 overflow-x-auto"><table className="w-full min-w-[850px] text-[11px]"><thead><tr className="border-b border-border text-left text-muted-foreground"><th className="w-10 px-3 py-2"><input aria-label="Select all history" type="checkbox" className="accent-primary"/></th><th className="px-2 font-medium">Date ↓</th><th className="px-2 font-medium">Issue</th><th className="px-2 font-medium">State</th><th className="px-2 font-medium">Outcome</th><th className="px-2 font-medium">Contractor</th><th className="px-2 font-medium">Cost</th><th className="w-12 text-center font-medium">View</th></tr></thead><tbody>{propertyHistory.map(h=><tr key={h.date} className="border-b border-border last:border-0 hover:bg-muted/60"><td className="px-3 py-1.5"><input aria-label={`Select ${h.issue} ${h.date}`} type="checkbox" className="accent-primary"/></td><td className="px-2 text-muted-foreground">{h.date}</td><td className="px-2 font-medium">{h.issue}</td><td className="px-2"><Pill tone="green">{h.state}</Pill></td><td className="px-2 text-muted-foreground">{h.outcome}</td><td className="px-2 text-muted-foreground">{h.contractor}</td><td className="px-2 font-medium">{h.cost}</td><td className="text-center"><Button variant="ghost" size="icon" className="h-7 w-7"><ChevronRight/></Button></td></tr>)}</tbody></table></Card>
+  </div></AppShell>}
 
-        <div className="mt-4 flex items-start justify-between gap-6">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Property history</h1>
-            <p className="mt-1 text-sm text-muted-foreground">14 King Street, Walthamstow, E17 6QX</p>
-          </div>
-          <img
-            src={houseExterior}
-            alt="14 King Street"
-            width={912}
-            height={736}
-            className="h-20 w-32 rounded-lg object-cover"
-          />
-        </div>
-
-        <section className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-          {propertyStats.map((s) => (
-            <Card key={s.label} className="px-4 py-3">
-              <div className="text-lg font-bold tracking-tight">{s.value}</div>
-              <div className="text-xs text-muted-foreground">{s.label}</div>
-            </Card>
-          ))}
-        </section>
-
-        <div className="mt-5 flex gap-6 border-b border-border text-sm">
-          {tabs.map((t, i) => (
-            <button
-              key={t}
-              className={cn(
-                "-mb-px border-b-2 pb-2.5 font-medium transition-colors",
-                i === 0 ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-
-        <Card className="mt-4 overflow-hidden">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                <th className="px-4 py-2.5 font-medium">Date ↓</th>
-                <th className="px-4 py-2.5 font-medium">Issue</th>
-                <th className="px-4 py-2.5 font-medium">State</th>
-                <th className="px-4 py-2.5 font-medium">Outcome</th>
-                <th className="px-4 py-2.5 font-medium">Contractor</th>
-                <th className="px-4 py-2.5 font-medium">Cost</th>
-                <th className="px-4 py-2.5 font-medium">View</th>
-              </tr>
-            </thead>
-            <tbody>
-              {propertyHistory.map((h) => (
-                <tr key={h.date} className="border-b border-border last:border-0 transition-colors hover:bg-muted/60">
-                  <td className="px-4 py-3 text-muted-foreground">{h.date}</td>
-                  <td className="px-4 py-3 font-medium">{h.issue}</td>
-                  <td className="px-4 py-3"><Pill tone="green">{h.state}</Pill></td>
-                  <td className="px-4 py-3 text-muted-foreground">{h.outcome}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{h.contractor}</td>
-                  <td className="px-4 py-3">{h.cost}</td>
-                  <td className="px-4 py-3">
-                    <button className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-      </div>
-    </AppShell>
-  );
-}
+function CardHead({title,action}:{title:string;action:string}){return <div className="flex items-center justify-between"><h2 className="text-xs font-semibold">{title}</h2><button className="text-[10px] font-medium text-primary">{action}</button></div>}
+function IssueBreakdown(){return <Card className="p-4"><CardHead title="Issue breakdown" action="View all"/><div className="mt-2 flex items-center gap-6"><div className="relative h-24 w-24 shrink-0 rounded-full" style={{background:"conic-gradient(var(--primary) 0 38%, var(--timeline-current) 38% 63%, oklch(0.8 0.13 75) 63% 88%, oklch(0.73 0.12 300) 88% 100%)"}}><div className="absolute inset-4 flex flex-col items-center justify-center rounded-full bg-card"><b className="text-lg">8</b><span className="text-[9px] text-muted-foreground">Total issues</span></div></div><ul className="flex-1 space-y-1.5 text-[10px]">{[["Roofing","3 (38%)","bg-primary"],["Plumbing","2 (25%)","bg-timeline-current"],["Heating","2 (25%)","bg-status-amber-foreground"],["Electrical","1 (12%)","bg-status-purple-foreground"]].map(x=><li key={x[0]} className="flex items-center"><span className={cn("mr-2 h-2 w-2 rounded-full",x[2])}/><span>{x[0]}</span><b className="ml-auto">{x[1]}</b></li>)}</ul></div></Card>}
+function AnnualSpend(){const bars=[18,64,28,25,58,30];return <Card className="p-4"><CardHead title="Annual spend" action="View details"/><div className="mt-1 text-2xl font-bold">£2,590</div><div className="text-[10px] text-muted-foreground">Total spend</div><div className="mt-2 flex h-16 items-end gap-3 border-b border-border px-3">{bars.map((h,i)=><div key={i} className="flex flex-1 flex-col items-center"><div className="w-full max-w-7 rounded-t-sm bg-status-green-foreground/35" style={{height:h}}/><span className="mt-1 text-[8px] text-muted-foreground">{2021+i}</span></div>)}</div></Card>}
+function RecurringIssues(){return <Card className="p-4"><CardHead title="Recurring issues" action="View all"/><div className="mt-2 divide-y divide-border">{[{name:"Roof leak",count:"3 occurrences",last:"Last: May 2026",Icon:Home,tone:"bg-status-red text-status-red-foreground"},{name:"Damp in bedroom",count:"2 occurrences",last:"Last: Feb 2025",Icon:Wrench,tone:"bg-status-blue text-status-blue-foreground"}].map(x=><div key={x.name} className="flex items-center gap-3 py-2"><span className={cn("flex h-9 w-9 items-center justify-center rounded-full",x.tone)}><x.Icon className="h-4 w-4"/></span><div><div className="text-xs font-semibold">{x.name}</div><div className="text-[10px] text-muted-foreground">{x.count}</div></div><span className="ml-auto text-[10px] text-muted-foreground">{x.last}</span><ChevronRight className="h-4 w-4 text-muted-foreground"/></div>)}</div></Card>}
