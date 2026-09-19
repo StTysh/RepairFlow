@@ -6,6 +6,7 @@ import {
   Calendar,
   Check,
   Copy,
+  Loader2,
   Mail,
   MapPin,
   MessageSquare,
@@ -175,7 +176,7 @@ function CasePage() {
           className={cn("mt-3 grid gap-4", section === null ? "xl:grid-cols-2" : "xl:grid-cols-1")}
         >
           {show("summary") && <SummaryColumn snapshot={snapshot} />}
-          {show("timeline") && <TimelineColumn caseId={c.id} />}
+          {show("timeline") && <TimelineColumn caseId={c.id} agentActive={snapshot.agent_active} />}
           {show("calls") && <CallsColumn communications={snapshot.communications} />}
         </div>
       </div>
@@ -603,7 +604,7 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
   );
 }
 
-function TimelineColumn({ caseId }: { caseId: string }) {
+function TimelineColumn({ caseId, agentActive }: { caseId: string; agentActive: boolean }) {
   const events = useCaseEvents(caseId);
   const items = events.data?.items ?? [];
 
@@ -612,6 +613,17 @@ function TimelineColumn({ caseId }: { caseId: string }) {
       <SectionHeader
         title="Agent timeline"
         subtitle="What the AI agent has done and what's next."
+        action={
+          agentActive ? (
+            <span
+              className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground"
+              title="The coordinator is actively working on this case right now"
+            >
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Thinking…
+            </span>
+          ) : undefined
+        }
       />
       {events.isLoading && <p className="mt-4 text-xs text-muted-foreground">Loading…</p>}
       {events.isError && (
@@ -624,7 +636,10 @@ function TimelineColumn({ caseId }: { caseId: string }) {
         {items.map((item, i) => {
           const last = i === items.length - 1;
           return (
-            <li key={item.id} className="relative flex gap-3 pb-5 last:pb-0">
+            <li
+              key={item.id}
+              className="relative flex animate-in gap-3 pb-5 fade-in slide-in-from-top-1 duration-300 last:pb-0"
+            >
               {!last && (
                 <span className="absolute left-[9px] top-5 h-full w-0.5 bg-timeline-done" />
               )}
@@ -643,6 +658,18 @@ function TimelineColumn({ caseId }: { caseId: string }) {
             </li>
           );
         })}
+        {agentActive && (
+          <li className="relative flex animate-in gap-3 fade-in duration-300">
+            <span className="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-timeline-future bg-card">
+              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+            </span>
+            <div className="min-w-0 flex-1 pt-0.5">
+              <div className="text-[13px] font-semibold text-muted-foreground">
+                Deciding next step…
+              </div>
+            </div>
+          </li>
+        )}
       </ol>
     </Card>
   );
