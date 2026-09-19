@@ -11,10 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings, get_settings
 from app.db import get_session_factory
 
-_basic = HTTPBasic()
+_basic = HTTPBasic(auto_error=False)
 
 
-def require_operator(credentials: HTTPBasicCredentials = Depends(_basic), settings: Settings = Depends(get_settings)) -> str:
+def require_operator(credentials: HTTPBasicCredentials | None = Depends(_basic), settings: Settings = Depends(get_settings)) -> str:
+    if not settings.operator_auth_enabled:
+        return settings.operator_username
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="operator credentials required",
+            headers={"WWW-Authenticate": "Basic"},
+        )
     valid_user = secrets.compare_digest(credentials.username, settings.operator_username)
     valid_pass = secrets.compare_digest(credentials.password, settings.operator_password)
     if not (valid_user and valid_pass):

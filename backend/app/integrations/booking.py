@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.models import ContractorModel, MockReservationModel, MockSlotModel, new_uuid
 from app.schemas import (
     AppointmentQuery,
@@ -34,8 +35,12 @@ def _slot_id(contractor_id: str, start_at: datetime) -> str:
 
 async def _ensure_slots(session: AsyncSession, contractor_id: str, trade: Trade) -> list[MockSlotModel]:
     now = datetime.now(timezone.utc)
+    # Never 0: a same-day slot's expires_at equals its start_at (below), so
+    # it would be born already-expired for any slot generated after that
+    # hour. 1 is the safe floor for a compressed demo timeline.
+    start_offset = max(1, get_settings().demo_slot_offset_days)
     candidates: list[MockSlotModel] = []
-    for day_offset in range(2, _SLOT_HORIZON_DAYS):
+    for day_offset in range(start_offset, _SLOT_HORIZON_DAYS):
         day = (now + timedelta(days=day_offset)).replace(minute=0, second=0, microsecond=0)
         if day.weekday() >= 5:  # skip weekends for a believable fictional calendar
             continue

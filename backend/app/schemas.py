@@ -319,6 +319,11 @@ class Tenant(ReadModel):
     accessibility_notes: str | None = None
 
 
+class ContractorWorker(StrictModel):
+    name: str
+    role: str
+
+
 class Contractor(ReadModel):
     id: UUID
     display_name: str
@@ -329,6 +334,7 @@ class Contractor(ReadModel):
     contact_reference: str | None = None
     verification_note: str | None = None
     provenance: Provenance
+    workers: list[ContractorWorker] = Field(default_factory=list)
 
 
 class EvidenceRef(StrictModel):

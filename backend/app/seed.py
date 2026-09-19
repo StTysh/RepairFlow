@@ -27,6 +27,8 @@ def _demo_id(label: str) -> str:
 DEMO_PROPERTY_ID = _demo_id("property:14-elm-court")
 DEMO_TENANT_ID = _demo_id("tenant:jordan-hale")
 DEMO_ROOFER_ID = _demo_id("contractor:apex-roofing")
+DEMO_ROOFER_2_ID = _demo_id("contractor:bristol-roof-and-gutter")
+DEMO_ROOFER_3_ID = _demo_id("contractor:summit-heights-roofing")
 DEMO_SCAFFOLDER_ID = _demo_id("contractor:steadfast-scaffold")
 
 
@@ -71,6 +73,38 @@ async def seed() -> None:
                 contact_reference="mock:apex-roofing",
                 verification_note="Seeded demo fixture; not a real company.",
                 provenance=Provenance.SIMULATED,
+                workers=[
+                    {"name": "Dave Okafor", "role": "Site lead, height-access certified"},
+                    {"name": "Priya Chandra", "role": "Roofer"},
+                ],
+            )
+        )
+        session.add(
+            ContractorModel(
+                id=DEMO_ROOFER_2_ID,
+                display_name="Bristol Roof & Gutter (fictional, SIMULATED)",
+                trades=[Trade.ROOFING.value],
+                service_postcodes=["BS1", "BS2"],
+                approval_status=ContractorApprovalStatus.APPROVED,
+                connector=ConnectorType.MOCK,
+                contact_reference="mock:bristol-roof-and-gutter",
+                verification_note="Seeded demo fixture; not a real company.",
+                provenance=Provenance.SIMULATED,
+                workers=[{"name": "Marcus Webb", "role": "Roofer"}],
+            )
+        )
+        session.add(
+            ContractorModel(
+                id=DEMO_ROOFER_3_ID,
+                display_name="Summit Heights Roofing (fictional, SIMULATED)",
+                trades=[Trade.ROOFING.value],
+                service_postcodes=["BS3", "BS4"],
+                approval_status=ContractorApprovalStatus.APPROVED,
+                connector=ConnectorType.MOCK,
+                contact_reference="mock:summit-heights-roofing",
+                verification_note="Seeded demo fixture; not a real company. Specialises in steep-pitch and chimney-adjacent work.",
+                provenance=Provenance.SIMULATED,
+                workers=[{"name": "Aisha Rahman", "role": "Site lead, steep-pitch specialist"}],
             )
         )
         session.add(
@@ -86,7 +120,7 @@ async def seed() -> None:
                 provenance=Provenance.SIMULATED,
             )
         )
-    print("Seeded property, tenant and two approved fictional contractors.")
+    print("Seeded property, tenant and four approved fictional contractors (three roofers, one scaffolder).")
 
 
 if __name__ == "__main__":

@@ -25,6 +25,10 @@ class Settings(BaseSettings):
 
     operator_username: str = "operator"
     operator_password: str = "repairflow-demo"
+    # Toggle, not a removal: flip back to True (the safe default for anyone
+    # else running this) before any live/public demo. False just makes
+    # require_operator accept every request with no Authorization header.
+    operator_auth_enabled: bool = True
 
     # Gemini / Pydantic AI
     gemini_api_key: str | None = None
@@ -44,6 +48,13 @@ class Settings(BaseSettings):
     # nothing dials a real phone unless both are set.
     outbound_calls_enabled: bool = False
     outbound_call_allowlist: list[str] = Field(default_factory=list)
+
+    # Earliest day offset MockBookingConnector generates slots at (docs/10).
+    # Default 2 (unchanged, "believable" scheduling). For a compressed demo
+    # timeline this can be lowered -- but never to 0: a same-day slot's
+    # expires_at equals its start_at, so a slot generated after that hour
+    # has already expired the instant it's created (see booking.py).
+    demo_slot_offset_days: int = 2
 
     # Tavily
     tavily_api_key: str | None = None

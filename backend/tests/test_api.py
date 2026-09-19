@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -15,6 +16,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
 import app.main as main_module
+from app.config import get_settings
 from app.db import session_scope
 from app.models import MockReservationModel, RepairCaseModel
 from app.orchestration import dispatcher, worker
@@ -39,13 +41,22 @@ async def test_healthz_requires_no_auth(app_db):
 
 @pytest.mark.asyncio
 async def test_api_requires_operator_auth(app_db):
-    async with await _client() as client:
-        r = await client.get("/api/v1/cases")
-        assert r.status_code == 401
-        r = await client.get("/api/v1/cases", auth=("operator", "wrong-password"))
-        assert r.status_code == 401
-        r = await client.get("/api/v1/cases", auth=AUTH)
-        assert r.status_code == 200
+    # Independent of whatever OPERATOR_AUTH_ENABLED a developer's local .env
+    # happens to have (it's commonly disabled for local demo convenience) --
+    # this test asserts the ENABLED behavior specifically.
+    os.environ["OPERATOR_AUTH_ENABLED"] = "true"
+    get_settings.cache_clear()
+    try:
+        async with await _client() as client:
+            r = await client.get("/api/v1/cases")
+            assert r.status_code == 401
+            r = await client.get("/api/v1/cases", auth=("operator", "wrong-password"))
+            assert r.status_code == 401
+            r = await client.get("/api/v1/cases", auth=AUTH)
+            assert r.status_code == 200
+    finally:
+        os.environ.pop("OPERATOR_AUTH_ENABLED", None)
+        get_settings.cache_clear()
 
 
 @pytest.mark.asyncio

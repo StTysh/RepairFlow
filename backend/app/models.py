@@ -114,6 +114,10 @@ class ContractorModel(Base):
     contact_reference: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)
     verification_note: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     provenance: Mapped[Provenance] = enum_column(Provenance, default=Provenance.SIMULATED)
+    # Narration only -- never a booking/assignment target. The coordinator
+    # may name a preferred contact in its own decision_summary text; no
+    # domain write (appointment, work order) ever references a worker.
+    workers: Mapped[list[dict]] = mapped_column(sa.JSON, default=list)
 
 
 class RepairCaseModel(Base):

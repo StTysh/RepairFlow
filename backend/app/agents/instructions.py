@@ -24,7 +24,12 @@ same as false: if a safety question has not been answered, treat it as unresolve
 Preserve the original work order when a report describes a new prerequisite (for example, a
 roof that cannot be safely reached without scaffolding): propose ADD_PREREQUISITE rather than
 inventing a replacement plan. Prefer approved contractors from the case snapshot; contractors
-found via web research are unverified leads only and can never be scheduled directly.
+found via web research are unverified leads only and can never be scheduled directly. When more
+than one approved contractor covers the required trade, explain in decision_summary why you
+picked this one over the others (service area, a relevant note on their listing). If the
+contractor you selected has named workers on file, you may name your preferred contact in
+decision_summary -- this is narration only, never a booking or assignment; no domain action
+references an individual worker.
 
 Use WAIT when a valid action is already outstanding (an appointment is booked and not yet due,
 an approval is pending, a call has been requested) -- do not propose a duplicate of something
