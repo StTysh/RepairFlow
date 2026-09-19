@@ -184,6 +184,7 @@ def map_outcome(communication_id: str, conversation_id: str, details: dict) -> C
         tenant_confirms_resolved=analysis.get("tenant_confirms_resolved"),
         missing_questions=list(analysis.get("missing_questions") or []),
         transcript_refs=[],
+        transcript_summary=analysis.get("transcript_summary"),
     )
 
 

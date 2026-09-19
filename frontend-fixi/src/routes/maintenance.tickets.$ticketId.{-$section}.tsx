@@ -1,4 +1,5 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+import { useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -11,21 +12,24 @@ import {
   MoreHorizontal,
   Pencil,
   Phone,
+  PhoneCall,
   Share2,
 } from "lucide-react";
 import { AppShell, Card } from "@/components/fixi/AppShell";
 import { Pill, StatusBadge, UrgencyBadge } from "@/components/fixi/Badge";
 import { CaseLifecycleActions } from "@/components/fixi/CaseLifecycleActions";
+import { authHeader, BASE_URL } from "@/api/client";
 import { useCaseDetail } from "@/hooks/use-case-detail";
 import { useCaseEvents } from "@/hooks/use-case-events";
 import { useCancelAppointment } from "@/hooks/use-case-actions";
 import { usePropertyHistory } from "@/hooks/use-property-history";
-import type { Appointment, CaseSnapshot } from "@/api/types";
+import { useAuthedCreds } from "@/lib/auth-context";
+import type { Appointment, CaseSnapshot, Communication } from "@/api/types";
 import { statusTone } from "@/lib/fixi-data";
 import { formatDateRange, formatRelative, initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const sections = ["summary", "timeline"] as const;
+const sections = ["summary", "timeline", "calls"] as const;
 type Section = (typeof sections)[number];
 
 export const Route = createFileRoute("/maintenance/tickets/$ticketId/{-$section}")({
@@ -162,6 +166,9 @@ function CasePage() {
           <SectionLink ticketId={ticketId} section="timeline" active={section === "timeline"}>
             Timeline
           </SectionLink>
+          <SectionLink ticketId={ticketId} section="calls" active={section === "calls"}>
+            Calls
+          </SectionLink>
         </div>
 
         <div
@@ -169,9 +176,158 @@ function CasePage() {
         >
           {show("summary") && <SummaryColumn snapshot={snapshot} />}
           {show("timeline") && <TimelineColumn caseId={c.id} />}
+          {show("calls") && <CallsColumn communications={snapshot.communications} />}
         </div>
       </div>
     </AppShell>
+  );
+}
+
+const purposeLabel: Record<Communication["purpose"], string> = {
+  INTAKE: "Resident — initial report",
+  AVAILABILITY: "Resident — availability",
+  FOLLOW_UP: "Resident — confirmation",
+  CONTRACTOR: "Contractor / worker",
+};
+
+const outcomeTone: Record<string, "green" | "amber" | "red" | "gray"> = {
+  ANSWERED: "green",
+  NO_ANSWER: "amber",
+  VOICEMAIL: "amber",
+  FAILED: "red",
+  UNKNOWN: "gray",
+};
+
+function CallsColumn({ communications }: { communications: Communication[] }) {
+  const calls = [...communications].sort((a, b) => {
+    const at = a.started_at ?? a.ended_at ?? "";
+    const bt = b.started_at ?? b.ended_at ?? "";
+    return bt.localeCompare(at);
+  });
+
+  return (
+    <Card className="p-5">
+      <SectionHeader
+        title="Calls"
+        subtitle="Who was contacted, what was said, and the recording — real ElevenLabs calls, not a summary standing in for them."
+      />
+      {calls.length === 0 && (
+        <p className="mt-4 text-xs text-muted-foreground">No calls on this ticket yet.</p>
+      )}
+      <ul className="mt-4 space-y-3">
+        {calls.map((comm) => (
+          <CallRow key={comm.id} comm={comm} />
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function CallRow({ comm }: { comm: Communication }) {
+  const [open, setOpen] = useState(false);
+  const label = purposeLabel[comm.purpose] ?? comm.purpose;
+  const summary =
+    comm.outcome?.transcript_summary ??
+    (comm.state === "ACTIVE" || comm.state === "REQUESTED"
+      ? "Call in progress…"
+      : comm.transcript.length > 0
+        ? "No AI-generated summary for this call yet — see the full transcript below."
+        : "No transcript yet.");
+
+  return (
+    <li className="rounded-lg border border-border p-3">
+      <button
+        type="button"
+        className="flex w-full items-start justify-between gap-3 text-left"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <div className="flex min-w-0 items-start gap-2.5">
+          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent">
+            <PhoneCall className="h-3.5 w-3.5" />
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-[13px] font-semibold">
+              {label}
+              {comm.outcome && (
+                <Pill tone={outcomeTone[comm.outcome.outcome] ?? "gray"}>
+                  {comm.outcome.outcome}
+                </Pill>
+              )}
+              <Pill tone={comm.provenance === "LIVE" ? "blue" : "gray"}>{comm.provenance}</Pill>
+            </div>
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{summary}</p>
+          </div>
+        </div>
+        <span className="shrink-0 text-[11px] text-muted-foreground">
+          {comm.started_at ? formatRelative(comm.started_at) : ""}
+        </span>
+      </button>
+      {open && (
+        <div className="mt-3 border-t border-border pt-3">
+          {comm.recording.status === "AVAILABLE" ? (
+            <RecordingPlayer communicationId={comm.id} />
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Recording: {comm.recording.status.toLowerCase()}
+            </p>
+          )}
+          {comm.transcript.length > 0 ? (
+            <ol className="mt-3 space-y-2">
+              {comm.transcript.map((turn) => (
+                <li key={turn.turn_id} className="text-xs">
+                  <span className="font-semibold">
+                    {turn.speaker === "AGENT"
+                      ? "Ava (AI): "
+                      : turn.speaker === "USER"
+                        ? "Caller: "
+                        : `${turn.speaker}: `}
+                  </span>
+                  <span className="text-muted-foreground">{turn.text}</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="mt-3 text-xs text-muted-foreground">No transcript recorded.</p>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
+function RecordingPlayer({ communicationId }: { communicationId: string }) {
+  const creds = useAuthedCreds();
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${BASE_URL}/api/v1/communications/${communicationId}/recording`, {
+        headers: { Authorization: authHeader(creds) },
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const blob = await res.blob();
+      setObjectUrl(URL.createObjectURL(blob));
+    } catch {
+      setError("Could not load recording.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (objectUrl) return <audio controls src={objectUrl} className="h-8 w-full" />;
+  return (
+    <button
+      type="button"
+      onClick={() => void load()}
+      disabled={loading}
+      className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
+    >
+      {loading ? "Loading…" : (error ?? "▶ Play recording")}
+    </button>
   );
 }
 

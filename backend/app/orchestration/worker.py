@@ -21,6 +21,12 @@ from app.orchestration.dispatcher import Coordinator
 from app.schemas import CaseStatus
 
 LEASE_SECONDS = 60
+# COORDINATE calls a real model with real network latency (unlike the other
+# job kinds, which are local or already have their own retry semantics) --
+# a single slow response should not permanently kill a case's progress with
+# no automatic retry. Bounded, not unlimited (CLAUDE.md: "bounded retries").
+MAX_COORDINATE_ATTEMPTS = 3
+COORDINATE_RETRY_DELAY_SECONDS = 5
 
 
 def utcnow() -> datetime:
@@ -110,8 +116,15 @@ async def process_one_job(
         async with session_scope() as session:
             failed_job = await session.get(JobModel, job_id)
             if failed_job is not None:
-                failed_job.status = "FAILED"
                 failed_job.last_error = f"{exc}\n{traceback.format_exc()}"[:4000]
+                if kind == "COORDINATE" and failed_job.attempts < MAX_COORDINATE_ATTEMPTS:
+                    # Retry in place rather than a dead job with no path
+                    # back: same row, same dedupe_key, so nothing double-
+                    # enqueues it meanwhile.
+                    failed_job.status = "PENDING"
+                    failed_job.run_at = datetime.now(timezone.utc) + timedelta(seconds=COORDINATE_RETRY_DELAY_SECONDS)
+                else:
+                    failed_job.status = "FAILED"
         if raise_on_error:
             raise
         return True
