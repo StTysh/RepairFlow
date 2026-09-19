@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     elevenlabs_agent_id: str | None = None
     elevenlabs_webhook_secret: str | None = None
     elevenlabs_tool_secret: str | None = None
+    elevenlabs_phone_number_id: str | None = None
+
+    # Autonomous outbound calling (CLAUDE.md: "Live calls require allowlisted
+    # test recipients and a documented enable switch"). Both default closed;
+    # the coordinator can PROPOSE contacting the tenant regardless, but
+    # nothing dials a real phone unless both are set.
+    outbound_calls_enabled: bool = False
+    outbound_call_allowlist: list[str] = Field(default_factory=list)
 
     # Tavily
     tavily_api_key: str | None = None

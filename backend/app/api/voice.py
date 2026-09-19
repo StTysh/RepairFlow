@@ -75,15 +75,31 @@ async def create_voice_session(request: VoiceSessionRequest) -> VoiceSessionResp
     raw_token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
     comm_id = new_uuid()
+    direction = "OUTBOUND" if request.channel == "PSTN" else "BROWSER"
 
     # Phase A: durable correlation record, committed before the network call.
     async with session_scope() as session:
         session.add(
             CommunicationModel(
                 id=comm_id, case_id=str(request.case_id) if request.case_id else None,
-                tenant_id=str(request.tenant_id), purpose=request.purpose.value, direction="BROWSER",
+                tenant_id=str(request.tenant_id) if request.tenant_id else None, purpose=request.purpose.value, direction=direction,
                 provider="ELEVENLABS", correlation_token_hash=token_hash, state="REQUESTED", provenance="LIVE",
             )
+        )
+
+    dynamic_variables = {
+        "correlation_token": raw_token, "communication_id": comm_id,
+        "repair_case_id": str(request.case_id) if request.case_id else "",
+        "call_purpose": request.purpose.value,
+    }
+
+    if request.channel == "PSTN":
+        # A telephony call is placed by ElevenLabs' own Twilio integration,
+        # not by a browser SDK connecting to a signed WebSocket URL -- that
+        # call would be meaningless here, so it is skipped for this channel.
+        return VoiceSessionResponse(
+            communication_id=comm_id, session_credential=None, connection_type="pstn",
+            dynamic_variables=dynamic_variables, expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
         )
 
     # Phase B: network call, no open transaction (CLAUDE.md non-negotiable).
@@ -96,11 +112,7 @@ async def create_voice_session(request: VoiceSessionRequest) -> VoiceSessionResp
 
     return VoiceSessionResponse(
         communication_id=comm_id, session_credential=signed_url, connection_type="websocket",
-        dynamic_variables={
-            "correlation_token": raw_token, "communication_id": comm_id,
-            "repair_case_id": str(request.case_id) if request.case_id else "",
-            "call_purpose": request.purpose.value,
-        },
+        dynamic_variables=dynamic_variables,
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
     )
 
@@ -220,9 +232,20 @@ async def elevenlabs_post_call_webhook(request: Request) -> WebhookAckResponse:
                 dedupe_key=f"recording:{comm.id}:webhook", payload={"communication_id": comm.id},
             )
             if case_id:
+                # COORDINATE jobs require a real trigger_event_id (worker.py
+                # reads payload["trigger_event_id"] unconditionally) -- record
+                # receipt as its own CaseEvent rather than enqueueing without
+                # one, which would raise KeyError and fail the job silently.
+                transcript_event = await services.append_event(
+                    session, case_id=case_id, event_type="CALL_ENDED",
+                    payload={"communication_id": comm.id, "turn_count": len(turns)},
+                    actor=ActorContext("SYSTEM", "post-call-webhook", comm.id),
+                    source_event_key=f"post-call-webhook:{comm.id}",
+                )
                 await services.enqueue_job(
                     session, case_id=case_id, kind="COORDINATE",
-                    dedupe_key=f"coordinate:voice-transcript:{comm.id}", payload={"reason": "post_call_transcription webhook"},
+                    dedupe_key=f"coordinate:voice-transcript:{comm.id}",
+                    payload={"trigger_event_id": transcript_event.id, "reason": "post_call_transcription webhook"},
                 )
         elif event_type == "post_call_audio":
             audio_b64 = data.get("full_audio")

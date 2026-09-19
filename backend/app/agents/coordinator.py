@@ -25,7 +25,7 @@ from app.agents.read_tools import find_appointment_options, list_case_events, re
 from app.config import Settings
 from app.schemas import ActionProposal, CaseSnapshot, Wait
 
-RUN_TIMEOUT_SECONDS = 25
+RUN_TIMEOUT_SECONDS = 45
 MAX_MODEL_REQUESTS = 4
 MAX_TOOL_CALLS = 3
 

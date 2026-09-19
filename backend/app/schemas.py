@@ -225,6 +225,8 @@ class EventType(str, enum.Enum):
     CASE_RESUMED = "CASE_RESUMED"
     CASE_RESOLVED = "CASE_RESOLVED"
     CASE_CANCELLED = "CASE_CANCELLED"
+    CALL_INITIATED = "CALL_INITIATED"
+    CALL_SKIPPED = "CALL_SKIPPED"
     CALL_ENDED = "CALL_ENDED"
     CALL_FAILED = "CALL_FAILED"
     RECORDING_AVAILABLE = "RECORDING_AVAILABLE"
@@ -260,6 +262,7 @@ class JobKind(str, enum.Enum):
     COORDINATE = "COORDINATE"
     EXECUTE_ACTION = "EXECUTE_ACTION"
     FETCH_RECORDING = "FETCH_RECORDING"
+    PLACE_CALL = "PLACE_CALL"
     FOLLOW_UP = "FOLLOW_UP"
 
 
@@ -1022,9 +1025,10 @@ SimulationObservation = Annotated[
 
 class VoiceSessionRequest(StrictModel):
     purpose: CommPurpose
-    tenant_id: UUID
+    tenant_id: UUID | None = None
     case_id: UUID | None = None
     disclosure_accepted: bool
+    channel: Literal["BROWSER", "PSTN"] = "BROWSER"
 
 
 class ResumeCaseRequest(StrictModel):
@@ -1147,8 +1151,8 @@ class DemoSeedRefs(StrictModel):
 
 class VoiceSessionResponse(StrictModel):
     communication_id: UUID
-    session_credential: str
-    connection_type: Literal["websocket"] = "websocket"
+    session_credential: str | None = None
+    connection_type: Literal["websocket", "pstn"] = "websocket"
     dynamic_variables: dict[str, str]
     expires_at: datetime
 

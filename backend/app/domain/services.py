@@ -777,11 +777,17 @@ async def request_information(session: AsyncSession, *, case_id: str, action: Re
 
     comm = CommunicationModel(
         id=new_uuid(), case_id=case_id, tenant_id=case.tenant_id if action.recipient == "TENANT" else None,
-        purpose=action.purpose, direction="BROWSER", correlation_token_hash=new_uuid(),
+        purpose=action.purpose, direction="OUTBOUND" if action.recipient == "TENANT" else "BROWSER",
+        correlation_token_hash=new_uuid(),
         state="REQUESTED", provenance=Provenance.LIVE if elevenlabs_configured else Provenance.FIXTURE,
     )
     session.add(comm)
     await session.flush()
+    if action.recipient == "TENANT":
+        await enqueue_job(
+            session, case_id=case_id, kind="PLACE_CALL", dedupe_key=f"place-call:{comm.id}",
+            payload={"communication_id": comm.id, "question": action.questions[0] if action.questions else ""},
+        )
     return CommandResult(status=CommandResultStatus.APPLIED, case_version=case.version, resource_ids={"communication_id": comm.id})
 
 
@@ -799,11 +805,15 @@ async def request_confirmation(session: AsyncSession, *, case_id: str, action: R
         return CommandResult(status=CommandResultStatus.NOOP, case_version=case.version, resource_ids={"communication_id": existing.id})
     comm = CommunicationModel(
         id=new_uuid(), case_id=case_id, tenant_id=case.tenant_id, purpose=CommPurpose.FOLLOW_UP,
-        direction="BROWSER", correlation_token_hash=new_uuid(), state="REQUESTED",
+        direction="OUTBOUND", correlation_token_hash=new_uuid(), state="REQUESTED",
         provenance=Provenance.LIVE if elevenlabs_configured else Provenance.FIXTURE,
     )
     session.add(comm)
     await session.flush()
+    await enqueue_job(
+        session, case_id=case_id, kind="PLACE_CALL", dedupe_key=f"place-call:{comm.id}",
+        payload={"communication_id": comm.id, "question": action.questions[0] if action.questions else ""},
+    )
     return CommandResult(status=CommandResultStatus.APPLIED, case_version=case.version, resource_ids={"communication_id": comm.id})
 
 

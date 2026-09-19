@@ -91,6 +91,27 @@ async def create_signed_session(*, agent_id: str, api_key: str) -> str:
         return body["signed_url"]
 
 
+async def place_outbound_call(
+    *, api_key: str, agent_id: str, agent_phone_number_id: str, to_number: str, dynamic_variables: dict[str, str],
+) -> dict:
+    """POST /v1/convai/twilio/outbound-call -- places a real PSTN call via
+    ElevenLabs' own Twilio integration (verified live 2026-09-19 against the
+    real API; see docs/26). Returns the raw response body, which on success
+    contains conversation_id and callSid -- the call is only INITIATED at
+    this point, not answered; poll fetch_conversation_details for status."""
+    async with httpx.AsyncClient(base_url=API_BASE, timeout=15.0) as client:
+        response = await client.post(
+            "/v1/convai/twilio/outbound-call",
+            headers={"xi-api-key": api_key, "Content-Type": "application/json"},
+            json={
+                "agent_id": agent_id, "agent_phone_number_id": agent_phone_number_id, "to_number": to_number,
+                "conversation_initiation_client_data": {"dynamic_variables": dynamic_variables},
+            },
+        )
+        response.raise_for_status()
+        return response.json()
+
+
 async def fetch_conversation_details(conversation_id: str, *, api_key: str) -> dict:
     async with httpx.AsyncClient(base_url=API_BASE, timeout=15.0) as client:
         response = await client.get(
@@ -164,6 +185,115 @@ def map_outcome(communication_id: str, conversation_id: str, details: dict) -> C
         missing_questions=list(analysis.get("missing_questions") or []),
         transcript_refs=[],
     )
+
+
+async def place_call(communication_id: str, *, question: str = "") -> None:
+    """Job body for JobKind.PLACE_CALL (docs/16, CLAUDE.md: "Live calls
+    require allowlisted test recipients and a documented enable switch").
+    Refuses (with a durable CaseEvent, never a silent skip) unless
+    settings.outbound_calls_enabled is True AND the resolved recipient
+    phone is on settings.outbound_call_allowlist. Never holds a DB
+    transaction across the network call (CLAUDE.md non-negotiable)."""
+    from app.domain import services
+    from app.domain.services import ActorContext
+    from app.models import CommunicationModel, RepairCaseModel, TenantModel, WorkOrderModel
+
+    settings = get_settings()
+
+    async with session_scope() as session:
+        comm = await session.get(CommunicationModel, communication_id)
+        if comm is None:
+            return
+        case_id = comm.case_id
+        phone: str | None = None
+        contact_name: str | None = None
+        if comm.tenant_id:
+            tenant = await session.get(TenantModel, comm.tenant_id)
+            if tenant is not None:
+                phone = tenant.phone_e164
+                contact_name = tenant.display_name
+        repair_issue = ""
+        if case_id:
+            case = await session.get(RepairCaseModel, case_id)
+            if case is not None:
+                repair_issue = case.title
+        work_description, trade_name = question, ""
+        if case_id:
+            from sqlalchemy import select as _select
+
+            work_order = (
+                await session.execute(
+                    _select(WorkOrderModel).where(
+                        WorkOrderModel.case_id == case_id, WorkOrderModel.status != "COMPLETED",
+                    )
+                )
+            ).scalars().first()
+            if work_order is not None:
+                trade_name = work_order.trade
+                work_description = work_order.scope
+
+    actor = ActorContext("SYSTEM", "place-call", communication_id)
+
+    async def _skip(reason: str, **extra: object) -> None:
+        async with session_scope() as skip_session:
+            await services.append_event(
+                skip_session, case_id=case_id, event_type="CALL_SKIPPED",
+                payload={"communication_id": communication_id, "reason": reason, **extra},
+                actor=actor, source_event_key=f"call-skipped:{communication_id}",
+            )
+
+    if not settings.outbound_calls_enabled:
+        await _skip("outbound calling is disabled (OUTBOUND_CALLS_ENABLED is not set)")
+        return
+    if not settings.elevenlabs_live or not settings.elevenlabs_phone_number_id:
+        await _skip("ElevenLabs is not fully configured (missing API key, agent id, or phone number id)")
+        return
+    if not phone:
+        await _skip("recipient has no phone number on file")
+        return
+    if phone not in settings.outbound_call_allowlist:
+        await _skip("recipient phone is not on the allowlisted test-recipient list", phone=phone)
+        return
+
+    # Phase B: network call, no open transaction.
+    try:
+        result = await place_outbound_call(
+            api_key=settings.elevenlabs_api_key, agent_id=settings.elevenlabs_agent_id,
+            agent_phone_number_id=settings.elevenlabs_phone_number_id, to_number=phone,
+            dynamic_variables={
+                "communication_id": communication_id, "repair_case_id": case_id or "",
+                "call_purpose": "RESIDENT_CHECK", "contact_name": contact_name or "there",
+                "case_reference": case_id or "", "repair_issue": repair_issue,
+                "work_description": work_description, "trade_name": trade_name,
+                "appointment_date": "not yet proposed", "appointment_time": "not yet proposed",
+                "access_notes": "not yet provided", "appointment_status": "REQUESTING",
+            },
+        )
+    except httpx.HTTPError as exc:
+        async with session_scope() as session:
+            await services.append_event(
+                session, case_id=case_id, event_type="CALL_FAILED",
+                payload={"communication_id": communication_id, "error": str(exc)[:200]},
+                actor=actor, source_event_key=f"call-failed:{communication_id}",
+            )
+        return
+
+    conversation_id = result.get("conversation_id")
+    call_sid = result.get("callSid")
+
+    # Phase C: persist.
+    async with session_scope() as session:
+        comm = await session.get(CommunicationModel, communication_id)
+        if comm is not None:
+            comm.provider_conversation_id = conversation_id
+            comm.provider_call_sid = call_sid
+            comm.state = "ACTIVE"
+            comm.started_at = datetime.now(timezone.utc)
+        await services.append_event(
+            session, case_id=case_id, event_type="CALL_INITIATED",
+            payload={"communication_id": communication_id, "conversation_id": conversation_id, "call_sid": call_sid},
+            actor=actor, source_event_key=f"call-initiated:{communication_id}",
+        )
 
 
 async def fetch_recording(communication_id: str) -> None:
@@ -253,10 +383,21 @@ async def fetch_recording(communication_id: str) -> None:
 
     if should_coordinate:
         from app.domain import services
+        from app.domain.services import ActorContext
 
         async with session_scope() as session:
+            # COORDINATE jobs require a real trigger_event_id (worker.py
+            # reads payload["trigger_event_id"] unconditionally) -- record
+            # the reconciliation as its own CaseEvent rather than enqueueing
+            # without one, which would raise KeyError and fail the job silently.
+            event = await services.append_event(
+                session, case_id=case_id, event_type="CALL_ENDED",
+                payload={"communication_id": communication_id, "turn_count": len(new_turns)},
+                actor=ActorContext("SYSTEM", "fetch-recording-reconciler", communication_id),
+                source_event_key=f"reconciled-voice:{communication_id}",
+            )
             await services.enqueue_job(
                 session, case_id=case_id, kind="COORDINATE",
                 dedupe_key=f"coordinate:reconciled-voice:{communication_id}",
-                payload={"reason": "reconciled transcript via FETCH_RECORDING fallback"},
+                payload={"trigger_event_id": event.id, "reason": "reconciled transcript via FETCH_RECORDING fallback"},
             )

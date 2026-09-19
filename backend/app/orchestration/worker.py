@@ -94,6 +94,10 @@ async def process_one_job(
             from app.integrations import elevenlabs as elevenlabs_integration
 
             await elevenlabs_integration.fetch_recording(payload["communication_id"])
+        elif kind == "PLACE_CALL":
+            from app.integrations import elevenlabs as elevenlabs_integration
+
+            await elevenlabs_integration.place_call(payload["communication_id"], question=payload.get("question", ""))
         else:
             raise ValueError(f"unknown job kind {kind}")
 
