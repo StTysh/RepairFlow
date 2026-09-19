@@ -20,6 +20,7 @@ import { CaseLifecycleActions } from "@/components/fixi/CaseLifecycleActions";
 import { DecisionCard } from "@/components/fixi/DecisionCard";
 import { WorkGraph } from "@/components/fixi/WorkGraph";
 import { SimulateObservationDialog } from "@/components/fixi/SimulateObservationDialog";
+import { MessagesPanel } from "@/components/fixi/MessagesPanel";
 import { authHeader, BASE_URL } from "@/api/client";
 import { useCaseDetail } from "@/hooks/use-case-detail";
 import { useCaseEvents } from "@/hooks/use-case-events";
@@ -42,7 +43,22 @@ import { cn } from "@/lib/utils";
 // `unknown[]` and unrendered). Deliberately not folded into "Overview": a
 // graph needs real vertical room, and most cases render it as one node,
 // which reads fine as its own tab and would look sparse crammed in above.
-const sections = ["summary", "timeline", "calls", "work", "property", "files", "costs"] as const;
+// "messages" is also new: a read-only tenant/contractor/operator message
+// thread (GET /cases/{id}/messages, backend/app/schemas.py Message). Chat
+// history is never authoritative state and the AI coordinator never reads
+// it (CLAUDE.md) -- this is a display-only convenience layer, same spirit
+// as "files": renders only what the read-only endpoint returns, no
+// composer wired to a send endpoint that doesn't exist yet.
+const sections = [
+  "summary",
+  "timeline",
+  "calls",
+  "work",
+  "property",
+  "files",
+  "costs",
+  "messages",
+] as const;
 type Section = (typeof sections)[number];
 
 export const Route = createFileRoute("/maintenance/tickets/$ticketId/{-$section}")({
@@ -195,6 +211,9 @@ function CasePage() {
           <SectionLink ticketId={ticketId} section="costs" active={section === "costs"}>
             Costs
           </SectionLink>
+          <SectionLink ticketId={ticketId} section="messages" active={section === "messages"}>
+            Messages
+          </SectionLink>
         </div>
 
         <div
@@ -209,6 +228,7 @@ function CasePage() {
           {section === "property" && <PropertyColumn snapshot={snapshot} />}
           {section === "files" && <FilesColumn />}
           {section === "costs" && <CostsColumn workOrders={snapshot.work_orders} />}
+          {section === "messages" && <MessagesPanel caseId={c.id} />}
         </div>
       </div>
     </AppShell>

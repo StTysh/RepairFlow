@@ -554,3 +554,28 @@ export interface DemoTenantFeedbackResponse {
 
 export type SimulationObservationResponse =
   ReportSubmitResponse | DemoTenantFeedbackResponse | ApprovalResponse;
+
+// --- Messages (display-only, read-only) -------------------------------------
+//
+// GET /api/v1/cases/{case_id}/messages (backend/app/schemas.py Message).
+// Display-only tenant/contractor/operator message thread -- never read by
+// the coordinator, not part of CaseSnapshot (CLAUDE.md: chat history is not
+// authoritative state). There's no write/send endpoint yet. See
+// components/fixi/MessagesPanel.tsx.
+
+export type MessageSenderType = "TENANT" | "CONTRACTOR" | "OPERATOR";
+
+export interface Message {
+  id: string;
+  case_id: string;
+  sender_type: MessageSenderType;
+  sender_name: string;
+  text: string;
+  photo_url: string | null;
+  created_at: string;
+}
+
+export interface CaseMessagesResponse {
+  case_id: string;
+  items: Message[];
+}

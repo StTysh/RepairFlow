@@ -13,6 +13,7 @@ import type {
   CaseDetailResponse,
   CaseEventsResponse,
   CaseListResponse,
+  CaseMessagesResponse,
   CaseVersionResponse,
   DashboardMetrics,
   DemoIntakeRequest,
@@ -64,6 +65,16 @@ export function fetchCaseEvents(
   if (params.after_seq) search.set("after_seq", String(params.after_seq));
   search.set("limit", String(params.limit ?? 50));
   return request<CaseEventsResponse>(creds, `/api/v1/cases/${caseId}/events?${search.toString()}`);
+}
+
+/** Read-only tenant/contractor/operator message thread for a case -- display
+ * only, never fed to the coordinator (CLAUDE.md: chat history is not
+ * authoritative state). No write/send endpoint exists yet. */
+export function fetchCaseMessages(
+  creds: OperatorCredentials,
+  caseId: string,
+): Promise<CaseMessagesResponse> {
+  return request<CaseMessagesResponse>(creds, `/api/v1/cases/${caseId}/messages`);
 }
 
 export function fetchDashboardMetrics(creds: OperatorCredentials): Promise<DashboardMetrics> {
