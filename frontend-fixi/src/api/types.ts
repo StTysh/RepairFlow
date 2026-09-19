@@ -135,6 +135,37 @@ export interface RiskAssessment {
   [key: string]: unknown;
 }
 
+export type SourceType = "EVENT" | "REPORT" | "TRANSCRIPT" | "VOICE_TOOL" | "WEB" | "OPERATOR";
+export type InterpretationStatus = "PENDING" | "APPLIED" | "REVIEW";
+
+export interface EvidenceRef {
+  source_type: SourceType;
+  source_id: string;
+  locator: string | null;
+  observed_at: string;
+  provenance: Provenance;
+}
+
+/** A contractor's reported fact against one appointment -- untrusted until
+ * the coordinator interprets it (interpretation_status). Populated by real
+ * ElevenLabs contractor calls or, in this demo, by an operator simulating
+ * one via POST /api/v1/demo/cases/{id}/observations (kind=CONTRACTOR_REPORT)
+ * -- see SimulateObservationDialog.tsx. */
+export interface ContractorReport {
+  id: string;
+  case_id: string;
+  work_order_id: string;
+  appointment_id: string;
+  contractor_id: string;
+  text: string;
+  observed_at: string;
+  received_at: string;
+  source_ref: EvidenceRef;
+  provenance: Provenance;
+  interpretation_status: InterpretationStatus;
+  interpreted_action_id: string | null;
+}
+
 // --- Pending actions (approvals) --------------------------------------------
 
 export type ActionState =
@@ -283,12 +314,15 @@ export interface Communication {
   provenance: Provenance;
 }
 
-// latest_reports / availability / approved_contractors are still
-// explicitly out of scope for this phase (VoicePanel/provenance badges
-// build on them later) -- typed as unknown[] here so CaseSnapshot is
-// complete and nothing needs `as any` when reading the other fields.
-// work_orders, dependencies and pending_actions ARE typed (WorkGraph /
-// Costs tab / DecisionCard approval card).
+// availability / approved_contractors are still explicitly out of scope
+// for this phase (VoicePanel/provenance badges would build on them, but
+// VoicePanel was never a working feature even in the old frontend -- see
+// its own docstring -- so this is deferred, not blocked) -- typed as
+// unknown[] here so CaseSnapshot is complete and nothing needs `as any`
+// when reading the other fields. work_orders, dependencies, appointments,
+// latest_reports and pending_actions ARE typed (WorkGraph / Costs tab /
+// DecisionCard approval card / SimulateObservationDialog appointment
+// picker).
 export interface CaseSnapshot {
   case: RepairCase;
   issue: RepairIssue;
@@ -299,7 +333,7 @@ export interface CaseSnapshot {
   work_orders: WorkOrder[];
   dependencies: Dependency[];
   appointments: Appointment[];
-  latest_reports: unknown[];
+  latest_reports: ContractorReport[];
   communications: Communication[];
   availability: unknown[];
   approved_contractors: unknown[];
@@ -465,3 +499,58 @@ export interface AppointmentCancelResponse {
   outcome: CancellationOutcome;
   case_version: number;
 }
+
+// --- Simulated observations (demo-only) -----------------------------------
+//
+// POST /api/v1/demo/cases/{case_id}/observations. There's no live
+// contractor/tenant channel in this MVP -- an operator manually feeds in
+// exactly what a real phone call would have reported, and the backend
+// records it with SIMULATED provenance through the same domain services a
+// real ElevenLabs call would use (backend/app/api/demo.py,
+// demo_simulation_observation). See SimulateObservationDialog.tsx.
+//
+// Mirrors the backend's discriminated union on `kind`
+// (backend/app/schemas.py SimulationObservation) exactly -- each variant's
+// body is constructed directly against one of these three shapes so a
+// StrictModel extra-field rejection on the backend can't bite.
+
+export interface SimulationObservationContractorReport {
+  kind: "CONTRACTOR_REPORT";
+  appointment_id: string;
+  text: string;
+  observed_at: string;
+}
+
+export interface SimulationObservationTenantFeedback {
+  kind: "TENANT_FEEDBACK";
+  confirms_resolved: boolean;
+  text: string;
+}
+
+export interface SimulationObservationAttendanceWindowEnded {
+  kind: "ATTENDANCE_WINDOW_ENDED";
+  appointment_id: string;
+}
+
+export type SimulationObservationRequest =
+  | SimulationObservationContractorReport
+  | SimulationObservationTenantFeedback
+  | SimulationObservationAttendanceWindowEnded;
+
+/** response_model=Union[ReportSubmitResponse, DemoTenantFeedbackResponse,
+ * ApprovalResponse] on the backend -- which variant comes back depends on
+ * which `kind` was submitted. All three carry a `result: CommandResult`;
+ * callers that only need to know "did it work" (this dialog) don't need to
+ * discriminate further than that. */
+export interface ReportSubmitResponse {
+  report_id: string;
+  result: CommandResult;
+}
+
+export interface DemoTenantFeedbackResponse {
+  communication_id: string;
+  result: CommandResult;
+}
+
+export type SimulationObservationResponse =
+  ReportSubmitResponse | DemoTenantFeedbackResponse | ApprovalResponse;

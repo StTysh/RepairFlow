@@ -21,6 +21,8 @@ import type {
   PropertyHistoryResponse,
   ReopenCaseRequest,
   ResumeCaseRequest,
+  SimulationObservationRequest,
+  SimulationObservationResponse,
 } from "@/api/types";
 // CaseStatus is a UI-facing display concept as much as a wire type (see
 // lib/fixi-data.ts), so it's defined there rather than in api/types.ts.
@@ -170,4 +172,25 @@ export function cancelAppointment(
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+/** Demo-only: records a manually-simulated contractor report / tenant
+ * feedback / attendance-window-ended observation, exactly as if it had
+ * arrived from a real phone call -- there's no live contractor/tenant
+ * channel in this MVP. Submitted with SIMULATED provenance by the backend
+ * (backend/app/api/demo.py's demo_simulation_observation), not something
+ * this call fabricates itself. See SimulateObservationDialog.tsx. */
+export function submitSimulationObservation(
+  creds: OperatorCredentials,
+  caseId: string,
+  body: SimulationObservationRequest,
+): Promise<SimulationObservationResponse> {
+  return request<SimulationObservationResponse>(
+    creds,
+    `/api/v1/demo/cases/${caseId}/observations`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
 }

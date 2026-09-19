@@ -19,6 +19,7 @@ import { Pill, StatusBadge, UrgencyBadge } from "@/components/fixi/Badge";
 import { CaseLifecycleActions } from "@/components/fixi/CaseLifecycleActions";
 import { DecisionCard } from "@/components/fixi/DecisionCard";
 import { WorkGraph } from "@/components/fixi/WorkGraph";
+import { SimulateObservationDialog } from "@/components/fixi/SimulateObservationDialog";
 import { authHeader, BASE_URL } from "@/api/client";
 import { useCaseDetail } from "@/hooks/use-case-detail";
 import { useCaseEvents } from "@/hooks/use-case-events";
@@ -152,6 +153,19 @@ function CasePage() {
             <StatusBadge status={c.status} className="h-9 px-3.5 text-sm" />
             <CaseLifecycleActions caseId={c.id} status={c.status} version={c.version} />
           </div>
+        </div>
+
+        {/* There's no live contractor/tenant phone channel in this MVP --
+         * this is how the hero demo path (contractor reports scaffolding
+         * needed, tenant confirms a repair) gets driven from the UI at all:
+         * an operator manually feeds in what a real call would have
+         * reported. See SimulateObservationDialog.tsx. */}
+        <div className="mt-3 flex justify-end">
+          <SimulateObservationDialog
+            caseId={c.id}
+            appointments={snapshot.appointments}
+            workOrders={snapshot.work_orders}
+          />
         </div>
 
         <DecisionCard caseId={c.id} pendingActions={snapshot.pending_actions} />
@@ -523,7 +537,15 @@ function OutlineButton({
 }
 
 function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
-  const { case: c, issue, tenant, assigned_contractor, next_appointment, property } = snapshot;
+  const {
+    case: c,
+    issue,
+    tenant,
+    assigned_contractor,
+    next_appointment,
+    property,
+    latest_reports,
+  } = snapshot;
   const propertyHistory = usePropertyHistory(property.id);
   const cancelAppointment = useCancelAppointment(c.id);
 
@@ -614,6 +636,31 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
           />
         ) : (
           <p className="mt-2 text-xs text-muted-foreground">No appointment scheduled yet.</p>
+        )}
+      </div>
+
+      <div className="mt-4 border-t border-border pt-4">
+        <Label>Contractor reports</Label>
+        {/* Real ContractorReportModel rows (backend/app/schemas.py
+         * ContractorReport, up to the 10 most recent) -- populated by a
+         * real ElevenLabs contractor call or by simulating one via the
+         * "Simulate contractor/tenant update" dialog above. Untyped/unread
+         * before this (CaseSnapshot.latest_reports was `unknown[]`); this
+         * is the fix, and the one place these reports render. */}
+        {latest_reports.length === 0 ? (
+          <p className="mt-2 text-xs text-muted-foreground">No contractor reports yet.</p>
+        ) : (
+          <ul className="mt-2 space-y-2">
+            {latest_reports.map((r) => (
+              <li key={r.id} className="rounded-lg border border-border p-2.5 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <Pill tone={r.provenance === "LIVE" ? "blue" : "gray"}>{r.provenance}</Pill>
+                  <span className="text-muted-foreground">{formatRelative(r.observed_at)}</span>
+                </div>
+                <p className="mt-1.5 leading-relaxed">{r.text}</p>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 

@@ -8,8 +8,14 @@ import {
   reopenCase,
   replayCase,
   resumeCase,
+  submitSimulationObservation,
 } from "@/api/endpoints";
-import type { CancelCaseRequest, ReopenCaseRequest, ResumeCaseRequest } from "@/api/types";
+import type {
+  CancelCaseRequest,
+  ReopenCaseRequest,
+  ResumeCaseRequest,
+  SimulationObservationRequest,
+} from "@/api/types";
 import { caseDetailQueryKey } from "@/hooks/use-case-detail";
 import { useAuthedCreds } from "@/lib/auth-context";
 
@@ -142,5 +148,24 @@ export function useCancelAppointment(caseId: string) {
       toast.success("Appointment cancelled — the coordinator will propose a new visit");
     },
     onError: (error: Error) => toast.error(`Could not cancel appointment: ${error.message}`),
+  });
+}
+
+/** Demo-only: feeds in a manually-simulated contractor report / tenant
+ * feedback / attendance-window-ended observation -- the operator's stand-in
+ * for a real phone call, since there's no live contractor/tenant channel in
+ * this MVP. See api/endpoints.ts's submitSimulationObservation and
+ * SimulateObservationDialog.tsx, the only caller. */
+export function useSubmitSimulationObservation(caseId: string) {
+  const creds = useAuthedCreds();
+  const invalidate = useInvalidateAfterAction(caseId);
+  return useMutation({
+    mutationFn: (body: SimulationObservationRequest) =>
+      submitSimulationObservation(creds, caseId, body),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Simulated observation recorded");
+    },
+    onError: (error: Error) => toast.error(`Could not record observation: ${error.message}`),
   });
 }
