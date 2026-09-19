@@ -37,6 +37,7 @@ from app.models import (
 from app.schemas import (
     ApprovalResponse,
     DemoResetResponse,
+    DemoSeedRefs,
     DemoTenantFeedbackResponse,
     EvidenceRef,
     IntakeResponse,
@@ -54,6 +55,19 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/api/v1/demo", dependencies=[Depends(require_operator)])
+
+
+@router.get("/seed-refs")
+async def demo_seed_refs() -> DemoSeedRefs:
+    """The demo property/tenant/contractor IDs (deterministic uuid5s, see
+    app/seed.py), seeded idempotently at startup, so the operator UI can
+    populate the intake form without a dedicated properties/tenants list
+    endpoint -- docs/16 doesn't define one, and this is demo-only glue."""
+    from app.seed import DEMO_PROPERTY_ID, DEMO_ROOFER_ID, DEMO_SCAFFOLDER_ID, DEMO_TENANT_ID
+
+    return DemoSeedRefs(
+        property_id=DEMO_PROPERTY_ID, tenant_id=DEMO_TENANT_ID, roofer_id=DEMO_ROOFER_ID, scaffolder_id=DEMO_SCAFFOLDER_ID,
+    )
 
 
 class DemoIntakeRequest(BaseModel):

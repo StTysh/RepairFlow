@@ -293,6 +293,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/demo/seed-refs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Demo Seed Refs
+         * @description The demo property/tenant/contractor IDs (deterministic uuid5s, see
+         *     app/seed.py), seeded idempotently at startup, so the operator UI can
+         *     populate the intake form without a dedicated properties/tenants list
+         *     endpoint -- docs/16 doesn't define one, and this is demo-only glue.
+         */
+        get: operations["demo_seed_refs_api_v1_demo_seed_refs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/demo/intake": {
         parameters: {
             query?: never;
@@ -417,6 +440,49 @@ export interface components {
             /** Action */
             action: components["schemas"]["ApplyTriage"] | components["schemas"]["RequestInformation"] | components["schemas"]["DiscoverContractors"] | components["schemas"]["ScheduleVisit"] | components["schemas"]["AddPrerequisite"] | components["schemas"]["AcceptReport"] | components["schemas"]["RequestConfirmation"] | components["schemas"]["ResolveCase"] | components["schemas"]["Escalate"] | components["schemas"]["Wait"];
         };
+        /** ActionRecord */
+        ActionRecord: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            /** Kind */
+            kind: string;
+            /** Target Id */
+            target_id?: string | null;
+            /** Idempotency Key */
+            idempotency_key: string;
+            /** Payload Hash */
+            payload_hash: string;
+            proposal: components["schemas"]["ActionProposal"];
+            state: components["schemas"]["ActionState"];
+            approval?: components["schemas"]["Approval"] | null;
+            /** Result */
+            result?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * ActionState
+         * @enum {string}
+         */
+        ActionState: "PROPOSED" | "AWAITING_APPROVAL" | "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "UNKNOWN" | "REJECTED";
         /** AddPrerequisite */
         AddPrerequisite: {
             /**
@@ -460,6 +526,56 @@ export interface components {
             /** Scope */
             scope: string;
         };
+        /** Appointment */
+        Appointment: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            /**
+             * Work Order Id
+             * Format: uuid
+             */
+            work_order_id: string;
+            /**
+             * Contractor Id
+             * Format: uuid
+             */
+            contractor_id: string;
+            /** Slot Id */
+            slot_id: string;
+            /**
+             * Start At
+             * Format: date-time
+             */
+            start_at: string;
+            /**
+             * End At
+             * Format: date-time
+             */
+            end_at: string;
+            status: components["schemas"]["AppointmentStatus"];
+            visit_outcome?: components["schemas"]["VisitOutcome"] | null;
+            connector: components["schemas"]["ConnectorType"];
+            /** Provider Booking Id */
+            provider_booking_id?: string | null;
+            /**
+             * Action Id
+             * Format: uuid
+             */
+            action_id: string;
+            /** Attempt Number */
+            attempt_number: number;
+            /** Availability Revision */
+            availability_revision: number;
+            provenance: components["schemas"]["Provenance"];
+        };
         /** AppointmentCancelResponse */
         AppointmentCancelResponse: {
             /**
@@ -468,6 +584,27 @@ export interface components {
              */
             appointment_id: string;
             outcome: components["schemas"]["CancellationOutcome"];
+        };
+        /**
+         * AppointmentStatus
+         * @enum {string}
+         */
+        AppointmentStatus: "PENDING" | "CONFIRMED" | "FINISHED" | "CANCELLED";
+        /** Approval */
+        Approval: {
+            /** Operator Id */
+            operator_id: string;
+            /**
+             * Approved At
+             * Format: date-time
+             */
+            approved_at: string;
+            /** Action Payload Hash */
+            action_payload_hash: string;
+            /** Authorized Limit Pence */
+            authorized_limit_pence?: number | null;
+            /** Reason */
+            reason: string;
         };
         /** ApprovalDecision */
         ApprovalDecision: {
@@ -613,6 +750,12 @@ export interface components {
          * @enum {string}
          */
         CancellationStatus: "CANCELLED" | "PENDING" | "REJECTED" | "UNKNOWN";
+        /** CaseDetailResponse */
+        CaseDetailResponse: {
+            snapshot: components["schemas"]["CaseSnapshot"];
+            /** Latest Event Seq */
+            latest_event_seq: number;
+        };
         /** CaseEvent */
         CaseEvent: {
             /**
@@ -697,6 +840,35 @@ export interface components {
             items: components["schemas"]["OrchestrationRun"][];
             /** Next Cursor */
             next_cursor?: string | null;
+        };
+        /** CaseSnapshot */
+        CaseSnapshot: {
+            case: components["schemas"]["RepairCase"];
+            issue: components["schemas"]["RepairIssue"];
+            /** Work Orders */
+            work_orders: components["schemas"]["WorkOrder"][];
+            /** Dependencies */
+            dependencies: components["schemas"]["Dependency"][];
+            /** Appointments */
+            appointments: components["schemas"]["Appointment"][];
+            /** Latest Reports */
+            latest_reports: components["schemas"]["ContractorReport"][];
+            /** Communications */
+            communications: components["schemas"]["Communication"][];
+            /** Availability */
+            availability: components["schemas"]["AvailabilityWindow"][];
+            /** Approved Contractors */
+            approved_contractors: components["schemas"]["Contractor"][];
+            /** Pending Actions */
+            pending_actions: components["schemas"]["ActionRecord"][];
+            /** Recent Events */
+            recent_events: components["schemas"]["CaseEvent"][];
+            /** Policy Snapshot */
+            policy_snapshot: {
+                [key: string]: unknown;
+            };
+            /** Snapshot Version */
+            snapshot_version: number;
         };
         /**
          * CaseStatus
@@ -784,6 +956,82 @@ export interface components {
             recording?: components["schemas"]["Recording"];
             provenance: components["schemas"]["Provenance"];
         };
+        /**
+         * ConnectorType
+         * @enum {string}
+         */
+        ConnectorType: "MOCK" | "HUMAN";
+        /** Contractor */
+        Contractor: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Display Name */
+            display_name: string;
+            /** Trades */
+            trades: components["schemas"]["Trade"][];
+            /** Service Postcodes */
+            service_postcodes: string[];
+            approval_status: components["schemas"]["ContractorApprovalStatus"];
+            connector: components["schemas"]["ConnectorType"];
+            /** Contact Reference */
+            contact_reference?: string | null;
+            /** Verification Note */
+            verification_note?: string | null;
+            provenance: components["schemas"]["Provenance"];
+        };
+        /**
+         * ContractorApprovalStatus
+         * @enum {string}
+         */
+        ContractorApprovalStatus: "APPROVED" | "PENDING" | "REJECTED";
+        /** ContractorReport */
+        ContractorReport: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            /**
+             * Work Order Id
+             * Format: uuid
+             */
+            work_order_id: string;
+            /**
+             * Appointment Id
+             * Format: uuid
+             */
+            appointment_id: string;
+            /**
+             * Contractor Id
+             * Format: uuid
+             */
+            contractor_id: string;
+            /** Text */
+            text: string;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /**
+             * Received At
+             * Format: date-time
+             */
+            received_at: string;
+            source_ref: components["schemas"]["EvidenceRef"];
+            provenance: components["schemas"]["Provenance"];
+            interpretation_status: components["schemas"]["InterpretationStatus"];
+            /** Interpreted Action Id */
+            interpreted_action_id?: string | null;
+        };
         /** DemoIntakeRequest */
         DemoIntakeRequest: {
             /**
@@ -831,6 +1079,29 @@ export interface components {
              */
             preserved_live_cases: number;
         };
+        /** DemoSeedRefs */
+        DemoSeedRefs: {
+            /**
+             * Property Id
+             * Format: uuid
+             */
+            property_id: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /**
+             * Roofer Id
+             * Format: uuid
+             */
+            roofer_id: string;
+            /**
+             * Scaffolder Id
+             * Format: uuid
+             */
+            scaffolder_id: string;
+        };
         /** DemoTenantFeedbackResponse */
         DemoTenantFeedbackResponse: {
             /**
@@ -840,6 +1111,51 @@ export interface components {
             communication_id: string;
             result: components["schemas"]["CommandResult"];
         };
+        /** Dependency */
+        Dependency: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            /**
+             * Prerequisite Work Order Id
+             * Format: uuid
+             */
+            prerequisite_work_order_id: string;
+            /**
+             * Dependent Work Order Id
+             * Format: uuid
+             */
+            dependent_work_order_id: string;
+            status: components["schemas"]["DependencyStatus"];
+            /** Reason */
+            reason: string;
+            /**
+             * Discovered From Report Id
+             * Format: uuid
+             */
+            discovered_from_report_id: string;
+            /** Satisfied By Report Id */
+            satisfied_by_report_id?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Satisfied At */
+            satisfied_at?: string | null;
+        };
+        /**
+         * DependencyStatus
+         * @enum {string}
+         */
+        DependencyStatus: "OPEN" | "SATISFIED" | "INVALIDATED";
         /** DiscoverContractors */
         DiscoverContractors: {
             /**
@@ -946,6 +1262,11 @@ export interface components {
             /** Source Text */
             source_text: string;
         };
+        /**
+         * InterpretationStatus
+         * @enum {string}
+         */
+        InterpretationStatus: "PENDING" | "APPLIED" | "REVIEW";
         /** ObservationSubmission */
         ObservationSubmission: {
             /**
@@ -1069,6 +1390,74 @@ export interface components {
             reason: string;
             /** Evidence Refs */
             evidence_refs?: components["schemas"]["EvidenceRef"][];
+        };
+        /** RepairCase */
+        RepairCase: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Property Id
+             * Format: uuid
+             */
+            property_id: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            status: components["schemas"]["CaseStatus"];
+            /** Version */
+            version: number;
+            /** Title */
+            title: string;
+            risk: components["schemas"]["RiskAssessment"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Owner Operator Id */
+            owner_operator_id: string;
+            /** Last Decision Summary */
+            last_decision_summary?: string | null;
+            /** Next Follow Up At */
+            next_follow_up_at?: string | null;
+            /** Escalation Reason */
+            escalation_reason?: string | null;
+            resume_status?: components["schemas"]["CaseStatus"] | null;
+        };
+        /** RepairIssue */
+        RepairIssue: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            /** Description */
+            description: string;
+            /** Location */
+            location: string;
+            /** Started At */
+            started_at?: string | null;
+            /** Evidence Refs */
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            /** Tenant Resolution Confirmed At */
+            tenant_resolution_confirmed_at?: string | null;
+            /** Unresolved Concerns */
+            unresolved_concerns?: string[];
         };
         /** ReportSubmission */
         ReportSubmission: {
@@ -1408,6 +1797,11 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /**
+         * VisitOutcome
+         * @enum {string}
+         */
+        VisitOutcome: "COMPLETED" | "BLOCKED" | "NO_ACCESS" | "FAILED" | "UNKNOWN";
         /** Wait */
         Wait: {
             /**
@@ -1438,11 +1832,59 @@ export interface components {
             /** Provider Score */
             provider_score?: number | null;
         };
+        /** WorkOrder */
+        WorkOrder: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            /**
+             * Issue Id
+             * Format: uuid
+             */
+            issue_id: string;
+            kind: components["schemas"]["WorkOrderKind"];
+            trade: components["schemas"]["Trade"];
+            /** Scope */
+            scope: string;
+            status: components["schemas"]["WorkOrderStatus"];
+            /** Contractor Id */
+            contractor_id?: string | null;
+            /** Required For Resolution */
+            required_for_resolution: boolean;
+            /** Quote Pence */
+            quote_pence?: number | null;
+            /** Approved Limit Pence */
+            approved_limit_pence?: number | null;
+            /** Completion Report Id */
+            completion_report_id?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
         /**
          * WorkOrderKind
          * @enum {string}
          */
         WorkOrderKind: "REPAIR" | "SCAFFOLD_INSTALL" | "SCAFFOLD_REMOVE";
+        /**
+         * WorkOrderStatus
+         * @enum {string}
+         */
+        WorkOrderStatus: "READY" | "SCHEDULED" | "IN_PROGRESS" | "AWAITING_REPORT" | "BLOCKED" | "COMPLETED" | "CANCELLED";
     };
     responses: never;
     parameters: never;
@@ -1523,7 +1965,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CaseDetailResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2005,6 +2447,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    demo_seed_refs_api_v1_demo_seed_refs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DemoSeedRefs"];
                 };
             };
         };

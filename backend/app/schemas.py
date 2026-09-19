@@ -1128,3 +1128,10 @@ class DemoResetResponse(StrictModel):
 class DemoTenantFeedbackResponse(StrictModel):
     communication_id: UUID
     result: CommandResult
+
+
+class DemoSeedRefs(StrictModel):
+    property_id: UUID
+    tenant_id: UUID
+    roofer_id: UUID
+    scaffolder_id: UUID

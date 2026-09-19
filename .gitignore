@@ -32,5 +32,8 @@ frontend/.vite/
 .DS_Store
 Thumbs.db
 
+# Claude Code local settings and agent worktree scratch state
+.claude/
+
 # Logs
 *.log

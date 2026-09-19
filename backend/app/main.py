@@ -23,6 +23,10 @@ async def lifespan(app: FastAPI):
     settings.ensure_directories()
     await create_all()
 
+    from app.seed import seed as seed_demo_data
+
+    await seed_demo_data()  # idempotent: no-ops if the demo property already exists
+
     from app.agents.coordinator import build_coordinator
 
     coordinator = build_coordinator(settings)

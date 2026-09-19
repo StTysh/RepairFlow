@@ -1,122 +1,80 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import { useCallback, useState } from "react";
+import { CaseHeader } from "./components/CaseHeader";
+import { CaseList } from "./components/CaseList";
+import { DecisionCard } from "./components/DecisionCard";
+import { DemoControls } from "./components/DemoControls";
+import { EvidenceDrawer } from "./components/EvidenceDrawer";
+import { LoginGate } from "./components/LoginGate";
+import { ResearchDrawer } from "./components/ResearchDrawer";
+import { Timeline } from "./components/Timeline";
+import { VoicePanel } from "./components/VoicePanel";
+import { WorkGraph } from "./components/WorkGraph";
+import type { OperatorCredentials } from "./api/client";
+import { useCaseDetail } from "./hooks/useCaseDetail";
+import { useCaseList } from "./hooks/useCaseList";
+import { useReadiness } from "./hooks/useReadiness";
 
-function App() {
-  const [count, setCount] = useState(0)
+function CaseWorkspace({ creds }: { creds: OperatorCredentials }) {
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  const { items } = useCaseList(creds);
+  const { snapshot, error: detailError } = useCaseDetail(creds, selectedCaseId);
+  const readiness = useReadiness(creds);
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  const handleMutated = useCallback(() => setRefreshTick((t) => t + 1), []);
+  void refreshTick; // polling hooks already refresh on their own interval; this just gives buttons a visible no-op hook point
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div className="grid h-full grid-cols-[240px_1fr_320px] overflow-hidden">
+      <aside className="overflow-y-auto border-r border-slate-800 bg-slate-900/40">
+        <div className="border-b border-slate-800 px-4 py-3">
+          <h2 className="text-sm font-semibold text-slate-200">RepairFlow</h2>
+          <p className="text-[11px] text-slate-500">Repair case coordinator</p>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+        <CaseList items={items} selectedCaseId={selectedCaseId} onSelect={setSelectedCaseId} />
+      </aside>
 
-      <div className="ticks"></div>
+      <main className="overflow-y-auto">
+        {!snapshot ? (
+          <div className="flex h-full items-center justify-center text-sm text-slate-500">
+            {selectedCaseId ? "Loading case…" : "Select a case, or start one from demo controls."}
+          </div>
+        ) : (
+          <>
+            <CaseHeader snapshot={snapshot} />
+            <div className="space-y-4 p-6">
+              {detailError && <p className="text-xs text-rose-400">{detailError}</p>}
+              <WorkGraph snapshot={snapshot} />
+              <DecisionCard snapshot={snapshot} creds={creds} onDecided={handleMutated} />
+              <EvidenceDrawer reports={snapshot.latest_reports} communications={snapshot.communications} creds={creds} />
+              <ResearchDrawer events={snapshot.recent_events} creds={creds} tavilyLive={readiness?.tavily_live ?? false} />
+              <VoicePanel elevenlabsLive={readiness?.elevenlabs_live ?? false} />
+              <Timeline events={snapshot.recent_events} creds={creds} caseId={snapshot.case.id} />
+            </div>
+          </>
+        )}
+      </main>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      <aside className="overflow-y-auto border-l border-slate-800 bg-slate-900/40 p-3">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Demo controls</h2>
+        <DemoControls
+          creds={creds}
+          selectedCaseId={selectedCaseId}
+          appointments={snapshot?.appointments ?? []}
+          onCaseCreated={setSelectedCaseId}
+          onMutated={handleMutated}
+        />
+      </aside>
+    </div>
+  );
 }
 
-export default App
+function App() {
+  return (
+    <div className="h-screen bg-slate-950">
+      <LoginGate>{(creds) => <CaseWorkspace creds={creds} />}</LoginGate>
+    </div>
+  );
+}
+
+export default App;
