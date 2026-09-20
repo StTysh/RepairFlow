@@ -484,15 +484,52 @@ _CANCEL_NOTE_TEMPLATES = [
 ]
 
 
-def _pick_date_in_year(rng: random.Random, year: int) -> datetime:
-    start = datetime(year, 1, 1, tzinfo=timezone.utc)
-    if year == 2026:
-        end = _YEAR_2026_LATEST_CREATED
-    else:
-        end = datetime(year, 12, 31, 23, 0, 0, tzinfo=timezone.utc)
-    span_seconds = max(int((end - start).total_seconds()), 3600)
-    offset = rng.randint(0, span_seconds)
-    return start + timedelta(seconds=offset)
+# Relative monthly likelihood that a repair of each trade is *reported*,
+# January to December. Uniform dates made the charts read as synthetic on
+# sight -- and worse, backwards: roofing peaked in July, which is the
+# opposite of when roofs fail. These are the obvious physical seasons,
+# not fitted data, and they only shape which month a case lands in.
+_TRADE_SEASONALITY: dict[Trade, tuple[int, ...]] = {
+    # Storms and driving rain: heavy in late autumn and winter.
+    Trade.ROOFING: (16, 14, 11, 7, 5, 4, 4, 5, 8, 12, 16, 18),
+    # Burst and frozen pipes cluster in the cold months; a quieter summer
+    # baseline of ordinary leaks and blockages never goes away.
+    Trade.PLUMBING: (15, 14, 11, 8, 6, 5, 5, 6, 7, 10, 14, 17),
+    # Mostly aseasonal. A mild winter lift: more hours of lighting and
+    # heating load, and damp finding its way into fittings.
+    Trade.ELECTRICAL: (11, 10, 9, 8, 7, 7, 7, 7, 8, 9, 11, 12),
+    # Follows the work it enables, so it tracks roofing loosely.
+    Trade.SCAFFOLDING: (14, 12, 11, 8, 6, 5, 5, 6, 8, 11, 14, 15),
+}
+_FLAT_SEASONALITY = (1,) * 12
+
+
+def _pick_date_in_year(rng: random.Random, year: int, trade: Trade | None = None) -> datetime:
+    """A reporting date inside `year`, weighted by the trade's season.
+
+    The month is drawn from the trade's weights and the position within
+    that month is uniform, so the shape is seasonal without any case
+    landing on a suspiciously round date. 2026 is truncated at
+    `_YEAR_2026_LATEST_CREATED` because the archive must stay in the
+    past; months wholly after that cutoff are dropped from the draw
+    rather than silently clamped onto the boundary, which would pile
+    cases onto a single timestamp.
+    """
+    latest = _YEAR_2026_LATEST_CREATED if year == 2026 else datetime(year, 12, 31, 23, 0, 0, tzinfo=timezone.utc)
+    weights = _TRADE_SEASONALITY.get(trade, _FLAT_SEASONALITY) if trade is not None else _FLAT_SEASONALITY
+
+    months = [m for m in range(1, 13) if datetime(year, m, 1, tzinfo=timezone.utc) <= latest]
+    month = rng.choices(months, weights=[weights[m - 1] for m in months])[0]
+
+    month_start = datetime(year, month, 1, tzinfo=timezone.utc)
+    month_end = (
+        datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        if month == 12
+        else datetime(year, month + 1, 1, tzinfo=timezone.utc)
+    )
+    month_end = min(month_end, latest)
+    span_seconds = max(int((month_end - month_start).total_seconds()), 3600)
+    return month_start + timedelta(seconds=rng.randint(0, span_seconds))
 
 
 def _build_properties() -> list[ArchiveProperty]:
@@ -565,7 +602,7 @@ def _build_case(
 ) -> ArchiveCase:
     label = f"{property_key}:{trade.value.lower()}:{year}:{seq}"
     title, description, location = rng.choice(_TITLES[trade])
-    created_at = _pick_date_in_year(rng, year)
+    created_at = _pick_date_in_year(rng, year, trade)
     urgency = rng.choices(["ROUTINE", "URGENT", "EMERGENCY"], weights=[70, 25, 5])[0]
 
     case = ArchiveCase(
@@ -617,25 +654,35 @@ def _fill_resolved_case(rng: random.Random, case: ArchiveCase, *, trade: Trade, 
         case.work_orders.append(wo)
         cursor = wo_created
 
-    appointment_count = rng.choices([1, 2], weights=[60, 40])[0]
+    # One attendance per work order, plus an optional retry on one of
+    # them. The old shape drew 1-2 appointments regardless of how many
+    # work orders the case had, so a three-work-order case routinely
+    # produced work orders marked COMPLETED with no appointment behind
+    # them -- 22 of 87 in the generated set. A completed repair that
+    # nobody ever attended is not a thing that happens, and the archive's
+    # own `no_open_or_pending_work` check reads the status enum only, so
+    # it could never catch it.
+    visits: list[tuple[int, int]] = [(i, 1) for i in range(len(case.work_orders))]
+    if rng.random() < 0.4:
+        # A first attempt that failed and was rebooked: the retry goes on
+        # a work order that already has an attempt, so the pairing stays
+        # one-appointment-per-work-order plus this extra.
+        retry_index = rng.randrange(len(case.work_orders))
+        visits.insert(retry_index + 1, (retry_index, 2))
+    appointment_count = len(visits)
     latest_end: datetime = created_at
-    for a in range(appointment_count):
-        if a == 0:
-            wo_index = 0
-            attempt_number = 1
-        elif len(case.work_orders) > 1 and rng.random() < 0.5:
-            wo_index = 1
-            attempt_number = 1
-        else:
-            wo_index = 0
-            attempt_number = 2
-
+    for a, (wo_index, attempt_number) in enumerate(visits):
         wo = case.work_orders[wo_index]
         lead = timedelta(days=rng.randint(2, 18), hours=rng.randint(0, 12))
         start_at = wo.created_at + lead
         end_at = start_at + timedelta(hours=rng.randint(1, 6))
 
-        if appointment_count > 1 and a < appointment_count - 1:
+        # Only an attempt that is itself followed by a retry on the *same*
+        # work order failed. Every other visit completed -- the case is a
+        # resolved one, so each of its work orders has to have been
+        # finished by something.
+        superseded = any(i == wo_index and n > attempt_number for i, n in visits)
+        if superseded:
             outcome = rng.choice([VisitOutcome.NO_ACCESS, VisitOutcome.BLOCKED, VisitOutcome.FAILED])
         else:
             outcome = VisitOutcome.COMPLETED

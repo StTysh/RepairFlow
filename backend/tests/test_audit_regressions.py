@@ -1429,3 +1429,71 @@ async def test_listing_appointment_options_writes_nothing(app_db):
     # this connector would never have offered.
     assert mock_booking_connector.offered_slot(contractor_id, Trade.ROOFING, slots[0].slot_id) is not None
     assert mock_booking_connector.offered_slot(contractor_id, Trade.ROOFING, "made-up:2020-01-01:09") is None
+
+
+# --------------------------------------------------------------------------
+# 21. The archival dataset has to be plausible (app/archive/dataset.py)
+# --------------------------------------------------------------------------
+
+
+def test_every_completed_archival_work_order_was_actually_attended():
+    """22 of 87 generated work orders were COMPLETED with no appointment
+    behind them, because the generator drew 1-2 appointments regardless
+    of how many work orders a case had. A completed repair nobody ever
+    attended is not a thing that happens, and the archive's own
+    `no_open_or_pending_work` check reads the status enum only, so it
+    could never catch this. Pure in-memory check: no import needed."""
+    from app.archive.dataset import build_dataset
+    from app.schemas import WorkOrderStatus
+
+    dataset = build_dataset()
+    orphans = []
+    for case in dataset.cases:
+        attended = {a.work_order_index for a in case.appointments}
+        for index, wo in enumerate(case.work_orders):
+            if wo.status == WorkOrderStatus.COMPLETED and index not in attended:
+                orphans.append((case.label, index))
+    assert not orphans, f"{len(orphans)} completed work order(s) with no appointment, e.g. {orphans[:3]}"
+
+
+def test_no_archival_work_order_is_created_after_its_case_closed():
+    """One generated work order had `created_at` after the case it
+    belongs to was closed."""
+    from app.archive.dataset import build_dataset
+
+    impossible = [
+        case.label
+        for case in build_dataset().cases
+        if case.archived_closed_at is not None
+        and any(wo.created_at > case.archived_closed_at for wo in case.work_orders)
+    ]
+    assert not impossible, f"work order(s) created after case closure: {impossible[:3]}"
+
+
+def test_archival_reporting_dates_are_seasonal_not_uniform():
+    """Dates were drawn uniformly across the year, so every chart built
+    on this data read as synthetic on sight -- and roofing peaked in
+    July, the opposite of when roofs fail. The point of the archive is
+    to make charts worth looking at."""
+    from collections import Counter
+
+    from app.archive.dataset import build_dataset
+    from app.schemas import Trade
+
+    dataset = build_dataset()
+    roofing_months = Counter(
+        case.created_at.month
+        for case in dataset.cases
+        if any(wo.trade == Trade.ROOFING for wo in case.work_orders)
+    )
+    winter = sum(roofing_months.get(m, 0) for m in (11, 12, 1, 2))
+    summer = sum(roofing_months.get(m, 0) for m in (5, 6, 7, 8))
+    assert winter > summer, (
+        f"roofing should cluster in storm season; got Nov-Feb={winter}, May-Aug={summer}"
+    )
+
+    all_months = Counter(case.created_at.month for case in dataset.cases)
+    counts = [all_months.get(m, 0) for m in range(1, 13)]
+    assert max(counts) >= 2 * max(min(counts), 1), (
+        f"monthly distribution is too flat to look real: {counts}"
+    )

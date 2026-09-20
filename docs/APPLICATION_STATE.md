@@ -277,8 +277,7 @@ stated reason rather than by being missed. Struck rows are resolved and
 kept for the record, because `docs/audit/` refers to them by number.
 The four reasons, and which rows they cover:
 
-- **Needs a product decision, not a patch** — rows 1 and 7. See §7.2
-  and §7.5. Row 1 now has a researched recommendation attached; §7.2
+- **Needs a product decision, not a patch** — row 1. See §7.2. Row 1 now has a researched recommendation attached; §7.2
   records it.
 - **Needs infrastructure this build does not have** — rows 3, 16 and the
   live-call gap in "Never verified". An email/SMS transport and a real
@@ -290,7 +289,7 @@ The four reasons, and which rows they cover:
   table-rebuild migration, an idempotency scheme, an error-envelope
   contract across ~30 routes, a job retention policy) that is a task of
   its own rather than a one-line fix.
-- **Low value against the cost** — rows 6, 15, 18, 20.
+- **Low value against the cost** — rows 15, 18, 20.
 
 If any of these should have been fixed instead of recorded, that is a
 scope call to make explicitly — the work is scoped in §6.
@@ -303,8 +302,8 @@ scope call to make explicitly — the work is scoped in §6.
 | 3 | No email or SMS transport. Outward messages persist as drafts and say so. | **HIGH** | `api/messaging.py` |
 | ~~4~~ | ~~Alembic is behind and produces a broken schema.~~ **Resolved by decision**: the chain is frozen. `env.py` now refuses to run without `REPAIRFLOW_ALLOW_ALEMBIC=1`. `create_all()` plus the additive column/index passes is the real bootstrap and now says so out loud, rather than leaving revisions that look authoritative and are not. | — | `alembic/env.py` |
 | 5 | Enum CHECK constraints: `enum_column()` now passes `create_constraint=True`, but **this only protects tables created from now on**. The existing database gains nothing; retrofitting needs a table-rebuild migration, which was not attempted. | **MEDIUM** | `models.py` |
-| 6 | 22 of 87 archival work orders are COMPLETED with no backing appointment; one has `created_at` after its case closed. Reproduced exactly on 2026-09-20 against a fresh `--apply`. The archive's own `no_open_or_pending_work` check reads the status enum only, so it cannot catch this. **This describes the dataset `python -m app.archive --apply` generates, not `backend/data/repairflow.db`, which currently holds zero archival rows.** | **MEDIUM** | `archive/dataset.py` |
-| 7 | Archival seasonality is flat: measured 3–7 cases a month across all twelve, and roofing peaks in **July**, which is backwards for storm damage. Charts look synthetic on inspection. Same caveat as row 6 — this is the generated dataset, not the live database. | **MEDIUM** | `archive/dataset.py` |
+| ~~6~~ | ~~22 of 87 archival work orders COMPLETED with no appointment.~~ **Resolved**: the generator drew 1–2 appointments regardless of how many work orders a case had. It now produces one attendance per work order plus an optional retry, so a completed repair always has a visit behind it. Regenerated and measured: 0 orphans, 0 work orders created after closure, 14/14 validation checks still pass. | — | `archive/dataset.py` |
+| ~~7~~ | ~~Archival seasonality is flat, and roofing peaked in July.~~ **Resolved**: reporting dates are now drawn from per-trade monthly weights (the obvious physical seasons, not fitted data). Measured after regeneration: 2 cases in May against 10 in December, and roofing Nov–Feb 9 against May–Aug 6. | — | `archive/dataset.py` |
 | ~~8~~ | ~~Property history/stats include archival cases undisclosed.~~ **Resolved**: both take `include_archived` (default true — the blending is wanted), both return `includes_archived_history` and `archived_case_count`, and each history row carries `is_archived`. | — | `api/cases.py` |
 | ~~9~~ | ~~A late reopen reports stale `resolution_hours`.~~ **Was already correct** — `_terminal_event_at_by_case` takes MAX. Probed directly: 2,376h reported, not 48h. The row described a bug that did not exist; now pinned by a test so it cannot appear. | — | `analytics.py` |
 | 10 | Error envelopes are inconsistent: `DomainError` and FastAPI's `RequestValidationError` produce different shapes across ~30 routes. | **MEDIUM** | `api/errors.py` |
@@ -367,8 +366,8 @@ That is incomplete, and this document is the correction.
 5. ~~Bring Alembic current, or make it fail loudly.~~ **Done** (§7.4,
    2026-09-20): it now fails loudly. The chain is frozen behind
    `REPAIRFLOW_ALLOW_ALEMBIC=1`; `create_all()` is the real bootstrap.
-6. Fix the archival dataset's orphaned completed work orders and flat
-   seasonality.
+6. ~~Fix the archival dataset's orphaned completed work orders and flat
+   seasonality.~~ **Done** — see rows 6 and 7.
 7. Add `include_archived` + a disclosure field to property history/stats.
 8. Recompute `resolution_hours` after a reopen.
 9. Enforce `vulnerability_concern` in policy, or remove it from intake.
