@@ -34,7 +34,7 @@ contractor research.
 
 **Scale today.** ~12,500 lines of backend Python across 42 modules;
 17 frontend routes and ~27 components; 58 HTTP routes; 22 database
-tables; **186 backend tests**; no frontend tests.
+tables; **198 backend tests**; no frontend tests.
 
 ---
 
@@ -168,7 +168,7 @@ is the summary.
 | **Largest-remainder percentages** | Every edge case sums to exactly 100. |
 | **Supply chain** | `uv.lock` hash-pinned; `npm audit` clean; no secrets in the built bundle. |
 | **Every visible control does something** | All interactive elements traced: no `console.log`-only buttons, no toast-without-a-write, no fabricated "Sent"/"Confirmed" strings. |
-| **The fixes are pinned** | 15 regression tests, each proven to fail when its fix is reverted. |
+| **The fixes are pinned** | 19 regression tests (27 cases with parametrisation), each proven to fail when its fix is reverted. |
 | **Money reconciles** | One figure across five reads of the same scope: property stats by trade, by year, property history rows, insights case detail, and the costs endpoint. |
 
 ### Fixed during this session
@@ -229,6 +229,30 @@ Found by audit, fixed, and covered by new regression tests:
 
 ### Known broken or incomplete
 
+Everything below survived the fix pass, and each row survived it for a
+stated reason rather than by being missed. Struck rows are resolved and
+kept for the record, because `docs/audit/` refers to them by number.
+The four reasons, and which rows they cover:
+
+- **Needs a product decision, not a patch** — rows 1 and 7. Picking an
+  answer unilaterally would bake in a choice about what the product is.
+  See §7.2 and §7.5.
+- **Needs infrastructure this build does not have** — rows 3, 16 and the
+  live-call gap in "Never verified". An email/SMS transport and a real
+  phone call both require outbound contact, which §4 forbids for this
+  whole session. Writing an untestable transport is worse than not
+  having one.
+- **Correct but incomplete, and the incompleteness is now written down**
+  — rows 5, 8, 9, 10, 11, 12, 14. Each needs real design work
+  (a table-rebuild migration, an idempotency scheme, a streaming upload
+  reader, an error-envelope contract across ~30 routes) that is a task
+  of its own, not a fix.
+- **Low value against the cost** — rows 6, 13, 15, 17, 18, 20.
+
+If any of these should have been fixed instead of recorded, that is a
+scope call to make explicitly — the work is scoped in §6.
+
+
 | # | Issue | Severity | Where |
 | --- | --- | --- | --- |
 | 1 | `MockBookingConnector` invents contractor availability. CLAUDE.md prohibits it outright. The coordinator's `SCHEDULE_VISIT` still books against fabricated slots. The UI now labels them "Simulated booking". | **HIGH** | `integrations/booking.py` |
@@ -251,7 +275,7 @@ Found by audit, fixed, and covered by new regression tests:
 | 18 | No frontend test suite at all, and no runner configured. | **MEDIUM** | — |
 | ~~19~~ | ~~Three critical invariants have no test.~~ **Resolved**: `tests/test_audit_regressions.py` covers all three plus twelve more. Every one was proven to fail when its fix is reverted — a test that passes both ways guards nothing. |  — | `tests/test_audit_regressions.py` |
 | 20 | Every page load produces a React hydration mismatch (error #418). React recovers by client-rendering, so it is cosmetic, but it is noise and can flicker. | **LOW** | prerendered shell |
-| 21 | The upload size cap runs *after* Starlette has spooled the whole body — disk exhaustion, not the memory exhaustion its comment claims to prevent. | **MEDIUM** | `api/documents.py` |
+| ~~21~~ | ~~Upload size cap runs after body spooling.~~ **Duplicate of row 12** — recorded twice by two different audits. Kept struck so the numbering in `docs/audit/` still resolves. |  — | — |
 
 ### Never verified
 
@@ -285,14 +309,17 @@ That is incomplete, and this document is the correction.
    request, read and write, including voice session control.
 2. HTTP Basic over plain HTTP is only defensible on localhost. Terminate
    TLS, or do not expose it.
-3. Decide the money-source question (§7) — reporting is wrong until then.
+3. ~~Decide the money-source question.~~ **Done** (§7.1, 2026-09-20):
+   reconciled per work order at read time. Reporting now agrees across
+   all five read paths.
 
 **Correctness, highest value first**
 
 4. Replace `MockBookingConnector`, or route all scheduling through the
    human-recorded reschedule path (§7).
-5. Bring Alembic current, or make it fail loudly rather than produce a
-   subtly wrong schema someone trusts.
+5. ~~Bring Alembic current, or make it fail loudly.~~ **Done** (§7.4,
+   2026-09-20): it now fails loudly. The chain is frozen behind
+   `REPAIRFLOW_ALLOW_ALEMBIC=1`; `create_all()` is the real bootstrap.
 6. Fix the archival dataset's orphaned completed work orders and flat
    seasonality.
 7. Add `include_archived` + a disclosure field to property history/stats.
