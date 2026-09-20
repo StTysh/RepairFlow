@@ -13,6 +13,29 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 import app.db as db_module
 from app.config import get_settings
 from app.db import Base
+from app.config import Settings
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _ignore_developer_dotenv() -> None:
+    """Stop the suite reading `backend/.env`.
+
+    Settings declares `env_file=BACKEND_DIR/".env"`, so every test was
+    silently configured by whatever untracked file the developer happened
+    to have. That is not a theoretical tidiness problem: this machine's
+    .env sets DEMO_SLOT_OFFSET_DAYS=1, which moved the mock connector's
+    earliest slot to tomorrow 09:00 and broke 22 tests -- but only when
+    the suite ran after 09:00 UTC, and never on a fresh clone, which has
+    no .env at all. A suite whose result depends on an untracked file
+    tells you nothing about the code.
+
+    Explicit `os.environ` entries still win, because environment
+    variables outrank `env_file` -- so the tests and fixtures that set
+    DATABASE_PATH and friends are unaffected. Only the implicit file
+    dependency goes away.
+    """
+    Settings.model_config["env_file"] = None
+    get_settings.cache_clear()
 
 
 @pytest_asyncio.fixture

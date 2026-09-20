@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
+from app.middleware import MaxBodySizeMiddleware
 from app.api import (
     approvals,
     cases,
@@ -79,11 +80,23 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Fixi", lifespan=lifespan)
 
 settings = get_settings()
+# Added before CORS so it ends up *inside* it: add_middleware prepends,
+# so the last call is outermost. That order is deliberate -- a 413 from
+# this middleware still passes back out through CORS and picks up the
+# headers a browser needs to read the status, instead of surfacing to a
+# cross-origin uploader as an opaque CORS failure. It still sits outside
+# routing and the multipart parser, which is what matters: an upload cap
+# enforced inside the handler is already too late, because the body has
+# been spooled to disk by then.
+app.add_middleware(MaxBodySizeMiddleware, max_bytes=settings.max_document_bytes)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allow_origins,
-    allow_credentials=True,
-    # DELETE is real (demo.py's delete-ticket endpoint) and PATCH/PUT cost
+    # Settings refuses to construct with "*" while this is true, so the
+    # dangerous wildcard-plus-credentials combination cannot be reached
+    # from configuration.
+    allow_credentials=settings.cors_allow_credentials,
+    # DELETE is real (documents and notes both delete) and PATCH/PUT cost
     # nothing to allow -- a missing method here fails silently at the
     # browser's CORS preflight, never reaching the handler or its tests
     # (ASGITransport doesn't preflight), so it's invisible until clicked

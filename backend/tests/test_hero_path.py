@@ -77,12 +77,21 @@ async def _seed_reference_data():
 
 async def _broad_tenant_window(case_id: str, tenant_id: str) -> None:
     """A wide availability window covering the connector's whole slot
-    horizon, so the test doesn't need to hand-compute exact slot times."""
+    horizon, so the test doesn't need to hand-compute exact slot times.
+
+    Starts at `now`, not `now + 1 day`. It used to start a day out, which
+    silently failed to cover the horizon it advertises: with
+    DEMO_SLOT_OFFSET_DAYS=1 the connector's earliest slot is tomorrow
+    09:00, and `_first_slot_id` takes slots[0], so any run after 09:00 UTC
+    picked a slot that fell before this window began and the booking was
+    refused. That made the whole hero path fail by time of day -- green
+    every morning, red every afternoon -- and only on a machine whose
+    .env compresses the offset to 1."""
     now = datetime.now(timezone.utc)
     async with session_scope() as session:
         window = AvailabilityWindowModel(
             id=uid(), case_id=case_id, person_type="TENANT", person_id=tenant_id,
-            start_at=now + timedelta(days=1), end_at=now + timedelta(days=14),
+            start_at=now, end_at=now + timedelta(days=14),
             timezone="Europe/London", confirmed_at=now, expires_at=now + timedelta(days=14),
             source_ref=EvidenceRef(source_type=SourceType.OPERATOR, source_id=uid(), observed_at=now, provenance=Provenance.FIXTURE).model_dump(mode="json"),
             revision=1,

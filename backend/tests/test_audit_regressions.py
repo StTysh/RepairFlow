@@ -1031,3 +1031,122 @@ async def test_real_routes_still_win_over_the_fallback(tmp_path):
         asset = await client.get("/assets/real.js")
     assert api.status_code == 200 and api.json() == {"ok": True}
     assert asset.status_code == 200 and "export const x" in asset.text
+
+
+# --------------------------------------------------------------------------
+# 17. Configuration and body limits (app/config.py, app/middleware.py)
+# --------------------------------------------------------------------------
+
+
+def test_wildcard_cors_origin_with_credentials_is_refused(monkeypatch):
+    """`allow_origins=["*"]` plus `allow_credentials=True` is not a lax dev
+    setting, it is an open door: Starlette echoes back whatever Origin the
+    request carried, so any site a signed-in operator visits can call this
+    API with their session and read the reply. Settings must refuse to
+    construct rather than let a stray env var widen access silently."""
+    from app.config import Settings
+
+    monkeypatch.setenv("CORS_ALLOW_ORIGINS", '["*"]')
+    monkeypatch.setenv("CORS_ALLOW_CREDENTIALS", "true")
+    with pytest.raises(Exception) as excinfo:
+        Settings()
+    assert "CORS_ALLOW_ORIGINS" in str(excinfo.value)
+
+    # The wildcard stays usable for a genuinely open, credential-free API:
+    # the dangerous thing is the combination, not either half.
+    monkeypatch.setenv("CORS_ALLOW_CREDENTIALS", "false")
+    assert Settings().cors_allow_origins == ["*"]
+
+
+def test_cors_default_covers_the_frontend_that_is_actually_served(monkeypatch):
+    """frontend-fixi's dev server binds 5174 (its vite.config.ts) and that
+    is the port the README says to open, but the default allow-list only
+    had 5173 -- the port of the older, no-longer-served frontend. A fresh
+    clone therefore failed every cross-origin call from the only dev
+    frontend there is. Invisible here, because the local .env had been
+    corrected by hand and never copied back into the default."""
+    from app.config import Settings
+
+    monkeypatch.delenv("CORS_ALLOW_ORIGINS", raising=False)
+    assert "http://localhost:5174" in Settings().cors_allow_origins
+
+
+@pytest.mark.asyncio
+async def test_oversized_body_is_refused_before_it_is_read():
+    """The documents endpoint's own cap runs inside the handler, by which
+    point Starlette has already parsed the multipart body and spooled it
+    to a temp file -- so it bounds memory, not disk, and its comment
+    claimed otherwise. The limit has to be enforced at the ASGI layer,
+    before anything reads the body at all."""
+    from app.middleware import MaxBodySizeMiddleware
+
+    read_bytes = 0
+
+    async def app(scope, receive, send):
+        nonlocal read_bytes
+        while True:
+            message = await receive()
+            read_bytes += len(message.get("body", b""))
+            if not message.get("more_body"):
+                break
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    guarded = MaxBodySizeMiddleware(app, max_bytes=100, slack_bytes=0)
+    scope = {
+        "type": "http", "method": "POST", "path": "/api/v1/documents",
+        "headers": [(b"content-length", b"999999")],
+    }
+    sent: list[dict] = []
+
+    async def send(message):
+        sent.append(message)
+
+    async def receive():  # pragma: no cover - must never be reached
+        raise AssertionError("the body must not be read once Content-Length exceeds the cap")
+
+    await guarded(scope, receive, send)
+    assert sent[0]["status"] == 413
+    assert read_bytes == 0, "nothing may be read from an over-sized request"
+
+
+@pytest.mark.asyncio
+async def test_oversized_chunked_body_is_refused_midstream():
+    """A client that omits Content-Length would bypass a header-only
+    check entirely, so the bytes are counted as they arrive too."""
+    from app.middleware import MaxBodySizeMiddleware
+
+    async def app(scope, receive, send):
+        while True:
+            message = await receive()
+            if not message.get("more_body"):
+                break
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    guarded = MaxBodySizeMiddleware(app, max_bytes=50, slack_bytes=0)
+    chunks = [{"type": "http.request", "body": b"x" * 40, "more_body": True} for _ in range(5)]
+    sent: list[dict] = []
+
+    async def send(message):
+        sent.append(message)
+
+    async def receive():
+        return chunks.pop(0)
+
+    await guarded({"type": "http", "method": "POST", "path": "/x", "headers": []}, receive, send)
+    assert sent[0]["status"] == 413
+    assert chunks, "the stream must be abandoned before every chunk is consumed"
+
+
+def test_settings_do_not_read_the_developer_dotenv():
+    """The suite used to be configured by an untracked local file. This
+    machine's .env sets DEMO_SLOT_OFFSET_DAYS=1, which broke 22 tests --
+    but only after 09:00 UTC, and never on a fresh clone, which has no
+    .env. The conftest fixture that disables env_file is what makes a
+    test result mean something about the code."""
+    from app.config import Settings
+
+    assert Settings.model_config.get("env_file") is None, (
+        "tests must not inherit backend/.env; see conftest._ignore_developer_dotenv"
+    )
