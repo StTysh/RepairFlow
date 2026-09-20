@@ -3,7 +3,7 @@
 **What this is.** One document covering everything the application has:
 what exists, what works, what does not, what is left to fix, and the
 decisions still open. Written 2026-09-20 after a full migration from the
-hackathon build plus an eleven-part audit sweep.
+hackathon build plus a twelve-part audit sweep.
 
 **How to read it.** §1–§4 describe the system. §5 is the honest verdict
 per area. §6 is the outstanding work, ranked. §7 is what needs a human
@@ -32,9 +32,11 @@ and served by FastAPI (`frontend-fixi/`). Pydantic AI over Gemini for the
 coordinator. ElevenLabs (with Twilio behind it) for voice. Tavily for
 contractor research.
 
-**Scale today.** ~12,500 lines of backend Python across 42 modules;
-17 frontend routes and ~27 components; 58 HTTP routes; 22 database
-tables; **198 backend tests**; no frontend tests.
+**Scale today**, measured 2026-09-20, not estimated: ~15,000 lines of
+backend Python across 57 files; 17 frontend routes and 21 components;
+73 HTTP routes (72 under `/api`, `/webhooks` and `/integrations`, plus
+`/healthz`); **25** database tables; **203** backend tests; no frontend
+tests.
 
 ---
 
@@ -48,7 +50,7 @@ tables; **198 backend tests**; no frontend tests.
 | Orchestration | `orchestration/{dispatcher,worker,executor,dedupe}.py` | Complete. Durable `JobModel` queue, leases, idempotency keys, one proposal per wake. |
 | Agent | `agents/{coordinator,read_tools,instructions,dependencies}.py` | Complete. Gemini via Pydantic AI, scoped read-only tools, bounded retries, redacted snapshot. |
 | Integrations | `integrations/{elevenlabs,tavily,booking,no_contact}.py` | ElevenLabs and Tavily complete; **booking is a mock that invents availability** (§5). |
-| API | `api/` — 19 routers, 58 routes | Complete. |
+| API | `api/` — 19 routers, 72 routes | Complete. |
 | Analytics | `analytics.py` | Complete; **two money sources disagree** (§7). |
 | Data commands | `seed.py`, `archive/`, `backfill_category.py`, `legacy_demo_purge.py` | Complete. |
 
@@ -58,7 +60,7 @@ tables; **198 backend tests**; no frontend tests.
 4 property tabs · `/contractors` + profile · `/tenants` + profile ·
 `/insights` · `/messages` + thread · `/reports`.
 
-### Database — 22 tables
+### Database — 25 tables
 
 Core: `properties`, `tenants`, `contractors`, `repair_cases`,
 `repair_issues`, `work_orders`, `dependencies`, `appointments`,
@@ -149,7 +151,7 @@ and found no way through.
 
 ## 5. Verdict by area
 
-Eleven auditors went over the system independently. Their raw reports,
+Twelve auditors went over the system independently. Their raw reports,
 with `file:line` evidence and reproductions, are in `docs/audit/`. This
 is the summary.
 
@@ -168,7 +170,7 @@ is the summary.
 | **Largest-remainder percentages** | Every edge case sums to exactly 100. |
 | **Supply chain** | `uv.lock` hash-pinned; `npm audit` clean; no secrets in the built bundle. |
 | **Every visible control does something** | All interactive elements traced: no `console.log`-only buttons, no toast-without-a-write, no fabricated "Sent"/"Confirmed" strings. |
-| **The fixes are pinned** | 19 regression tests (27 cases with parametrisation), each proven to fail when its fix is reverted. |
+| **The fixes are pinned** | 24 regression tests (32 cases with parametrisation), each proven to fail when its fix is reverted. |
 | **Money reconciles** | One figure across five reads of the same scope: property stats by trade, by year, property history rows, insights case detail, and the costs endpoint. |
 
 ### Fixed during this session
@@ -207,7 +209,7 @@ Found by audit, fixed, and covered by new regression tests:
   to 3.4×. Resolved — see below.
 - **Four CLI commands crashed against a real database** (`no such table:
   cost_entries`) because only the FastAPI lifespan called `create_all()`.
-- **The production database was missing all five archival indexes**, so
+- **The production database was missing all eight archival indexes**, so
   `WHERE archive_batch_id IS NULL` — the leading filter in nearly every
   analytics query — was a full table scan.
 - **`_add_missing_columns` silently produced a wrong column** for a
@@ -218,6 +220,14 @@ Found by audit, fixed, and covered by new regression tests:
   was recorded.
 - **There was no navigation at all below 1024px** — on a tablet every
   destination but the current one was unreachable.
+- **The test suite read the developer's untracked `.env`**, so a result
+  said more about one machine than about the code. This machine's `.env`
+  sets `DEMO_SLOT_OFFSET_DAYS=1`, which combined with a tenant window
+  that started a day late to fail 22 tests — but only after 09:00 UTC,
+  and never on a fresh clone. Green every morning, red every afternoon.
+- **A fresh clone got CORS failures from the only frontend served**: the
+  default allow-list had `:5173`, the dev server binds `:5174`. Invisible
+  here because the local `.env` had been fixed by hand.
 - **Every unmatched `/api` path returned 200 with an HTML body** on
   Windows: Starlette hands the static mount a path already through
   `os.path.normpath`, so `/api/v1/x` arrived as `api\v1\x` and the
@@ -234,20 +244,20 @@ stated reason rather than by being missed. Struck rows are resolved and
 kept for the record, because `docs/audit/` refers to them by number.
 The four reasons, and which rows they cover:
 
-- **Needs a product decision, not a patch** — rows 1 and 7. Picking an
-  answer unilaterally would bake in a choice about what the product is.
-  See §7.2 and §7.5.
+- **Needs a product decision, not a patch** — rows 1 and 7. See §7.2
+  and §7.5. Row 1 now has a researched recommendation attached; §7.2
+  records it.
 - **Needs infrastructure this build does not have** — rows 3, 16 and the
   live-call gap in "Never verified". An email/SMS transport and a real
   phone call both require outbound contact, which §4 forbids for this
   whole session. Writing an untestable transport is worse than not
   having one.
 - **Correct but incomplete, and the incompleteness is now written down**
-  — rows 5, 8, 9, 10, 11, 12, 14. Each needs real design work
-  (a table-rebuild migration, an idempotency scheme, a streaming upload
-  reader, an error-envelope contract across ~30 routes) that is a task
-  of its own, not a fix.
-- **Low value against the cost** — rows 6, 13, 15, 17, 18, 20.
+  — rows 5, 8, 9, 10, 11, 14, 22. Each needs real design work (a
+  table-rebuild migration, an idempotency scheme, an error-envelope
+  contract across ~30 routes, a job retention policy) that is a task of
+  its own rather than a one-line fix.
+- **Low value against the cost** — rows 6, 15, 18, 20.
 
 If any of these should have been fixed instead of recorded, that is a
 scope call to make explicitly — the work is scoped in §6.
@@ -260,21 +270,22 @@ scope call to make explicitly — the work is scoped in §6.
 | 3 | No email or SMS transport. Outward messages persist as drafts and say so. | **HIGH** | `api/messaging.py` |
 | ~~4~~ | ~~Alembic is behind and produces a broken schema.~~ **Resolved by decision**: the chain is frozen. `env.py` now refuses to run without `REPAIRFLOW_ALLOW_ALEMBIC=1`. `create_all()` plus the additive column/index passes is the real bootstrap and now says so out loud, rather than leaving revisions that look authoritative and are not. | — | `alembic/env.py` |
 | 5 | Enum CHECK constraints: `enum_column()` now passes `create_constraint=True`, but **this only protects tables created from now on**. The existing database gains nothing; retrofitting needs a table-rebuild migration, which was not attempted. | **MEDIUM** | `models.py` |
-| 6 | 22 of 87 archival work orders are COMPLETED with no backing appointment; one has `created_at` after its case closed. The archive's own `no_open_or_pending_work` check reads the status enum only, so it cannot catch this. | **MEDIUM** | `archive/dataset.py` |
-| 7 | Archival seasonality is flat — no storm clustering for roofing. Charts look synthetic on inspection. | **MEDIUM** | `archive/dataset.py` |
+| 6 | 22 of 87 archival work orders are COMPLETED with no backing appointment; one has `created_at` after its case closed. Reproduced exactly on 2026-09-20 against a fresh `--apply`. The archive's own `no_open_or_pending_work` check reads the status enum only, so it cannot catch this. **This describes the dataset `python -m app.archive --apply` generates, not `backend/data/repairflow.db`, which currently holds zero archival rows.** | **MEDIUM** | `archive/dataset.py` |
+| 7 | Archival seasonality is flat: measured 3–7 cases a month across all twelve, and roofing peaks in **July**, which is backwards for storm damage. Charts look synthetic on inspection. Same caveat as row 6 — this is the generated dataset, not the live database. | **MEDIUM** | `archive/dataset.py` |
 | 8 | Property `/history` and `/stats` include archival cases with no disclosure field and no opt-out. | **MEDIUM** | `api/cases.py` |
 | 9 | A late reopen (RESOLVED → ESCALATED → resumed) reports a stale `resolution_hours` — 48h reported against 2,376h true. | **MEDIUM** | `analytics.py` |
 | 10 | Error envelopes are inconsistent: `DomainError` and FastAPI's `RequestValidationError` produce different shapes across ~30 routes. | **MEDIUM** | `api/errors.py` |
 | 11 | No idempotency key on case creation — a double-submit creates two cases. | **MEDIUM** | `api/cases.py` |
-| 12 | Upload size cap runs after Starlette has spooled the whole body: disk exhaustion, not the memory exhaustion its comment claims to prevent. | **MEDIUM** | `api/documents.py` |
-| 13 | CORS has no guardrail against `allow_origins=["*"]` with `allow_credentials=True`. | **MEDIUM** | `main.py` |
+| ~~12~~ | ~~Upload cap runs after the body is spooled.~~ **Resolved**: `MaxBodySizeMiddleware` rejects an over-sized `Content-Length` before a byte is read, and counts chunked bodies as they stream so omitting the header does not bypass it. It sits inside CORS on purpose, so a 413 still carries the headers a browser needs to read the status. | — | `app/middleware.py` |
+| ~~13~~ | ~~No CORS guardrail against a wildcard with credentials.~~ **Resolved**: `Settings` refuses to construct on that combination, so it cannot be reached from configuration. The wildcard remains available with `CORS_ALLOW_CREDENTIALS=false`. The default allow-list also gained `:5174` — the only dev port actually served — which it had been missing. | — | `app/config.py` |
 | 14 | `vulnerability_concern` is collected at intake and never read by any policy function, so docs/19's approval requirement for it is unenforced. | **MEDIUM** | `domain/policy.py` |
 | 15 | Reports filters are not in the URL, so a filtered report is not linkable. | **LOW** | `routes/reports.index.tsx` |
 | 16 | No browser voice panel. The original was a disabled placeholder; there was nothing to port. | **LOW** | — |
-| 17 | `docs/18` describes an abandoned single-case UI and carries no superseded banner; `docs/04` and `docs/20` describe the retired hackathon product. | **LOW** | `docs/` |
+| ~~17~~ | ~~`docs/18`, `docs/04` and `docs/20` carry no superseded banner.~~ **Resolved**: all three were bannered in commit `5b2a07f`, as were `docs/16` and `docs/17`. This row was stale, not outstanding. | — | `docs/` |
 | 18 | No frontend test suite at all, and no runner configured. | **MEDIUM** | — |
 | ~~19~~ | ~~Three critical invariants have no test.~~ **Resolved**: `tests/test_audit_regressions.py` covers all three plus twelve more. Every one was proven to fail when its fix is reverted — a test that passes both ways guards nothing. |  — | `tests/test_audit_regressions.py` |
 | 20 | Every page load produces a React hydration mismatch (error #418). React recovers by client-rendering, so it is cosmetic, but it is noise and can flicker. | **LOW** | prerendered shell |
+| 22 | **The `jobs` table has no retention and holds 5,601 dead `FETCH_RECORDING` rows** — 5,618 jobs for 14 cases. They are the wreckage of the unbounded reconciliation sweep, each a distinct row with a timestamped dedupe key, all `DONE`. The sweep is bounded now (`RECONCILE_MAX_ATTEMPTS = 40`, counted by key prefix, so it fires correctly), but nothing ever deletes a finished job and no retention command exists. Harmless functionally; badly misleading to anyone who inspects the database. | **MEDIUM** | `orchestration/worker.py` |
 | ~~21~~ | ~~Upload size cap runs after body spooling.~~ **Duplicate of row 12** — recorded twice by two different audits. Kept struck so the numbering in `docs/audit/` still resolves. |  — | — |
 
 ### Never verified
@@ -290,7 +301,8 @@ scope call to make explicitly — the work is scoped in §6.
 
 ### One thing the docs got wrong
 
-Two `provenance=LIVE` communications in the real database have real
+The real database holds three `provenance=LIVE` communications. Two are
+OUTBOUND and `FAILED`, with real
 conversation IDs, empty transcripts and `recording.status=FAILED`
 (`getaddrinfo failed` — a DNS error). A live call **was attempted and
 failed**. The README, `docs/26` #20 and the migration handoff all frame
@@ -332,7 +344,8 @@ That is incomplete, and this document is the correction.
 11. A frontend test suite — start with the search-param readers, the
     insights normaliser, largest-remainder, and pence parsing.
 12. URL-backed Reports filters.
-13. Banner `docs/18`, `docs/04` and `docs/20` as superseded.
+13. ~~Banner `docs/18`, `docs/04` and `docs/20` as superseded.~~ **Done**
+    already — see row 17. This entry was stale when written.
 
 ---
 
@@ -376,6 +389,6 @@ renaming a column, retyping one, or adding the enum CHECK constraints to
 existing tables — none of which the additive helper can do.
 
 **5. How real does the archive need to look?** It is internally
-consistent and passes 13 checks, but the cost distributions and
+consistent and passes 14 checks, but the cost distributions and
 seasonality are flat enough to read as synthetic. That may be fine for a
 sample dataset, or it may undermine the point of having one.
