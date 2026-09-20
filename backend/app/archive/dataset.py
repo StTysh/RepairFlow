@@ -711,6 +711,32 @@ def _fill_resolved_case(rng: random.Random, case: ArchiveCase, *, trade: Trade, 
             )
         )
 
+    # A 2nd/3rd work order (work_order_count can be up to 3, see above) used
+    # to get no CostEntryModel row at all -- only work_orders[0] ever did --
+    # which is why WorkOrderModel.quote_pence sums (what Property Stats
+    # charts) and CostEntryModel QUOTE sums (what Insights/Reports/CSV
+    # chart) disagreed for the same archival case, sometimes by 3x+
+    # (docs/audit/11 Finding 3). app.analytics.reconciled_quotes falls back
+    # to a work order's own quote_pence when it has no QUOTE entry, which
+    # already fixes this at read time with no importer change required --
+    # but ledgering every work order here too (symmetric with the
+    # work-order-creation loop above) keeps the archive's own CostEntryModel
+    # table a complete, non-lossy record on its own terms, not merely
+    # "correct once read through the reconciliation layer". No new rng
+    # draws here, so this does not perturb any other case's generated data.
+    for wo_idx in range(1, work_order_count):
+        extra_wo = case.work_orders[wo_idx]
+        case.costs.append(
+            ArchiveCost(
+                id=stable_id(f"archive:cost:{case.label}:quote:{wo_idx}"),
+                work_order_index=wo_idx,
+                kind=CostKind.QUOTE,
+                amount_pence=extra_wo.quote_pence or 0,
+                description=f"Quoted price for: {extra_wo.scope}",
+                incurred_at=_incurred_at(0.05),
+            )
+        )
+
     # --- notes -------------------------------------------------------------
     note_count = rng.choices([0, 1, 2], weights=[30, 45, 25])[0]
     for i in range(note_count):

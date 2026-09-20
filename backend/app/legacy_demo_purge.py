@@ -22,12 +22,11 @@ cannot collide with any label below.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import uuid
 
 import sqlalchemy as sa
 
-from app.db import session_scope
+from app.db import run_cli, session_scope
 
 # Same namespace the retired seeder used. Do not change it: these two
 # constants are the only record of which rows were synthetic.
@@ -130,7 +129,7 @@ def main() -> None:
     group.add_argument("--apply", action="store_true", help="delete the scripted demo rows")
     args = parser.parse_args()
 
-    counts = asyncio.run(purge(apply=args.apply))
+    counts = run_cli(purge(apply=args.apply))
     verb = "Deleted" if args.apply else "Would delete"
     if not counts.get("cases_found"):
         print("No scripted demo cases present; nothing to do.")

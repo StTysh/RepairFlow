@@ -12,19 +12,17 @@ run, DOCUMENTS_DIR) at a throwaway location first.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import sys
 
 import sqlalchemy as sa
 
 from app.archive.dataset import DEFAULT_LABEL, DEFAULT_SEED
 from app.archive.importer import import_archive, remove_archive, validate
-from app.db import create_all, session_scope
+from app.db import run_cli, session_scope
 from app.models import ArchiveBatchModel
 
 
 async def _apply(label: str, seed: int) -> int:
-    await create_all()
     result = await import_archive(session_scope, label=label, seed=seed)
     if result.skipped:
         print(f"Archive '{label}' already imported (batch {result.batch_id}); nothing written.")
@@ -53,7 +51,6 @@ async def _remove(label: str) -> int:
 
 
 async def _status(label: str) -> int:
-    await create_all()
     async with session_scope() as session:
         batch = (
             await session.execute(sa.select(ArchiveBatchModel).where(ArchiveBatchModel.label == label))
@@ -82,7 +79,6 @@ async def _status(label: str) -> int:
 
 
 async def _validate(label: str, seed: int) -> int:
-    await create_all()
     async with session_scope() as session:
         report = await validate(session, label=label, seed=seed)
     ok_count = sum(1 for c in report.checks if c.passed)
@@ -105,13 +101,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.apply:
-        return asyncio.run(_apply(args.label, args.seed))
+        return run_cli(_apply(args.label, args.seed))
     if args.remove:
-        return asyncio.run(_remove(args.label))
+        return run_cli(_remove(args.label))
     if args.status:
-        return asyncio.run(_status(args.label))
+        return run_cli(_status(args.label))
     if args.validate:
-        return asyncio.run(_validate(args.label, args.seed))
+        return run_cli(_validate(args.label, args.seed))
     return 1  # unreachable: mutually exclusive group is required
 
 

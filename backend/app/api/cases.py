@@ -652,7 +652,11 @@ async def get_property_history(property_id: str, session: AsyncSession = Depends
     prop = await session.get(PropertyModel, property_id)
     if prop is None:
         raise NotFoundError(f"property {property_id} not found")
-    items = await services.load_property_history(session, property_id)
+    # analytics.property_history_items, not services.load_property_history:
+    # the latter still sums WorkOrderModel.quote_pence directly and now
+    # disagrees with Insights/Reports/CSV -- see analytics.py's "QUOTED
+    # MONEY RECONCILIATION RULE" and docs/26 2026-09-20.
+    items = await analytics.property_history_items(session, property_id)
     return PropertyHistoryResponse(property_id=property_id, items=items)
 
 
@@ -661,7 +665,9 @@ async def get_property_stats(property_id: str, session: AsyncSession = Depends(g
     prop = await session.get(PropertyModel, property_id)
     if prop is None:
         raise NotFoundError(f"property {property_id} not found")
-    return await services.load_property_stats(session, property_id, prop.build_year)
+    # analytics.property_stats, not services.load_property_stats -- see the
+    # comment on get_property_history above.
+    return await analytics.property_stats(session, property_id, prop.build_year)
 
 
 @router.get("/cases/{case_id}/messages")

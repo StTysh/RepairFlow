@@ -664,6 +664,39 @@ async def validate(session: AsyncSession, *, label: str = DEFAULT_LABEL, seed: i
 
     check("cost_totals_reconcile", _cost_reconciliation_check)
 
+    def _quoted_totals_reconcile_with_work_orders_check():
+        # cost_totals_reconcile above only self-checks CostEntryModel
+        # against itself -- it would still pass if every case's quoted
+        # ledger were silently incomplete. This checks the actual
+        # cross-table invariant docs/audit/06/11 flagged: for each case,
+        # sum(WorkOrderModel.quote_pence, status != CANCELLED) must equal
+        # sum(CostEntryModel.amount_pence, kind='QUOTE'). Before dataset.py
+        # started ledgering every work order (not just work_orders[0]),
+        # this failed for ~48% of resolved cases; it is checked here, not
+        # just relied on via app.analytics.reconciled_quotes' read-time
+        # fallback, so a future regression in the generator fails the
+        # import's own validation instead of only being masked at read
+        # time.
+        wo_quote_by_case: dict[str, int] = {}
+        for wo in work_orders:
+            if wo.status == WorkOrderStatus.CANCELLED or wo.quote_pence is None:
+                continue
+            wo_quote_by_case[wo.case_id] = wo_quote_by_case.get(wo.case_id, 0) + wo.quote_pence
+        cost_quote_by_case: dict[str, int] = {}
+        for cost in costs:
+            if cost.kind.value == "QUOTE":
+                cost_quote_by_case[cost.case_id] = cost_quote_by_case.get(cost.case_id, 0) + cost.amount_pence
+        mismatches = [
+            case_id for case_id in set(wo_quote_by_case) | set(cost_quote_by_case)
+            if wo_quote_by_case.get(case_id, 0) != cost_quote_by_case.get(case_id, 0)
+        ]
+        return (
+            len(mismatches) == 0,
+            "clean" if not mismatches else f"{len(mismatches)} case(s) disagree, e.g. {mismatches[:3]}",
+        )
+
+    check("quoted_totals_reconcile_with_work_orders", _quoted_totals_reconcile_with_work_orders_check)
+
     async def _idempotency_check() -> tuple[bool, str]:
         result = await import_archive(session, label=label, seed=seed)
         ok = result.skipped and sum(result.counts.values()) == 0

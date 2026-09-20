@@ -6,20 +6,34 @@ in this router rather than in app.schemas.
 Cost totals -- defined precisely here so every screen that shows spend
 agrees with every other:
 
-  * quoted_pence      = sum(amount_pence) over this case's QUOTE entries.
+  * quoted_pence      = this case's total from app.analytics.
+    reconciled_quotes(): per work order, its own QUOTE entries if any
+    exist, else the work order's own quote_pence, plus any case-level
+    (work_order_id IS NULL) QUOTE entries verbatim -- never both for the
+    same work order (CLAUDE.md: no double counting). This is the same
+    reconciliation Property Stats/History and Insights/Reports/CSV apply
+    (see app.analytics's "QUOTED MONEY RECONCILIATION RULE" docstring and
+    docs/26 2026-09-20) -- before this, a case with work orders but no
+    logged cost entry showed 0p here while showing its real quoted total
+    everywhere else.
   * invoiced_pence    = sum(amount_pence) over this case's INVOICE entries.
+    Unchanged -- there is no WorkOrderModel equivalent for "actual" money.
   * adjustments_pence = sum(amount_pence) over this case's ADJUSTMENT
     entries (signed -- a correction can be negative or positive).
   * net_pence         = invoiced_pence + adjustments_pence. The actual
     money figure: quotes are estimates and are never counted as spend.
   * committed_pence   = the best current estimate of what this case will
     cost. QUOTE/INVOICE entries are grouped by work_order_id (entries with
-    no work_order_id all share one "case-level" group). Per group: if it
-    has at least one INVOICE, that group contributes its invoice total
-    (the real figure supersedes the estimate); otherwise it contributes its
-    quote total. committed_pence is the sum of every group's contribution.
-    ADJUSTMENT entries are not part of this figure -- they correct
-    net_pence, not a commitment estimate.
+    no work_order_id all share one "case-level" group); a live work order
+    with no QUOTE/INVOICE entry at all gets its own group seeded from its
+    quote_pence (the same fallback as quoted_pence, so a work order can't
+    silently contribute 0 here just because nobody has logged a cost entry
+    for it yet). Per group: if it has at least one INVOICE, that group
+    contributes its invoice total (the real figure supersedes the
+    estimate); otherwise it contributes its quote total (ledger sum, or
+    the quote_pence fallback). committed_pence is the sum of every group's
+    contribution. ADJUSTMENT entries are not part of this figure -- they
+    correct net_pence, not a commitment estimate.
 
 This endpoint is already scoped to one case, so `items`/`totals` include
 every cost row on that case, including any synthetic archival ones (each
@@ -44,6 +58,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 
+from app import analytics
 from app.api.deps import get_session, require_operator
 from app.domain.errors import ConflictError, DomainError, NotFoundError
 from app.domain.services import load_case, load_work_order
@@ -119,19 +134,33 @@ def _to_record(cost: CostEntryModel) -> CostEntryRecord:
     )
 
 
-def _compute_totals(rows: list[CostEntryModel]) -> CostTotals:
-    quoted = sum(r.amount_pence for r in rows if r.kind == CostKind.QUOTE)
+async def _compute_totals(session: AsyncSession, case_id: str, rows: list[CostEntryModel]) -> CostTotals:
+    """`quoted_pence`/`committed_pence`'s per-work-order fallback is built
+    from `app.analytics.reconciled_quotes` -- the one place that rule is
+    implemented (see this module's docstring and analytics.py's "QUOTED
+    MONEY RECONCILIATION RULE") -- rather than re-derived here, so this
+    endpoint's totals can never drift from Property Stats/History or
+    Insights/Reports/CSV the way WorkOrderModel.quote_pence and
+    CostEntryModel used to.
+    """
     invoiced = sum(r.amount_pence for r in rows if r.kind == CostKind.INVOICE)
     adjustments = sum(r.amount_pence for r in rows if r.kind == CostKind.ADJUSTMENT)
     net = invoiced + adjustments
 
-    groups: dict[str | None, dict[str, int]] = collections.defaultdict(lambda: {"quote": 0, "invoice": 0})
+    invoice_by_group: dict[str | None, int] = collections.defaultdict(int)
     for r in rows:
-        if r.kind == CostKind.QUOTE:
-            groups[r.work_order_id]["quote"] += r.amount_pence
-        elif r.kind == CostKind.INVOICE:
-            groups[r.work_order_id]["invoice"] += r.amount_pence
-    committed = sum((g["invoice"] if g["invoice"] else g["quote"]) for g in groups.values())
+        if r.kind == CostKind.INVOICE:
+            invoice_by_group[r.work_order_id] += r.amount_pence
+
+    quote_by_group: dict[str | None, int] = collections.defaultdict(int)
+    for contribution in await analytics.reconciled_quotes(session, [case_id]):
+        quote_by_group[contribution.work_order_id] += contribution.quoted_pence
+
+    quoted = sum(quote_by_group.values())
+    committed = sum(
+        invoice_by_group[g] if invoice_by_group.get(g) else quote_by_group.get(g, 0)
+        for g in (set(quote_by_group) | set(invoice_by_group))
+    )
 
     return CostTotals(
         quoted_pence=quoted, invoiced_pence=invoiced, adjustments_pence=adjustments,
@@ -159,7 +188,7 @@ async def list_costs(case_id: str, session: AsyncSession = Depends(get_session))
             select(CostEntryModel).where(CostEntryModel.case_id == case_id).order_by(CostEntryModel.incurred_at.desc())
         )
     ).scalars().all()
-    return CostListResponse(items=[_to_record(r) for r in rows], totals=_compute_totals(rows))
+    return CostListResponse(items=[_to_record(r) for r in rows], totals=await _compute_totals(session, case_id, rows))
 
 
 @router.post("/cases/{case_id}/costs", status_code=201)

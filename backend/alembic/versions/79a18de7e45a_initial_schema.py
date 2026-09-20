@@ -198,7 +198,12 @@ def upgrade() -> None:
     op.create_table('jobs',
     sa.Column('id', sa.String(length=36), nullable=False),
     sa.Column('case_id', sa.String(length=36), nullable=True),
-    sa.Column('kind', sa.Enum('COORDINATE', 'EXECUTE_ACTION', 'FETCH_RECORDING', 'FOLLOW_UP', name='jobkind', native_enum=False, length=40), nullable=False),
+    # Kept current with app.schemas.JobKind (PLACE_CALL added) even though
+    # this revision chain is otherwise frozen/guarded off -- see
+    # alembic/env.py's REPAIRFLOW_ALLOW_ALEMBIC guard. A stale literal
+    # list here would be misleading to anyone who does opt in and reads
+    # this file by hand (docs/audit/04_schema_migrations.md, Finding 10).
+    sa.Column('kind', sa.Enum('COORDINATE', 'EXECUTE_ACTION', 'FETCH_RECORDING', 'PLACE_CALL', 'FOLLOW_UP', name='jobkind', native_enum=False, length=40), nullable=False),
     sa.Column('dedupe_key', sa.String(length=160), nullable=False),
     sa.Column('payload', sa.JSON(), nullable=False),
     sa.Column('run_at', app.models.UTCDateTime(length=32), nullable=False),

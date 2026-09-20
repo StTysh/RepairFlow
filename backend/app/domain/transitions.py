@@ -48,4 +48,7 @@ def assert_work_order_transition(current: WorkOrderStatus, target: WorkOrderStat
 
 
 def assert_case_transition(current: CaseStatus, target: CaseStatus) -> None:
-    return
+    if current == target:
+        return
+    if target not in _CASE_EDGES.get(current, set()):
+        raise PolicyRejectedError(f"illegal case transition {current} -> {target}")

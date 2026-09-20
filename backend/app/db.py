@@ -152,6 +152,63 @@ def _add_missing_columns(conn) -> list[str]:
     return applied
 
 
+def _add_missing_indexes(conn) -> list[str]:
+    """Create any index `models.py` declares that an already-existing
+    table is still missing.
+
+    `Base.metadata.create_all(checkfirst=True)` skips a table's entire
+    DDL -- indexes included -- the moment the table itself already
+    exists, and `_add_missing_columns` (above) only ever adds columns.
+    Nothing anywhere diffed or backfilled an index on an already-existing
+    table, so a column added to a model after its table was first
+    created never got the index its own declaration asks for. Confirmed
+    empirically against a copy of the real production database: all five
+    `archive_batch_id` indexes the current models declare were missing,
+    making `WHERE archive_batch_id IS NULL` -- the leading filter of
+    nearly every `analytics.py` function -- a full table scan right now,
+    not just at some future archival scale
+    (docs/audit/04_schema_migrations.md, Finding 3b).
+
+    Compiles each missing `sa.Index` with SQLAlchemy's own `CreateIndex`
+    DDL element (`if_not_exists=True`, so this is safe to call every
+    boot) rather than hand-building `CREATE INDEX` text: two of the
+    declared indexes (`uq_appointment_provider_booking`,
+    `uq_reservation_active_slot`) are partial UNIQUE indexes
+    (`sqlite_where=...`), and a naive
+    `CREATE INDEX IF NOT EXISTS name ON t (cols)` would silently drop
+    both the UNIQUE-ness and the WHERE clause -- the same class of "only
+    the type/columns get rendered, the rest of the intent is dropped"
+    bug already fixed in `_add_missing_columns` for column defaults.
+
+    Diffs by index *name* only, against the table's real, already-built
+    indexes (`inspector.get_indexes`). Deliberately does not attempt to
+    reconcile a `UniqueConstraint` or other implicit constraint -- SQLite
+    can only add those by rebuilding the table, which belongs in a
+    reviewed Alembic revision, not an automatic boot-time pass. Must run
+    after `_add_missing_columns` in the same transaction: a column can be
+    simultaneously missing and the leading member of a missing index,
+    which is exactly `archive_batch_id`'s situation today.
+    """
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy.schema import CreateIndex
+
+    inspector = sa_inspect(conn)
+    existing_tables = set(inspector.get_table_names())
+    applied: list[str] = []
+
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue
+        present = {ix["name"] for ix in inspector.get_indexes(table.name)}
+        for index in table.indexes:
+            if index.name in present:
+                continue
+            conn.execute(CreateIndex(index, if_not_exists=True))
+            applied.append(index.name)
+
+    return applied
+
+
 _NO_DEFAULT = object()
 
 
@@ -188,8 +245,11 @@ async def create_all() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         added = await conn.run_sync(_add_missing_columns)
+        added_indexes = await conn.run_sync(_add_missing_indexes)
     if added:
         print(f"Schema: added {len(added)} missing column(s): {', '.join(added)}")
+    if added_indexes:
+        print(f"Schema: added {len(added_indexes)} missing index(es): {', '.join(added_indexes)}")
 
 
 async def dispose_engine() -> None:

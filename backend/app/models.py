@@ -1,7 +1,9 @@
 """SQLAlchemy 2.0 ORM models. Canonical shapes: docs/06, docs/10; tables: docs/17.
 
-Primary keys are UUID text. Enum columns use SQLAlchemy's non-native Enum,
-which SQLite renders as a CHECK constraint. Structured value objects
+Primary keys are UUID text. Enum columns use SQLAlchemy's non-native Enum
+via `enum_column()` below, which renders as a CHECK constraint on every
+table created from this point forward -- see that function's docstring
+for what an already-deployed database still lacks. Structured value objects
 (RiskAssessment, EvidenceRef lists, transcripts, JSON envelopes) are stored
 as validated-on-boundary JSON columns rather than exploded into extra
 repository tables, per docs/17's "JSON columns are acceptable" guidance.
@@ -72,8 +74,39 @@ class UTCDateTime(sa.TypeDecorator):
 
 
 def enum_column(py_enum, *, nullable: bool = False, default=None, name: str | None = None):
+    """SQLAlchemy 2.0 changed `Enum`'s `create_constraint` default to
+    `False` -- so, without this, no enum column here ever got a CHECK
+    constraint, despite docs/17_DATABASE_DESIGN.md stating "Enums have
+    CHECK constraints." Confirmed empirically: only 3 CHECK constraints
+    existed anywhere in the real production database, all from explicit
+    `sa.CheckConstraint(...)` rows, none enum-related; a raw
+    `INSERT ... VALUES ('NOT_A_REAL_KIND', ...)` into `jobs.kind`
+    succeeded cleanly (docs/audit/04_schema_migrations.md, Finding 1).
+
+    `create_constraint=True` only changes DDL emitted by `CREATE TABLE`
+    -- it affects newly created tables from this point forward, nothing
+    already on disk. The real, already-deployed database gains **no**
+    protection from this change alone: SQLite cannot `ALTER TABLE ADD
+    CONSTRAINT`, so retrofitting a CHECK onto an existing table needs a
+    full rebuild (`CREATE TABLE ... new`, copy rows, `DROP`+`RENAME`,
+    matching Alembic's `batch_alter_table` dance) via a reviewed Alembic
+    revision -- not attempted here, and not something `_add_missing_columns`
+    or any other automatic boot-time pass should ever do to a table that
+    may already hold rows an in-flight constraint could reject. Until
+    that revision exists, the only protection on an already-deployed
+    database stays `validate_strings=True` below: ORM-side only, so it
+    catches an app-level typo before flush but not a raw SQL/Core write
+    or a legacy row whose stored value predates a later enum change.
+    """
     return mapped_column(
-        sa.Enum(py_enum, native_enum=False, validate_strings=True, length=40, name=name),
+        sa.Enum(
+            py_enum,
+            native_enum=False,
+            validate_strings=True,
+            length=40,
+            name=name,
+            create_constraint=True,
+        ),
         nullable=nullable,
         default=default,
     )

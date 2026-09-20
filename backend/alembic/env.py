@@ -1,4 +1,5 @@
 import asyncio
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -30,6 +31,32 @@ target_metadata = Base.metadata
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
+
+
+_ALEMBIC_ABANDONED_MESSAGE = (
+    "Alembic's revision chain is not current with app.models and is not "
+    "how this project actually bootstraps a database's schema. Running "
+    "`alembic upgrade head` against an empty database produces a schema "
+    "4 tables and 17+ columns short of what models.py/the running app "
+    "requires -- reproduced empirically in "
+    "docs/audit/04_schema_migrations.md. The real bootstrap path is "
+    "app.db.create_all() (via app.db.run_cli, main.py's FastAPI "
+    "lifespan, or `python -m app.seed`), which stays current with "
+    "app.models directly and is what every other entry point in this "
+    "codebase actually calls. Refusing here rather than silently handing "
+    "you a schema that looks migrated but isn't -- that is strictly "
+    "worse than an obvious, immediate failure. If someone has committed "
+    "to reviving the Alembic chain (regenerating it from current models "
+    "so it is genuinely current again), set REPAIRFLOW_ALLOW_ALEMBIC=1 "
+    "to bypass this guard; that also gates `alembic revision "
+    "--autogenerate`, `alembic current`, and every other command that "
+    "reaches this point."
+)
+
+
+def _require_alembic_opt_in() -> None:
+    if os.environ.get("REPAIRFLOW_ALLOW_ALEMBIC") != "1":
+        raise RuntimeError(_ALEMBIC_ABANDONED_MESSAGE)
 
 
 def run_migrations_offline() -> None:
@@ -87,6 +114,8 @@ def run_migrations_online() -> None:
 
     asyncio.run(run_async_migrations())
 
+
+_require_alembic_opt_in()
 
 if context.is_offline_mode():
     run_migrations_offline()

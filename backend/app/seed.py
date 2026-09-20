@@ -20,11 +20,10 @@ adds only what is missing and never touches an existing row.
 """
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import datetime, timezone
 
-from app.db import create_all, session_scope
+from app.db import run_cli, session_scope
 from app.models import ContractorModel, PropertyModel, TenantModel
 from app.schemas import (
     ConnectorType,
@@ -233,7 +232,6 @@ CONTRACTORS: list[dict] = [
 ]
 
 async def seed() -> None:
-    await create_all()
     added_properties = added_tenants = added_contractors = 0
     updated_properties = 0
     async with session_scope() as session:
@@ -266,4 +264,4 @@ async def seed() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(seed())
+    run_cli(seed())

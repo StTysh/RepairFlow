@@ -44,12 +44,11 @@ Safe to re-run: a second pass reports zero changes.
 from __future__ import annotations
 
 import argparse
-import asyncio
 from collections import defaultdict
 
 import sqlalchemy as sa
 
-from app.db import session_scope
+from app.db import run_cli, session_scope
 
 
 async def plan() -> tuple[list[tuple[str, int, str, str]], int, int]:
@@ -145,7 +144,7 @@ def main() -> None:
     group.add_argument("--apply", action="store_true", help="write the derived categories")
     args = parser.parse_args()
 
-    changes, skipped, already_set = asyncio.run(plan())
+    changes, skipped, already_set = run_cli(plan())
 
     if not changes and not skipped:
         print(f"Nothing to do: every operational case already has a category ({already_set}).")
@@ -156,7 +155,7 @@ def main() -> None:
         print(f"  {verb} #{number:<5} -> {trade:<12} ({reason})")
 
     if args.apply:
-        written = asyncio.run(apply_changes(changes))
+        written = run_cli(apply_changes(changes))
         print(f"\n{written} case(s) updated.")
     else:
         print(f"\n{len(changes)} case(s) would be updated. Re-run with --apply.")
