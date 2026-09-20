@@ -9,8 +9,8 @@ undecided, and it is kept reconciled against the code.
 This file used to say "this phase delivered documentation only. Do not
 interpret illustrative interfaces as an existing application." That has
 been false since 2026-09-19. RepairFlow is built and running: ~14,800
-lines of backend Python, a React SPA, 73 HTTP routes, 25 tables and 203
-passing tests. It was then migrated out of its hackathon framing on
+lines of backend Python, a React SPA, 73 HTTP routes, 25 tables, 214
+passing backend tests and 62 frontend tests. It was then migrated out of its hackathon framing on
 2026-09-20 -- the scripted demo layer (Play/Reset demo, boot-time
 seeding, fictional cases) was deleted, and an empty database became a
 supported state rather than something to paper over.
@@ -93,7 +93,7 @@ Logfire and Pydantic Evals are useful optional additions. PSTN Twilio calling is
 - `backend/app/agents/`: coordinator, dependencies, read_tools, instructions
 - `backend/app/integrations/`: elevenlabs, tavily, booking, no_contact
 - `backend/app/archive/`: the synthetic closed-case dataset and importer
-- `backend/tests/` (203 tests); `backend/alembic/` (frozen -- see docs/26)
+- `backend/tests/` (214 tests); `backend/alembic/` (frozen -- see docs/26)
 - `frontend-fixi/` is the frontend that is **actually served**. `frontend/`
   is the earlier app, kept for reference and wired to nothing:
   `main.py`'s `FRONTEND_DIST` points at `frontend-fixi/dist`.

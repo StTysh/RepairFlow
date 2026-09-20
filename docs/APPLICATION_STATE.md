@@ -297,7 +297,7 @@ scope call to make explicitly — the work is scoped in §6.
 
 | # | Issue | Severity | Where |
 | --- | --- | --- | --- |
-| 1 | `MockBookingConnector` invents contractor availability. CLAUDE.md prohibits it outright. The coordinator's `SCHEDULE_VISIT` still books against fabricated slots. The UI now labels them "Simulated booking". | **HIGH** | `integrations/booking.py` |
+| 1 | `MockBookingConnector` still invents contractor availability, which CLAUDE.md prohibits outright. **Narrowed 2026-09-20**: bookings are no longer written `CONFIRMED` (nothing acknowledged them) and listing slots no longer persists rows through a model-visible read tool. The fabrication of the times themselves remains. A worked replacement plan is in §7.2. | **HIGH** | `integrations/booking.py` |
 | ~~2~~ | ~~Two money sources disagree.~~ **Resolved**: quoted is now reconciled per work order at read time — the cost ledger if entries exist, otherwise the work order's own quote. Never globally, so nothing double counts. Five reads of the same scope now return one figure; all 60 archival cases match. | — | `analytics.reconciled_quotes` |
 | 3 | No email or SMS transport. Outward messages persist as drafts and say so. | **HIGH** | `api/messaging.py` |
 | ~~4~~ | ~~Alembic is behind and produces a broken schema.~~ **Resolved by decision**: the chain is frozen. `env.py` now refuses to run without `REPAIRFLOW_ALLOW_ALEMBIC=1`. `create_all()` plus the additive column/index passes is the real bootstrap and now says so out loud, rather than leaving revisions that look authoritative and are not. | — | `alembic/env.py` |
@@ -402,17 +402,66 @@ came from the ledger from one estimated off a work-order quote. Both are
 "quoted", but one is a real logged document and the other is an
 estimate. Worth an indicator.
 
-**2. What replaces the mock booking connector?** Either a real provider
-integration, or make the human-recorded path (`POST
-/appointments/{id}/reschedule`) the only way an appointment is created,
-and have the coordinator propose a time for a human to arrange rather
-than book one itself. The second is smaller and more honest; the first is
-the product you probably want eventually.
+**2. What replaces the mock booking connector?** Still open, but
+narrowed on 2026-09-20 and now backed by a worked plan, so a future
+session does not have to re-derive it.
+
+*Already done, and it was the part labelling could never fix.* The
+connector no longer writes `CONFIRMED` — a status that asserted a
+contractor acknowledgment that never happened — and listing candidate
+slots no longer persists rows through a model-visible read tool. What
+remains is the fabrication itself: `_ensure_slots` still generates times
+from a date offset rather than any real calendar.
+
+*The recommended full fix is human dispatch* — not a real provider
+integration, which is out of scope while no outbound contact is
+permitted. In outline:
+
+- `ScheduleVisit` drops `slot_id`; the action names a work order, an
+  approved contractor and which cited tenant-availability window to use.
+- A deterministic `policy.suggested_visit_window(windows)` computes the
+  time from the tenant's *real* stated availability. The model never
+  picks a time, so nothing is invented.
+- `SCHEDULE_VISIT` becomes a local executor write (`services.propose_visit`)
+  rather than an external call: no connector, no availability lookup.
+  This removes roughly 95 lines from `executor.py` (`_apply_schedule_result`
+  and the Phase-B branch) and adds ~60 to `services.py`.
+- `find_appointment_options` and its registration come out of
+  `agents/read_tools.py` and `agents/coordinator.py`; the coordinator's
+  instructions already say "do not invent availability", which today
+  contradicts the tool it is handed.
+- `MockBookingConnector` stays as unused reference code for the shape a
+  real connector would take.
+
+It needs no migration. `test_hero_path.py` needs about ten lines
+changed, not a rewrite, because it asserts work-order status and
+appointment counts rather than appointment status —
+`propose_visit` still moves `READY → SCHEDULED` in one transaction.
+`test_reliability_matrix.py`'s `_apply_schedule_result` test would be
+deleted outright (the property it guards becomes structurally
+impossible), and `test_external_action_never_strands_at_running` should
+be retargeted at `DISCOVER_CONTRACTORS`, which is a genuine external
+call. The three existing appointments stay as they are: they are honest
+history of the retired path, and rewriting settled rows to match new
+code would itself be a fabrication.
+
+Rejected: keeping the connector with stronger labelling (already the
+state of things, and it is the status claim rather than the label that
+lies); and having it return no availability ever (leaves the machinery
+wired in, and dead-ends every case at escalation).
 
 **3. Clean the production database, or keep it?** `backend/data/repairflow.db`
 still holds the nine scripted demo cases alongside five real ones with
 genuine call history. `python -m app.legacy_demo_purge --dry-run` shows
 exactly what would go. It has not been run.
+
+Related, and now partly self-solving: that database also holds 5,601
+dead `FETCH_RECORDING` job rows. The retention sweep added on
+2026-09-20 will clear them on the next worker run against it — no
+decision needed, but worth knowing before anyone inspects the file and
+wonders what happened. Note the database itself does not travel to a
+new machine (§0); if these fourteen cases matter, copy it by hand
+before deciding.
 
 **4. ~~Is Alembic alive?~~ — decided 2026-09-20: no.** The chain is
 frozen behind `REPAIRFLOW_ALLOW_ALEMBIC=1` and refuses to run otherwise.
