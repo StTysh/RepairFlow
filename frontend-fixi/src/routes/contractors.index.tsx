@@ -16,7 +16,7 @@ import {
   type Trade,
 } from "@/hooks/use-directory";
 import { titleCase } from "@/lib/format";
-import { readParam } from "@/lib/search-params";
+import { readFlag, readParam } from "@/lib/search-params";
 
 // No zod `validateSearch` here -- see properties.$propertyId.history.tsx for
 // why: it reproducibly froze the renderer against this app's SPA-fallback
@@ -44,6 +44,7 @@ function ContractorsPage() {
   const tradeParam = (readParam(urlParams, "trade") as Trade | undefined) ?? "ALL";
   const approvalParam =
     (readParam(urlParams, "approval_status") as ContractorApprovalStatus | undefined) ?? "ALL";
+  const includeArchived = readFlag(urlParams, "archived");
 
   const [searchInput, setSearchInput] = useState(qParam);
   const debouncedSearch = useDebouncedValue(searchInput, 300);
@@ -82,11 +83,13 @@ function ContractorsPage() {
     q: qParam || undefined,
     trade: tradeParam,
     approval_status: approvalParam,
+    include_archived: includeArchived,
     limit: 50,
   });
 
   const items = contractors.data?.items ?? [];
-  const hasFilters = qParam.length > 0 || tradeParam !== "ALL" || approvalParam !== "ALL";
+  const hasFilters =
+    qParam.length > 0 || tradeParam !== "ALL" || approvalParam !== "ALL" || includeArchived;
 
   return (
     <AppShell>
@@ -127,6 +130,21 @@ function ContractorsPage() {
             onChange={(v) => updateUrl({ approval_status: v })}
             options={CONTRACTOR_APPROVAL_STATUSES.map((s) => ({ value: s, label: titleCase(s) }))}
           />
+          {/* Archival contractors exist only to give imported historical
+           * work orders a named supplier. They are never approved and
+           * carry no contact details, so they stay out of the directory
+           * unless asked for -- the same opt-in the Properties, Tenants
+           * and Insights screens offer. */}
+          <label className="flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent">
+            <input
+              type="checkbox"
+              className="accent-primary"
+              checked={includeArchived}
+              aria-label="Include archived sample contractors"
+              onChange={(e) => updateUrl({ archived: e.target.checked ? "1" : undefined })}
+            />
+            Include archived
+          </label>
         </section>
 
         <Card className="mt-4 overflow-x-auto">

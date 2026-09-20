@@ -14,13 +14,13 @@ Assignment: `prompts/UI2_FULL_APPLICATION_MIGRATION.md`. Started 2026-09-20.
 | Phase | State |
 | --- | --- |
 | Orientation + checkpoint | done |
-| No-contact hard guard | guard landed; harness pending |
+| No-contact hard guard | done (10-test harness) |
 | Demo/scripted removal | done |
-| Backend: new models + endpoints | models done; routers in flight |
-| Archive dataset (Sonnet) | in flight |
-| 8 sidebar destinations | shell done; screens in flight |
-| Ticket detail parity | not started |
-| Verification + handoff | not started |
+| Backend: new models + endpoints | done (58 routes) |
+| Archive dataset (Sonnet) | done (600 rows, 13/13 checks) |
+| 8 sidebar destinations | done (17 routes) |
+| Ticket detail parity | done |
+| Verification + handoff | done — see docs/UI2_IMPLEMENTATION_HANDOFF.md |
 
 ---
 
@@ -149,3 +149,24 @@ nullable/defaulted columns and refuses anything destructive.
 `archive_batch_id` is synthetic sample history. Excluded from
 `GET /cases` and `GET /metrics/dashboard` by default; opt in with
 `include_archived=true`, which flags each row `is_archived`.
+
+
+---
+
+## 4. Session outcome
+
+All eight phases complete. Final state: 152 backend tests pass, `tsc` and
+`eslint` clean, production build green, 41/41 end-to-end scenarios pass
+against an isolated no-contact instance, and all eight destinations were
+walked in a browser.
+
+**`docs/UI2_IMPLEMENTATION_HANDOFF.md` is the authoritative report**,
+including a §7 list of what is genuinely not done — most importantly that
+no live call was ever placed (by design), that email/SMS have no delivery
+transport, and that the six inherited state-machine bugs in §1 above
+remain open.
+
+`backend/data/repairflow.db` was deliberately left untouched: it still
+holds both the nine scripted demo cases and the five real ones with
+genuine ElevenLabs conversations. `python -m app.legacy_demo_purge
+--dry-run` shows exactly what a cleanup would remove.

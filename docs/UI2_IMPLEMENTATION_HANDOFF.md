@@ -136,8 +136,74 @@ are not what runs.
 
 ## 4. Verification evidence
 
-*(Filled in at the end of the session — see §7 for anything that failed or
-was not reached.)*
+### Automated
+
+| Check | Result |
+| --- | --- |
+| `pytest tests/ -q` | **152 passed**, 0 failed |
+| `npx tsc --noEmit` | **0 errors** |
+| `npx eslint .` | **0 errors**, 5 warnings (react-refresh / exhaustive-deps advisories) |
+| `npm run build` | green; 17 routes, prerendered shell written |
+| `python -m app.archive --apply` | 600 rows: 8 properties, 8 tenants, 6 contractors, 60 cases, 87 work orders, 75 appointments, 112 costs, 55 notes, 42 messages, 12 documents (+12 real files on disk) |
+| `python -m app.archive --validate` | **13/13 checks pass** |
+| second `--apply` | "already imported; nothing written" |
+| `--remove` then `--validate` | 601 rows and all 12 files deleted; planted non-archival control rows untouched; `PRAGMA foreign_key_check` clean |
+| `scripts/verify_scenarios.py` | **41/41 checks pass** against an isolated no-contact instance |
+
+Scenario 7 (reschedule) reports **SKIPPED** rather than passing: an
+appointment requires an approved `SCHEDULE_VISIT` action, which that
+script does not drive. The reschedule path is covered by
+`backend/tests/test_hero_path.py` and the endpoint's own tests.
+
+### In a browser, against a running isolated instance
+
+Served build on `:8010`, `FIXI_NO_CONTACT=1`, isolated database, at a
+1528×706 viewport.
+
+- All eight destinations return 200 on a **hard load** (deep-link fallback
+  works — before `SpaStaticFiles`, every one 404'd on refresh).
+- **Overview** — eight nav items, real counts, metric cards linking to
+  their destinations, needs-attention and recent-activity rows linking to
+  real cases.
+- **Insights** — five range presets, custom from/to, property and category
+  filters, archival toggle. With the archive imported: 20 months of volume,
+  three years of spend (quoted and actual shown separately), a category
+  donut whose displayed percentages sum to exactly 100, recurrence rows.
+  Every bar, legend row and bucket is a labelled `<button>` that opens the
+  supporting cases.
+- **Messages** — the thread shows an "Internal note" pill on one message
+  and "Draft — not sent" on the other, with the API's own explanation
+  ("No delivery transport is configured for EMAIL…") printed underneath.
+  The composer's button reads "Add internal note" / "Save draft" by
+  channel. Nothing renders as sent.
+- **Reports** — presets, filters, archival toggle, "Report window" and
+  "Generated on" lines, summary tiles, Export CSV and Print / Save as PDF.
+- **Contractors** with archived shown — six rows, each labelled
+  "(archived, FIXTURE)", every one `Pending` with "Not assignable", and a
+  heading explaining that only approved contractors can be assigned.
+- **Properties** — 1 operational, 9 with archival included; the property
+  with no `photo_key` renders a placeholder tile, not another building's
+  photograph.
+- **Property history (14 King Street)** — the reference screen reproduced:
+  photo, "Sample history" pill, facts row, four tabs, KPI row, donut,
+  annual-spend bars, recurring-issues panel, drill-down chips, and a
+  sortable, selectable history table with row chevrons into each case.
+- **Ticket detail** — number and title, urgency badge, address with copy,
+  Share / Edit / kebab, status control, the five-step progression derived
+  from real state (Reported done, Diagnosing current), "Record an update",
+  nine working tabs.
+
+### Visual comparison against the reference
+
+**Not performed as a side-by-side.** The `liza.UI2` reference could not be
+run: there is no on-disk checkout of that branch, `:5175` was not serving,
+and the assignment itself notes the committed branch is missing
+`src/components/ui/button.tsx`, which it needs to start. Fidelity was
+therefore worked from the reference **source** — `styles.css` (already the
+token set this app uses, verified by diff), `AppShell.tsx`,
+`UtilityBar.tsx`, `Badge.tsx`, `fixi-data.ts` and the three route files —
+plus screenshots of the implementation. A real pixel comparison remains
+worth doing once that workspace is available.
 
 ---
 
@@ -205,4 +271,77 @@ To make a genuine call: unset `FIXI_NO_CONTACT`, set
 
 ## 7. What is NOT done
 
-*(Filled in at the end of the session.)*
+Honest list. None of these is hidden behind a "coming soon" screen.
+
+### Genuinely missing capability
+
+1. **No email or SMS delivery.** No transport is configured, so an outward
+   message is saved as a `DRAFT` and says so. Wiring a provider means an
+   adapter plus a `QUEUED → SENT → DELIVERED/FAILED` transition; the
+   states already exist and the UI already renders all of them.
+2. **No attachment upload from the message composer.** Existing
+   attachments render and open; adding one goes through the Documents
+   surface instead.
+3. **No browser voice panel.** The original `frontend`'s `VoicePanel` was
+   never functional — its own docstring calls it a disabled placeholder —
+   so there was nothing to port. Signed session creation exists
+   server-side; nothing in the UI starts one.
+4. **`ELEVENLABS_WEBHOOK_SECRET` is still empty**, so post-call webhooks
+   cannot be verified and transcripts are polled instead. ElevenLabs only
+   issues that secret against a reachable HTTPS destination, and
+   `PUBLIC_BASE_URL` is localhost.
+
+### Not verified
+
+5. **No live call, ever, this session.** Downstream processing is proven
+   with an injected substitute; a real call, real audio and a real signed
+   webhook delivery remain unperformed by design (§12). That is the single
+   biggest gap between "verified" and "known to work end to end", and it
+   is deliberate.
+6. **No side-by-side visual diff against the running reference** — see §4.
+7. **Narrow-width behaviour was reasoned about, not measured.** Every
+   screen uses the responsive patterns the existing ones do, and tables
+   scroll inside their own containers, but no 768px screenshot pass was
+   run.
+
+### Known rough edges
+
+8. The **Reports** screen does not read its filters from the URL, so a
+   reports view is not linkable the way Insights, Properties, Contractors,
+   Tenants and Messages are. Its own controls work.
+9. The **Insights property filter** lists operational properties only, so
+   an archival sample property cannot be singled out there even with
+   archival history included.
+10. **Insights chart drill-downs** open an inline panel; they do not push
+    filters onto the Maintenance list. Both were acceptable per the brief;
+    only one is implemented.
+11. The **property-history trade drill-down** filters the table but its
+    total is computed from the filtered rows rather than asserted equal to
+    the donut segment — the donut sums work orders by trade while a history
+    row carries the case's single primary trade, so the two genuinely
+    differ. The year drill-down does reconcile exactly. This is documented
+    on screen rather than papered over.
+
+### Inherited, still open (carried from before this session)
+
+These predate the migration and are recorded in `docs/UI2_CHECKPOINT.md`:
+
+12. ESCALATED / CANCELLED cases do not halt automatic execution. Reachable
+    only with a hazard flag; every existing case carries `risk = UNKNOWN`.
+13. `RESOLVED → ESCALATED` is broken, so a hazard reported after resolution
+    cannot re-escalate.
+14. `execute_action` can stick at `RUNNING` if the executor raises between
+    lease and terminal write.
+15. Some service paths commit rows written before a `DomainError` is
+    raised.
+16. A lost-update race remains on double-submitted approvals.
+17. `create_voice_session` returns 202 even when the provider call failed.
+
+### One judgement call worth re-checking
+
+`backend/data/repairflow.db` was **not** modified. It still holds the nine
+scripted demo cases an older build seeded, alongside cases #1–#5, which
+carry genuine ElevenLabs conversations. `python -m app.legacy_demo_purge
+--dry-run` shows exactly what would go; `--apply` removes it. That is the
+owner's decision, not mine, because §10 says to preserve existing and
+ambiguous records.

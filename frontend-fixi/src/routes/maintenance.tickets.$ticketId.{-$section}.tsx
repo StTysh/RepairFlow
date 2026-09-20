@@ -1,5 +1,5 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -70,7 +70,12 @@ export const Route = createFileRoute("/maintenance/tickets/$ticketId/{-$section}
     return { section: (params.section as Section | undefined) ?? null };
   },
   head: ({ params, loaderData }) => {
-    const title = `#${params.ticketId} — Fixi${loaderData?.section ? ` · ${cap(loaderData.section)}` : ""}`;
+    // params.ticketId is the case UUID, which makes a useless browser-tab
+    // label. `head` runs before the snapshot loads, so the real
+    // "#42 – Slipped tiles" title is set from the component once the
+    // case arrives (see the effect in CasePage); this is the placeholder
+    // shown for the moment before that.
+    const title = `Ticket — Fixi${loaderData?.section ? ` · ${cap(loaderData.section)}` : ""}`;
     return {
       meta: [
         { title },
@@ -96,6 +101,19 @@ function CasePage() {
   const show = (s: Section) => section === null || section === s;
 
   const detail = useCaseDetail(ticketId);
+
+  // The route's `head` cannot know the case number -- it runs before the
+  // snapshot loads, and params.ticketId is a UUID. Set the real title once
+  // the case arrives so a pinned tab or a bookmark reads "#42 – Slipped
+  // tiles" rather than a hex string. Must sit above the early returns
+  // below: hooks cannot be called conditionally.
+  const loadedTitle = detail.data
+    ? `#${detail.data.snapshot.case.case_number} – ${detail.data.snapshot.case.title}`
+    : null;
+  useEffect(() => {
+    if (loadedTitle === null || typeof document === "undefined") return;
+    document.title = `${loadedTitle} — Fixi`;
+  }, [loadedTitle]);
 
   if (detail.isLoading) {
     return (
@@ -125,6 +143,7 @@ function CasePage() {
 
   const snapshot = detail.data.snapshot;
   const c = snapshot.case;
+
   const address = `${snapshot.property.address_line}, ${snapshot.property.postcode}`;
 
   return (
