@@ -185,6 +185,13 @@ export function CaseVolumeChart({
 
 // --- Category breakdown donut -----------------------------------------------
 
+/** Label for a breakdown row. A null category is a real, useful fact --
+ * "these cases have not been triaged yet" -- so it is named rather than
+ * hidden or left blank. */
+function categoryLabel(trade: Trade | null): string {
+  return trade === null ? "Uncategorised" : titleCase(trade);
+}
+
 export function CategoryBreakdownDonut({
   data,
   selectedTrade,
@@ -196,7 +203,7 @@ export function CategoryBreakdownDonut({
 }) {
   let cursor = 0;
   const stops = data.map((d) => {
-    const color = TRADE_CSS_VAR[TRADE_TONE[d.trade] ?? "gray"];
+    const color = TRADE_CSS_VAR[(d.trade && TRADE_TONE[d.trade]) || "gray"];
     const from = cursor;
     const to = cursor + d.percentage;
     cursor = to;
@@ -205,12 +212,19 @@ export function CategoryBreakdownDonut({
   const displayPercentages = largestRemainderPercentages(data.map((d) => d.percentage));
   const totalCount = data.reduce((sum, d) => sum + d.count, 0);
 
+  // A donut of one slice conveys nothing, and when that slice is the
+  // uncategorised group it is actively misleading -- it reads as "100% of
+  // work is <blank>". Say what is actually true instead.
+  const onlyUncategorised = data.length > 0 && data.every((d) => d.trade === null);
+
   return (
     <Card className="p-4">
       <CardHead title="Category breakdown" description="Click a trade to see its cases." />
-      {data.length === 0 ? (
+      {data.length === 0 || onlyUncategorised ? (
         <p className="mt-6 py-6 text-center text-xs text-muted-foreground">
-          No categorised cases in the selected range.
+          {onlyUncategorised
+            ? `None of the ${totalCount} case${totalCount === 1 ? "" : "s"} in this range has a category yet, so there is nothing to break down.`
+            : "No categorised cases in the selected range."}
         </p>
       ) : (
         <div className="mt-3 flex items-center gap-5">
@@ -231,30 +245,51 @@ export function CategoryBreakdownDonut({
             {data.map((d, index) => {
               const active = selectedTrade === d.trade;
               return (
-                <li key={d.trade}>
+                <li key={d.trade ?? "__uncategorised"}>
                   <button
                     type="button"
-                    onClick={() => onSelectTrade(d.trade)}
+                    // An uncategorised group has no trade to filter by, so
+                    // the row is inert rather than pretending to drill
+                    // down into a category that does not exist.
+                    disabled={d.trade === null}
+                    title={
+                      d.trade === null
+                        ? "These cases have no category yet, so there is nothing to filter by."
+                        : undefined
+                    }
+                    onClick={() => d.trade !== null && onSelectTrade(d.trade)}
                     aria-pressed={active}
                     // The visible row is three separate spans (dot, name,
                     // percentage, count); an explicit label reads as one
                     // sentence rather than four fragments.
-                    aria-label={`${titleCase(d.trade)}: ${d.count} case${
+                    aria-label={`${categoryLabel(d.trade)}: ${d.count} case${
                       d.count === 1 ? "" : "s"
-                    }, ${displayPercentages[index]}% of the total. View cases.`}
+                    }, ${displayPercentages[index]}% of the total.${
+                      d.trade === null
+                        ? " No category, so there is nothing to filter by."
+                        : " View cases."
+                    }`}
                     className={cn(
                       "flex w-full items-center rounded-md px-1.5 py-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
                       active ? "bg-accent" : "hover:bg-accent/60",
+                      d.trade === null &&
+                        "cursor-default text-muted-foreground hover:bg-transparent",
                     )}
                   >
                     <span
                       className={cn(
                         "mr-2 h-2 w-2 shrink-0 rounded-full",
-                        TRADE_DOT_CLASS[TRADE_TONE[d.trade]],
+                        TRADE_DOT_CLASS[(d.trade && TRADE_TONE[d.trade]) || "gray"],
                       )}
                     />
                     <span className={active ? "font-semibold" : undefined}>
-                      {titleCase(d.trade)}
+                      {categoryLabel(d.trade)}
+                      {/* Visible, not a hover-only title: a tooltip does
+                       * not exist on touch, and a greyed row with no
+                       * stated reason just reads as broken. */}
+                      {d.trade === null && (
+                        <span className="ml-1 text-[9.5px]">(not triaged yet)</span>
+                      )}
                     </span>
                     <b className="ml-auto shrink-0">{displayPercentages[index]}%</b>
                     <span className="ml-2 shrink-0 text-muted-foreground">({d.count})</span>

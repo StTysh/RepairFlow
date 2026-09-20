@@ -561,11 +561,28 @@ function NextAppointmentRow({ caseId, appointment }: { caseId: string; appointme
         <div className="leading-tight">
           <div className="text-[13px] font-medium">{date}</div>
           <div className="text-xs text-muted-foreground">{time}</div>
-          <Pill tone={appointmentStatusTone[appointment.status]} className="mt-1">
-            {appointment.status === "PENDING"
-              ? "Pending — contractor has not confirmed"
-              : titleCase(appointment.status)}
-          </Pill>
+          <div className="mt-1 flex flex-wrap items-center gap-1">
+            <Pill tone={appointmentStatusTone[appointment.status]}>
+              {appointment.status === "PENDING"
+                ? "Pending — contractor has not confirmed"
+                : titleCase(appointment.status)}
+            </Pill>
+            {/* A slot booked through MockBookingConnector is CONFIRMED in
+             * the domain sense and simulated in every other sense: the
+             * connector invents the availability and no real contractor
+             * ever saw it. Without this the green pill is
+             * indistinguishable from a genuine provider confirmation.
+             * Communications and research already carry a provenance
+             * badge; appointments did not. */}
+            {appointment.connector === "MOCK" && (
+              <Pill
+                tone="amber"
+                title="Booked against a simulated calendar. No real contractor has been contacted or has agreed this slot."
+              >
+                Simulated booking
+              </Pill>
+            )}
+          </div>
         </div>
       </div>
       <RescheduleDialog caseId={caseId} appointment={appointment} />
@@ -580,15 +597,41 @@ function NextAppointmentRow({ caseId, appointment }: { caseId: string; appointme
  * is checked against the generated route tree, so a typed `Link` to a route
  * that doesn't exist yet fails `tsc` until it lands. A full navigation
  * still reaches the right page once it does. */
-function ProfileLinkButton({ href, title }: { href: string; title: string }) {
+/** A real client-side <Link>, not a plain <a>.
+ *
+ * These targets (/tenants/$tenantId, /contractors/$contractorId) are
+ * registered routes; the anchor here predated them and triggered a full
+ * page reload, discarding the loaded case and every cached query for no
+ * reason. `title` alone was also the whole accessible name -- an
+ * icon-only control needs an explicit one. */
+const profileLinkClass =
+  "flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground";
+
+function TenantProfileLink({ tenantId }: { tenantId: string }) {
   return (
-    <a
-      href={href}
-      title={title}
-      className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+    <Link
+      to="/tenants/$tenantId"
+      params={{ tenantId }}
+      title="View tenant profile"
+      aria-label="View tenant profile"
+      className={profileLinkClass}
     >
       <ExternalLink className="h-3.5 w-3.5" />
-    </a>
+    </Link>
+  );
+}
+
+function ContractorProfileLink({ contractorId }: { contractorId: string }) {
+  return (
+    <Link
+      to="/contractors/$contractorId"
+      params={{ contractorId }}
+      title="View contractor profile"
+      aria-label="View contractor profile"
+      className={profileLinkClass}
+    >
+      <ExternalLink className="h-3.5 w-3.5" />
+    </Link>
   );
 }
 
@@ -643,7 +686,7 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
           <div className="flex gap-1.5">
             <IconButton icon={Mail} href={emailHref} title={emailTitle} />
             <IconButton icon={Phone} href={phoneHref} title={phoneTitle} />
-            <ProfileLinkButton href={`/tenants/${tenant.id}`} title="View tenant profile" />
+            <TenantProfileLink tenantId={tenant.id} />
           </div>
         </div>
       </div>
@@ -664,10 +707,7 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
                 )}
               </div>
             </div>
-            <ProfileLinkButton
-              href={`/contractors/${assigned_contractor.id}`}
-              title="View contractor profile"
-            />
+            <ContractorProfileLink contractorId={assigned_contractor.id} />
           </div>
         ) : (
           <p className="mt-2 text-xs text-muted-foreground">No contractor assigned yet.</p>

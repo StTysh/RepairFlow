@@ -1144,3 +1144,101 @@ async def test_added_column_is_backfilled_with_its_default(tmp_path):
         get_settings.cache_clear()
         db_module._engine = None
         db_module._session_factory = None
+
+
+@pytest.mark.asyncio
+async def test_category_backfill_derives_from_work_order_trade(app_db):
+    """`category` postdates most cases, and an empty category column
+    empties the donut and the recurrence grouping. The derivation has to
+    be right in three distinct situations, and the third is the one worth
+    protecting: a case with no work orders must stay NULL rather than
+    receive an invented classification that every count downstream would
+    then treat as fact."""
+    from app.backfill_category import apply_changes, plan
+    from app.schemas import WorkOrderKind, WorkOrderStatus
+    from app.models import (
+        PropertyModel,
+        RepairCaseModel,
+        RepairIssueModel,
+        TenantModel,
+        WorkOrderModel,
+    )
+
+    property_id, tenant_id = uid(), uid()
+    single, multi, bare = uid(), uid(), uid()
+    async with session_scope() as session:
+        session.add(
+            PropertyModel(
+                id=property_id, address_line="1 Backfill St", postcode="BS1 1AA",
+                landlord_reference="LL-BF", roof_responsibility="LANDLORD",
+            )
+        )
+        session.add(
+            TenantModel(
+                id=tenant_id, property_id=property_id, display_name="BF Tenant",
+                preferred_channel="EMAIL",
+            )
+        )
+        await session.flush()
+        for index, case_id in enumerate((single, multi, bare)):
+            session.add(
+                RepairCaseModel(
+                    id=case_id, case_number=7100 + index, property_id=property_id,
+                    tenant_id=tenant_id, status="ACTIVE", title=f"Backfill case {index}", risk={},
+                )
+            )
+        await session.flush()
+        issues = {}
+        for case_id in (single, multi, bare):
+            issue_id = uid()
+            issues[case_id] = issue_id
+            session.add(
+                RepairIssueModel(
+                    id=issue_id, case_id=case_id, description="Issue", location="Somewhere"
+                )
+            )
+        await session.flush()
+
+        # One trade -> unambiguous.
+        session.add(
+            WorkOrderModel(
+                id=uid(), case_id=single, issue_id=issues[single], kind=WorkOrderKind.REPAIR,
+                trade=Trade.PLUMBING, scope="Fix tap", status=WorkOrderStatus.READY,
+            )
+        )
+        # Several trades -> the required one wins, not merely the earliest.
+        base = datetime.now(timezone.utc) - timedelta(days=3)
+        session.add(
+            WorkOrderModel(
+                id=uid(), case_id=multi, issue_id=issues[multi], kind=WorkOrderKind.SCAFFOLD_INSTALL,
+                trade=Trade.SCAFFOLDING, scope="Scaffold", status=WorkOrderStatus.READY,
+                required_for_resolution=False, created_at=base,
+            )
+        )
+        session.add(
+            WorkOrderModel(
+                id=uid(), case_id=multi, issue_id=issues[multi], kind=WorkOrderKind.REPAIR,
+                trade=Trade.ROOFING, scope="Fix roof", status=WorkOrderStatus.BLOCKED,
+                required_for_resolution=True, created_at=base + timedelta(hours=1),
+            )
+        )
+        # `bare` deliberately gets no work order at all.
+
+    changes, skipped, _already = await plan()
+    derived = {case_id: trade for case_id, _n, trade, _r in changes}
+
+    assert derived[single] == "PLUMBING"
+    assert derived[multi] == "ROOFING", "the required work order must win over the earliest"
+    assert bare not in derived, "a case with no work orders must not be given a category"
+    assert skipped >= 1
+
+    await apply_changes(changes)
+    async with session_scope() as session:
+        assert (await session.get(RepairCaseModel, single)).category == Trade.PLUMBING
+        assert (await session.get(RepairCaseModel, multi)).category == Trade.ROOFING
+        assert (await session.get(RepairCaseModel, bare)).category is None
+
+    # Idempotent: nothing left to do, and nothing overwritten.
+    again, _skipped, already = await plan()
+    assert again == []
+    assert already >= 2

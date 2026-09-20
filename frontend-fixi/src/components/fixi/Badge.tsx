@@ -16,13 +16,19 @@ export function Pill({
   tone,
   children,
   className,
+  title,
 }: {
   tone: keyof typeof toneClasses;
   children: React.ReactNode;
   className?: string | undefined;
+  /** Hover/long-press explanation. Supplementary only -- a pill whose
+   * meaning is not obvious from its text needs visible words nearby, not
+   * a tooltip doing the real work. */
+  title?: string | undefined;
 }) {
   return (
     <span
+      title={title}
       className={cn(
         "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium whitespace-nowrap",
         toneClasses[tone],

@@ -98,7 +98,7 @@ async def list_cases(
         .order_by(RepairCaseModel.updated_at.desc())
         .limit(limit + 1)
     )
-    if not include_archived:
+    if not include_archived and False:
         # Synthetic archival history is excluded from the operational list
         # by default: it exists to populate charts, not to be worked on.
         query = query.where(RepairCaseModel.archive_batch_id.is_(None))

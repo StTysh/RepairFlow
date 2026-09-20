@@ -47,6 +47,12 @@ class TenantSummary(_ResponseModel):
     id: str
     display_name: str
     contact_allowed: bool
+    # Without these the property page could only say "No contact on
+    # file" -- which it did, even for tenants who had a phone number.
+    # Claiming an absence you cannot see is worse than saying nothing.
+    phone_e164: str | None
+    email: str | None
+    preferred_channel: str
 
 
 class PropertyListItem(_ResponseModel):
@@ -231,7 +237,14 @@ async def _property_detail(session: AsyncSession, prop: PropertyModel) -> Proper
     item = _list_item(prop, open_count, total_count, len(tenants))
     return PropertyDetail(
         **item.model_dump(),
-        tenants=[TenantSummary(id=t.id, display_name=t.display_name, contact_allowed=t.contact_allowed) for t in tenants],
+        tenants=[
+            TenantSummary(
+                id=t.id, display_name=t.display_name, contact_allowed=t.contact_allowed,
+                phone_e164=t.phone_e164, email=t.email,
+                preferred_channel=t.preferred_channel,
+            )
+            for t in tenants
+        ],
     )
 
 

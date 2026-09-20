@@ -114,7 +114,12 @@ export interface CaseVolumeMonth {
 }
 
 export interface CategoryBreakdownItem {
-  trade: Trade;
+  /** Null for cases triage has not classified yet. The API deliberately
+   * keeps those as their own group so the percentages describe the whole
+   * matched set rather than a silently filtered subset -- see
+   * `analytics.category_breakdown`. Casting that null to a Trade is what
+   * produced a blank, unlabelled 100% wedge. */
+  trade: Trade | null;
   count: number;
   percentage: number;
 }
@@ -233,7 +238,7 @@ function normalizeInsights(raw: RawInsightsResponse): InsightsResponse {
       count: row.count,
     })),
     category_breakdown: (raw.category_breakdown ?? []).map((row) => ({
-      trade: row.category as Trade,
+      trade: (row.category ?? null) as Trade | null,
       count: row.count,
       percentage: row.percentage,
     })),
@@ -249,7 +254,11 @@ function normalizeInsights(raw: RawInsightsResponse): InsightsResponse {
     recurring_issues: (raw.recurring_issues ?? []).map((row) => ({
       property_id: row.property_id,
       property_address: row.property_address,
-      trade: row.category as Trade,
+      // Never null in practice -- `analytics.recurring_issues` excludes
+      // `category IS NULL` because a "recurring category" is meaningless
+      // without one -- but the cast is narrowed anyway rather than
+      // asserting a shape this file cannot enforce.
+      trade: (row.category ?? "OTHER") as Trade,
       count: row.count,
       last_occurred_at: row.last_occurred_at,
       ...(row.case_ids ? { case_ids: row.case_ids } : {}),

@@ -53,6 +53,10 @@ class TenantCaseSummary(_ResponseModel):
     title: str
     status: CaseStatus
     created_at: datetime
+    # The profile's case list shows "Updated <when>"; without this it
+    # rendered a permanent dash. created_at stays because "reported"
+    # and "last touched" are different questions.
+    updated_at: datetime
     is_archived: bool
 
 
@@ -196,7 +200,8 @@ async def _tenant_detail(session: AsyncSession, tenant: TenantModel) -> TenantDe
     ).scalars().all()
     case_summaries = [
         TenantCaseSummary(
-            id=c.id, case_number=c.case_number, title=c.title, status=c.status, created_at=c.created_at,
+            id=c.id, case_number=c.case_number, title=c.title, status=c.status,
+            created_at=c.created_at, updated_at=c.updated_at,
             is_archived=c.archive_batch_id is not None,
         )
         for c in cases

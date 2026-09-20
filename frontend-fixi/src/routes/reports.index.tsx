@@ -112,6 +112,7 @@ function ReportsPage() {
       summary.data.spend,
       summary.data.resolution,
       summary.data.recurringIssues,
+      summary.data.cases,
     ].every((s) => !s || (s.rows.length === 0 && Object.keys(s.totals).length === 0));
 
   return (
@@ -220,7 +221,7 @@ function ReportsPage() {
               />
               <SectionPanel
                 title="Spend"
-                subtitle="Quoted and approved spend -- not final invoiced cost (docs/06)."
+                subtitle="Quoted and actual money, kept separate -- they are never summed together."
                 section={summary.data.spend}
               />
               <SectionPanel
@@ -232,6 +233,14 @@ function ReportsPage() {
                 title="Recurring issues"
                 subtitle="Trades/issues that keep coming back at the same properties."
                 section={summary.data.recurringIssues}
+              />
+              {/* The case-level rows every section above aggregates, and
+               * exactly what Export CSV writes -- shown so the export is
+               * never a set of rows nobody can see on screen first. */}
+              <SectionPanel
+                title="Case detail"
+                subtitle="Every case behind the figures above. This is what Export CSV contains."
+                section={summary.data.cases}
               />
             </div>
           )}

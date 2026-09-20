@@ -30,10 +30,15 @@ export interface ReportSection {
 
 export interface ReportsSummary {
   includesArchived: boolean;
+  archivedCaseCount: number;
   maintenance: ReportSection | null;
   spend: ReportSection | null;
   resolution: ReportSection | null;
   recurringIssues: ReportSection | null;
+  /** The case-level detail every other section aggregates, and exactly
+   * what `export.csv` writes. Shown as its own table so the export is
+   * never a set of rows nobody can see on screen. */
+  cases: ReportSection | null;
 }
 
 function buildReportsQuery(filters: ReportsFilters): URLSearchParams {
@@ -46,24 +51,25 @@ function buildReportsQuery(filters: ReportsFilters): URLSearchParams {
   return params;
 }
 
-function coerceSection(raw: unknown): ReportSection | null {
-  if (!raw || typeof raw !== "object") return null;
-  const obj = raw as Record<string, unknown>;
-  const rows: Array<Record<string, unknown>> = Array.isArray(obj["rows"])
-    ? (obj["rows"] as Array<Record<string, unknown>>)
-    : Array.isArray(obj["items"])
-      ? (obj["items"] as Array<Record<string, unknown>>)
-      : [];
-  const totalsSource =
-    obj["totals"] && typeof obj["totals"] === "object"
-      ? (obj["totals"] as Record<string, unknown>)
-      : obj;
+/** Numeric fields of an object, ignoring the nested arrays. */
+function numericTotals(raw: unknown): Record<string, number> {
   const totals: Record<string, number> = {};
-  for (const [key, value] of Object.entries(totalsSource)) {
-    if (key === "rows" || key === "items") continue;
+  if (!raw || typeof raw !== "object") return totals;
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     if (typeof value === "number") totals[key] = value;
   }
-  return { totals, rows };
+  return totals;
+}
+
+function arrayAt(raw: unknown, key: string): Array<Record<string, unknown>> {
+  if (!raw || typeof raw !== "object") return [];
+  const value = (raw as Record<string, unknown>)[key];
+  return Array.isArray(value) ? (value as Array<Record<string, unknown>>) : [];
+}
+
+function section(raw: unknown, rowsKey: string): ReportSection | null {
+  if (!raw || typeof raw !== "object") return null;
+  return { totals: numericTotals(raw), rows: arrayAt(raw, rowsKey) };
 }
 
 export function useReportsSummary(filters: ReportsFilters) {
@@ -76,14 +82,26 @@ export function useReportsSummary(filters: ReportsFilters) {
         creds,
         `/api/v1/reports/summary?${params.toString()}`,
       );
+      // Each section names its detail array differently, and the
+      // case-level rows live once at the top level rather than being
+      // repeated per section. An earlier generic adapter looked for
+      // `rows` inside each section, found nothing, and rendered "No rows
+      // for the selected filters" on all four -- permanently, whatever
+      // the data.
+      const caseRows = arrayAt(raw, "rows");
       const summary: ReportsSummary = {
         includesArchived: Boolean(
-          raw["include_archived"] ?? raw["includes_archived"] ?? filters.includeArchived,
+          raw["includes_archived_history"] ?? raw["include_archived"] ?? filters.includeArchived,
         ),
-        maintenance: coerceSection(raw["maintenance"]),
-        spend: coerceSection(raw["spend"]),
-        resolution: coerceSection(raw["resolution"]),
-        recurringIssues: coerceSection(raw["recurring_issues"] ?? raw["recurring"]),
+        archivedCaseCount:
+          typeof raw["archived_case_count"] === "number" ? raw["archived_case_count"] : 0,
+        maintenance: section(raw["maintenance"], "category_breakdown"),
+        spend: section(raw["spend"], "by_year"),
+        resolution: section(raw["resolution"], "buckets"),
+        recurringIssues: section(raw["recurring"] ?? raw["recurring_issues"], "groups"),
+        cases: caseRows.length
+          ? { totals: { case_count: caseRows.length }, rows: caseRows }
+          : { totals: { case_count: 0 }, rows: [] },
       };
       return summary;
     },
