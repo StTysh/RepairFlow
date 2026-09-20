@@ -8,7 +8,26 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import approvals, cases, demo, metrics, notifications, observations, voice
+from app.api import (
+    approvals,
+    cases,
+    contractors,
+    costs,
+    documents,
+    field_updates,
+    insights,
+    messaging,
+    metrics,
+    notes,
+    notifications,
+    observations,
+    overview,
+    properties,
+    reports,
+    search,
+    tenants,
+    voice,
+)
 from app.api.errors import register_error_handlers
 from app.config import get_settings
 from app.db import create_all, dispose_engine
@@ -23,9 +42,11 @@ async def lifespan(app: FastAPI):
     settings.ensure_directories()
     await create_all()
 
-    from app.seed import seed as seed_demo_data
-
-    await seed_demo_data()  # idempotent: no-ops if the demo property already exists
+    # Nothing is seeded on boot. The application starts against whatever
+    # is in the database -- including an empty one, which is a legitimate
+    # state every screen renders an onboarding empty state for. A sample
+    # portfolio is available on demand via `python -m app.seed`, and
+    # illustrative closed history via `python -m app.archive --apply`.
 
     from app.agents.coordinator import build_coordinator
 
@@ -74,10 +95,21 @@ register_error_handlers(app)
 
 app.include_router(cases.router)
 app.include_router(observations.router)
+app.include_router(field_updates.router)
 app.include_router(approvals.router)
-app.include_router(demo.router)
 app.include_router(metrics.router)
 app.include_router(notifications.router)
+app.include_router(overview.router)
+app.include_router(properties.router)
+app.include_router(contractors.router)
+app.include_router(tenants.router)
+app.include_router(documents.router)
+app.include_router(notes.router)
+app.include_router(costs.router)
+app.include_router(messaging.router)
+app.include_router(insights.router)
+app.include_router(reports.router)
+app.include_router(search.router)
 app.include_router(voice.router)
 app.include_router(voice.webhook_router)
 app.include_router(voice.tools_router)
@@ -88,5 +120,27 @@ async def healthz() -> dict:
     return {"status": "ok"}
 
 
+class SpaStaticFiles(StaticFiles):
+    """StaticFiles that falls back to index.html for unknown paths.
+
+    The frontend is a client-side-routed SPA served as a static build, so
+    `/properties/<uuid>` exists only in the browser's router -- there is no
+    such file on disk. Plain StaticFiles answers 404 for it, which is
+    invisible while navigating in-app (the router handles the click) and
+    breaks the moment anyone reloads the page or opens a shared deep link.
+    Anything under /api, /webhooks or /integrations is left alone so a
+    genuine missing endpoint still reports itself as missing instead of
+    silently returning HTML.
+    """
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code == 404 and not path.startswith(
+            ("api/", "webhooks/", "integrations/", "assets/")
+        ):
+            return await super().get_response("index.html", scope)
+        return response
+
+
 if FRONTEND_DIST.is_dir():
-    app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")
+    app.mount("/", SpaStaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")

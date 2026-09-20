@@ -148,9 +148,9 @@ export interface EvidenceRef {
 
 /** A contractor's reported fact against one appointment -- untrusted until
  * the coordinator interprets it (interpretation_status). Populated by real
- * ElevenLabs contractor calls or, in this demo, by an operator simulating
- * one via POST /api/v1/demo/cases/{id}/observations (kind=CONTRACTOR_REPORT)
- * -- see SimulateObservationDialog.tsx. */
+ * ElevenLabs contractor calls, or by an operator writing up what a
+ * contractor told them via POST /api/v1/cases/{id}/field-updates
+ * (kind=CONTRACTOR_REPORT) -- see RecordFieldUpdateDialog.tsx. */
 export interface ContractorReport {
   id: string;
   case_id: string;
@@ -321,7 +321,7 @@ export interface Communication {
 // unknown[] here so CaseSnapshot is complete and nothing needs `as any`
 // when reading the other fields. work_orders, dependencies, appointments,
 // latest_reports and pending_actions ARE typed (WorkGraph / Costs tab /
-// DecisionCard approval card / SimulateObservationDialog appointment
+// DecisionCard approval card / RecordFieldUpdateDialog appointment
 // picker).
 export interface CaseSnapshot {
   case: RepairCase;
@@ -488,7 +488,7 @@ export interface PropertyStatsResponse {
 
 // --- Demo / intake ------------------------------------------------------------
 
-export interface DemoPropertyRef {
+export interface PropertyListItem {
   property_id: string;
   tenant_id: string;
   address_line: string;
@@ -500,12 +500,12 @@ export interface DemoPropertyRef {
   tenant_phone: string | null;
 }
 
-export interface DemoSeedRefs {
-  property_id: string;
-  tenant_id: string;
-  roofer_id: string;
-  scaffolder_id: string;
-  properties: DemoPropertyRef[];
+/** GET /api/v1/properties -- the real property directory, which replaced
+ * the demo seed-reference endpoint the New Ticket form used to read. */
+export interface PropertyListResponse {
+  items: PropertyListItem[];
+  total: number;
+  has_more: boolean;
 }
 
 export type SafetyAnswer = "YES" | "NO" | "UNKNOWN";
@@ -519,12 +519,17 @@ export interface SafetyAnswers {
   vulnerability_concern?: SafetyAnswer;
 }
 
-export interface DemoIntakeRequest {
+/** POST /api/v1/cases -- an operator typing a reported repair into the New
+ * Ticket form. A real intake channel (a housing officer taking a report at
+ * the counter or on the phone), not a demo shortcut: it goes through the
+ * same triage, policy and events as the voice path. */
+export interface OperatorIntakeRequest {
   property_id: string;
   tenant_id: string;
   description: string;
   location: string;
   source_text: string;
+  category?: Trade | null;
   safety_answers?: SafetyAnswers;
 }
 
@@ -607,60 +612,57 @@ export interface AppointmentCancelResponse {
   case_version: number;
 }
 
-// --- Simulated observations (demo-only) -----------------------------------
+// --- Operator-recorded field updates ---------------------------------------
 //
-// POST /api/v1/demo/cases/{case_id}/observations. There's no live
-// contractor/tenant channel in this MVP -- an operator manually feeds in
-// exactly what a real phone call would have reported, and the backend
-// records it with SIMULATED provenance through the same domain services a
-// real ElevenLabs call would use (backend/app/api/demo.py,
-// demo_simulation_observation). See SimulateObservationDialog.tsx.
+// POST /api/v1/cases/{case_id}/field-updates
+// (backend/app/api/field_updates.py). A named operator recording what a
+// contractor or tenant actually told them -- real second-hand information
+// with recorded attribution, not a simulated event. `reported_by` names
+// the person who said it; the operator's own identity comes from the
+// authenticated session, never from this body.
 //
-// Mirrors the backend's discriminated union on `kind`
-// (backend/app/schemas.py SimulationObservation) exactly -- each variant's
-// body is constructed directly against one of these three shapes so a
-// StrictModel extra-field rejection on the backend can't bite.
+// Mirrors the backend's discriminated union on `kind` exactly, so a
+// strict extra-field rejection cannot bite.
 
-export interface SimulationObservationContractorReport {
+export interface ContractorReportUpdate {
   kind: "CONTRACTOR_REPORT";
   appointment_id: string;
   text: string;
   observed_at: string;
+  reported_by: string;
 }
 
-export interface SimulationObservationTenantFeedback {
-  kind: "TENANT_FEEDBACK";
+export interface TenantUpdate {
+  kind: "TENANT_UPDATE";
   confirms_resolved: boolean;
   text: string;
+  reported_by: string;
 }
 
-export interface SimulationObservationAttendanceWindowEnded {
+export interface AttendanceWindowEndedUpdate {
   kind: "ATTENDANCE_WINDOW_ENDED";
   appointment_id: string;
 }
 
-export type SimulationObservationRequest =
-  | SimulationObservationContractorReport
-  | SimulationObservationTenantFeedback
-  | SimulationObservationAttendanceWindowEnded;
+export type FieldUpdateRequest =
+  | ContractorReportUpdate
+  | TenantUpdate
+  | AttendanceWindowEndedUpdate;
 
-/** response_model=Union[ReportSubmitResponse, DemoTenantFeedbackResponse,
- * ApprovalResponse] on the backend -- which variant comes back depends on
- * which `kind` was submitted. All three carry a `result: CommandResult`;
- * callers that only need to know "did it work" (this dialog) don't need to
- * discriminate further than that. */
 export interface ReportSubmitResponse {
   report_id: string;
   result: CommandResult;
 }
 
-export interface DemoTenantFeedbackResponse {
+export interface TenantUpdateResponse {
   communication_id: string;
   result: CommandResult;
 }
 
-export type SimulationObservationResponse =
-  ReportSubmitResponse | DemoTenantFeedbackResponse | ApprovalResponse;
+/** Which variant comes back depends on which `kind` was submitted; all
+ * three carry a `result`, which is all any caller needs. */
+export type FieldUpdateResponse =
+  ReportSubmitResponse | TenantUpdateResponse | ApprovalResponse;
 
 // --- Messages (display-only, read-only) -------------------------------------
 //

@@ -1,31 +1,126 @@
-import { useNavigate } from "@tanstack/react-router";
-import { Play, Trash2 } from "lucide-react";
-import type { CaseStatus } from "@/lib/fixi-data";
-import {
-  useCancelCase,
-  useDeleteCase,
-  useReopenCase,
-  useReplayCase,
-  useResumeCase,
-} from "@/hooks/use-case-actions";
+import * as Dialog from "@radix-ui/react-dialog";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { ChevronDown } from "lucide-react";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { useCancelCase, useReopenCase, useResumeCase } from "@/hooks/use-case-actions";
+import { STATUS_LABEL, type CaseStatus } from "@/lib/fixi-data";
+import { cn } from "@/lib/utils";
 
-/** The real lifecycle action buttons, replacing the mockup's status
- * dropdown (CLAUDE.md decision: no control that writes status directly).
- * Which buttons show depends on the legal transition graph in
- * backend/app/domain/transitions.py:
- *   ACTIVE               -> Cancel
- *   AWAITING_CONFIRMATION -> Cancel
- *   ESCALATED            -> Resume, Cancel
- *   RESOLVED              -> Reopen
- *   CANCELLED             -> (terminal, no actions)
+/**
+ * The case status control.
  *
- * Resume/Reopen/Cancel all collect a required "reason" (and Resume also a
- * required "resolved_hold_evidence") via window.prompt() rather than a
- * bespoke modal -- these are rare, low-frequency operator actions, and a
- * blocking prompt is enough for this phase; NewTicketDialog is the one
- * flow that justified a real dialog (more than one field, and it's the
- * primary create action in this screen).
+ * Deliberately not a "set status" dropdown. Each entry is a *domain
+ * action* with its own preconditions, and the menu only offers the ones
+ * the legal transition graph in `backend/app/domain/transitions.py`
+ * permits from the current status:
+ *
+ *   ACTIVE                -> Cancel
+ *   AWAITING_CONFIRMATION -> Cancel
+ *   ESCALATED             -> Resume, Cancel
+ *   RESOLVED              -> Reopen
+ *   CANCELLED             -> terminal, nothing offered
+ *
+ * Resolution is absent on purpose: a case becomes RESOLVED when the work
+ * is verified complete, which the coordinator and the approval flow
+ * decide. An operator cannot declare a repair fixed from a menu.
+ *
+ * Every action carries the case `version` the operator was looking at, so
+ * a decision taken against stale data is rejected by the server rather
+ * than silently overwriting someone else's change.
  */
+
+interface ActionField {
+  name: "reason" | "resolved_hold_evidence";
+  label: string;
+  placeholder: string;
+  required: boolean;
+}
+
+interface LifecycleAction {
+  key: "resume" | "reopen" | "cancel";
+  label: string;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  destructive?: boolean;
+  fields: ActionField[];
+}
+
+const REASON_FIELD: ActionField = {
+  name: "reason",
+  label: "Reason",
+  placeholder: "Why is this happening? Recorded on the case timeline.",
+  required: true,
+};
+
+const ACTIONS: Record<CaseStatus, LifecycleAction[]> = {
+  ACTIVE: [
+    {
+      key: "cancel",
+      label: "Cancel case",
+      title: "Cancel this case",
+      description:
+        "Closes the case without a repair outcome. Outstanding work orders stop. This is recorded, not deleted — the case and its history stay readable.",
+      confirmLabel: "Cancel case",
+      destructive: true,
+      fields: [REASON_FIELD],
+    },
+  ],
+  AWAITING_CONFIRMATION: [
+    {
+      key: "cancel",
+      label: "Cancel case",
+      title: "Cancel this case",
+      description:
+        "Closes the case without a repair outcome while it is waiting on a confirmation. Recorded, not deleted.",
+      confirmLabel: "Cancel case",
+      destructive: true,
+      fields: [REASON_FIELD],
+    },
+  ],
+  ESCALATED: [
+    {
+      key: "resume",
+      label: "Resume case",
+      title: "Resume automatic handling",
+      description:
+        "Hands the case back to the coordinator. Only do this once whatever caused the escalation has actually been dealt with — record what that was.",
+      confirmLabel: "Resume",
+      fields: [
+        REASON_FIELD,
+        {
+          name: "resolved_hold_evidence",
+          label: "What resolved the hold?",
+          placeholder: "e.g. Gas engineer attended and made the appliance safe at 14:10.",
+          required: true,
+        },
+      ],
+    },
+    {
+      key: "cancel",
+      label: "Cancel case",
+      title: "Cancel this case",
+      description: "Closes an escalated case without a repair outcome. Recorded, not deleted.",
+      confirmLabel: "Cancel case",
+      destructive: true,
+      fields: [REASON_FIELD],
+    },
+  ],
+  RESOLVED: [
+    {
+      key: "reopen",
+      label: "Reopen case",
+      title: "Reopen this case",
+      description:
+        "Use when the issue was not actually fixed. The case returns to active handling with its full history intact.",
+      confirmLabel: "Reopen",
+      fields: [REASON_FIELD],
+    },
+  ],
+  CANCELLED: [],
+};
+
 export function CaseLifecycleActions({
   caseId,
   status,
@@ -35,139 +130,147 @@ export function CaseLifecycleActions({
   status: CaseStatus;
   version: number;
 }) {
-  const navigate = useNavigate();
   const resume = useResumeCase(caseId);
   const reopen = useReopenCase(caseId);
   const cancel = useCancelCase(caseId);
-  const replay = useReplayCase(caseId);
-  const deleteTicket = useDeleteCase(caseId);
+  const [open, setOpen] = useState<LifecycleAction | null>(null);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
 
-  const busy =
-    resume.isPending ||
-    reopen.isPending ||
-    cancel.isPending ||
-    replay.isPending ||
-    deleteTicket.isPending;
+  const pending = resume.isPending || reopen.isPending || cancel.isPending;
+  const available = ACTIONS[status] ?? [];
 
-  async function handleDelete() {
-    if (
-      !window.confirm(
-        "Permanently delete this ticket? This removes it and everything on it (events, calls, work orders) -- unlike Cancel, this can't be undone.",
-      )
-    ) {
-      return;
-    }
-    try {
-      await deleteTicket.mutateAsync();
-      void navigate({ to: "/maintenance" });
-    } catch {
-      // handled by onError toast
-    }
+  function start(action: LifecycleAction) {
+    setValues({});
+    setError(null);
+    setOpen(action);
   }
 
-  async function handleReplay() {
-    if (
-      !window.confirm(
-        "Replay this ticket from scratch? This clears its history (events, calls, work orders) and re-triggers the coordinator on the same ticket number.",
-      )
-    ) {
-      return;
-    }
+  const missing = open?.fields.filter((f) => f.required && !(values[f.name] ?? "").trim()) ?? [];
+
+  async function submit() {
+    if (open === null || missing.length > 0) return;
+    setError(null);
+    const reason = (values["reason"] ?? "").trim();
     try {
-      await replay.mutateAsync();
-    } catch {
-      // handled by onError toast
+      if (open.key === "resume") {
+        await resume.mutateAsync({
+          version,
+          reason,
+          resolved_hold_evidence: (values["resolved_hold_evidence"] ?? "").trim(),
+        });
+      } else if (open.key === "reopen") {
+        await reopen.mutateAsync({ version, reason });
+      } else {
+        await cancel.mutateAsync({ version, reason });
+      }
+      setOpen(null);
+    } catch (err) {
+      // Shown in the dialog so the operator can correct and retry without
+      // losing what they typed; the hooks also raise a toast.
+      setError(err instanceof Error ? err.message : "That action could not be completed.");
     }
   }
-
-  // mutateAsync's rejection is already surfaced via each hook's onError
-  // toast (see use-case-actions.ts) -- catch-and-swallow here just avoids
-  // an additional unhandled-rejection console entry on top of that toast.
-  async function handleResume() {
-    const reason = window.prompt("Reason for resuming this case?");
-    if (!reason) return;
-    const resolved_hold_evidence = window.prompt("What resolved the hold? (brief note)") ?? "";
-    try {
-      await resume.mutateAsync({ version, reason, resolved_hold_evidence });
-    } catch {
-      // handled by onError toast
-    }
-  }
-
-  async function handleReopen() {
-    const reason = window.prompt("Reason for reopening this case?");
-    if (!reason) return;
-    try {
-      await reopen.mutateAsync({ version, reason });
-    } catch {
-      // handled by onError toast
-    }
-  }
-
-  async function handleCancel() {
-    const reason = window.prompt("Reason for cancelling this case?");
-    if (!reason) return;
-    try {
-      await cancel.mutateAsync({ version, reason });
-    } catch {
-      // handled by onError toast
-    }
-  }
-
-  const buttonClass =
-    "h-9 rounded-lg border border-border bg-card px-3.5 text-sm font-medium shadow-card transition-colors hover:bg-accent disabled:opacity-50";
 
   return (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground shadow-card transition-colors hover:opacity-90 disabled:opacity-50"
-        disabled={busy}
-        onClick={() => void handleReplay()}
-        title="Reset this ticket to just-created and re-run the coordinator from scratch"
-      >
-        <Play className="h-4 w-4" />
-        Play demo
-      </button>
-      {status === "ESCALATED" && (
-        <button
-          type="button"
-          className={buttonClass}
-          disabled={busy}
-          onClick={() => void handleResume()}
-        >
-          Resume
-        </button>
-      )}
-      {status === "RESOLVED" && (
-        <button
-          type="button"
-          className={buttonClass}
-          disabled={busy}
-          onClick={() => void handleReopen()}
-        >
-          Reopen
-        </button>
-      )}
-      {(status === "ACTIVE" || status === "AWAITING_CONFIRMATION" || status === "ESCALATED") && (
-        <button
-          type="button"
-          className={`${buttonClass} text-destructive`}
-          disabled={busy}
-          onClick={() => void handleCancel()}
-        >
-          Cancel
-        </button>
-      )}
-      <button
-        type="button"
-        className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-destructive shadow-card transition-colors hover:bg-destructive/10 disabled:opacity-50"
-        disabled={busy}
-        onClick={() => void handleDelete()}
-        title="Permanently delete this ticket"
-      >
-        <Trash2 className="h-4 w-4" />
-      </button>
-    </div>
+    <>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <Button
+            variant="outline"
+            className="rounded-xl bg-card"
+            disabled={pending || available.length === 0}
+            aria-label={
+              available.length === 0
+                ? `Status: ${STATUS_LABEL[status]} — no further actions available`
+                : "Change case status"
+            }
+            title={
+              available.length === 0
+                ? `This case is ${STATUS_LABEL[status].toLowerCase()}; there are no further actions to take on it.`
+                : undefined
+            }
+          >
+            <span className="font-semibold">{STATUS_LABEL[status]}</span>
+            <ChevronDown />
+          </Button>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            align="end"
+            sideOffset={6}
+            className="z-50 w-72 rounded-xl border border-border bg-card p-1.5 shadow-panel"
+          >
+            <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
+              Actions allowed from “{STATUS_LABEL[status]}”
+            </div>
+            {available.map((action) => (
+              <DropdownMenu.Item
+                key={action.key}
+                onSelect={() => start(action)}
+                className={cn(
+                  "cursor-pointer rounded-lg px-2 py-2 text-xs font-medium outline-none",
+                  "focus:bg-accent data-[highlighted]:bg-accent",
+                  action.destructive && "text-destructive",
+                )}
+              >
+                {action.label}
+              </DropdownMenu.Item>
+            ))}
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+
+      <Dialog.Root open={open !== null} onOpenChange={(next) => !next && setOpen(null)}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-foreground/25 backdrop-blur-[1px]" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-card p-5 shadow-panel">
+            <Dialog.Title className="text-sm font-semibold">{open?.title}</Dialog.Title>
+            <Dialog.Description className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {open?.description}
+            </Dialog.Description>
+
+            <div className="mt-4 space-y-3">
+              {open?.fields.map((field) => (
+                <label key={field.name} className="block">
+                  <span className="text-xs font-medium">
+                    {field.label}
+                    {field.required && <span className="text-destructive"> *</span>}
+                  </span>
+                  <textarea
+                    rows={field.name === "reason" ? 3 : 2}
+                    value={values[field.name] ?? ""}
+                    placeholder={field.placeholder}
+                    onChange={(e) =>
+                      setValues((prev) => ({ ...prev, [field.name]: e.target.value }))
+                    }
+                    className="mt-1 w-full resize-y rounded-lg border border-border bg-background px-2.5 py-2 text-xs outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </label>
+              ))}
+            </div>
+
+            {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <Dialog.Close asChild>
+                <Button variant="ghost" size="sm" disabled={pending}>
+                  Cancel
+                </Button>
+              </Dialog.Close>
+              <Button
+                size="sm"
+                variant={open?.destructive ? "destructive" : "default"}
+                disabled={pending || missing.length > 0}
+                title={missing.length > 0 ? `${missing[0]?.label} is required` : undefined}
+                onClick={() => void submit()}
+              >
+                {pending ? "Working…" : (open?.confirmLabel ?? "Confirm")}
+              </Button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </>
   );
 }

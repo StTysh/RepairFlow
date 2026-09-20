@@ -1,17 +1,18 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { FlaskConical, X } from "lucide-react";
+import { ClipboardPen, X } from "lucide-react";
 import { useState } from "react";
-import { useSubmitSimulationObservation } from "@/hooks/use-case-actions";
+import { useSubmitFieldUpdate } from "@/hooks/use-case-actions";
 import type { Appointment, WorkOrder } from "@/api/types";
+import { Button } from "@/components/ui/button";
 import { formatDateRange, titleCase } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-type Kind = "CONTRACTOR_REPORT" | "TENANT_FEEDBACK" | "ATTENDANCE_WINDOW_ENDED";
+type Kind = "CONTRACTOR_REPORT" | "TENANT_UPDATE" | "ATTENDANCE_WINDOW_ENDED";
 
 const kindLabel: Record<Kind, string> = {
-  CONTRACTOR_REPORT: "Contractor report",
-  TENANT_FEEDBACK: "Tenant feedback",
-  ATTENDANCE_WINDOW_ENDED: "Attendance window ended",
+  CONTRACTOR_REPORT: "Contractor told us",
+  TENANT_UPDATE: "Tenant told us",
+  ATTENDANCE_WINDOW_ENDED: "Visit window passed",
 };
 
 function appointmentLabel(appointment: Appointment, workOrders: WorkOrder[]): string {
@@ -21,25 +22,26 @@ function appointmentLabel(appointment: Appointment, workOrders: WorkOrder[]): st
   return `${scope} · ${date}, ${time} · ${appointment.status}`;
 }
 
-/** POST /api/v1/demo/cases/{case_id}/observations -- the only way to drive
- * the hero demo path from the UI. There's no live contractor/tenant channel
- * in this MVP, so an operator manually feeds in exactly what a real phone
- * call would have reported (e.g. "scaffolding needed before the roof can be
- * accessed"); the backend records it with SIMULATED provenance through the
- * same domain services a real ElevenLabs call would use
- * (backend/app/api/demo.py, demo_simulation_observation). This dialog must
- * never imply a real call happened -- it's an honest manual substitute.
+/**
+ * Record what a contractor or tenant actually told the operator.
  *
- * CONTRACTOR_REPORT and ATTENDANCE_WINDOW_ENDED both need a real
- * appointment already on the case (the backend 404s on anything else), so
- * both pickers are built directly off `appointments` from the snapshot --
- * never a free-typed ID, never a fabricated option. TENANT_FEEDBACK needs
- * no appointment and always works.
+ * POST /api/v1/cases/{case_id}/field-updates. This replaced a demo
+ * control that fabricated observations. The form is similar; the claim it
+ * makes is not. Every submission names the person who gave the report and
+ * is attributed server-side to the authenticated operator, so the case
+ * history records second-hand information as second-hand rather than
+ * presenting it as something the system observed.
  *
- * Built on @radix-ui/react-dialog, matching NewTicketDialog.tsx's pattern
- * (same primitive, same layout shell) -- that's still the one other
- * multi-field flow in this app worth a real dialog over window.prompt(). */
-export function SimulateObservationDialog({
+ * It contacts nobody. Recording that a contractor phoned in a finding is
+ * a write to this database and nothing more; the tenant and contractor
+ * calling paths are separate and deliberate.
+ *
+ * CONTRACTOR_REPORT and ATTENDANCE_WINDOW_ENDED both require a real
+ * appointment already on the case (the API 404s otherwise), so both
+ * pickers are built from `appointments` on the snapshot -- never a
+ * free-typed id, never a fabricated option. TENANT_UPDATE needs none.
+ */
+export function RecordFieldUpdateDialog({
   caseId,
   appointments,
   workOrders,
@@ -51,7 +53,7 @@ export function SimulateObservationDialog({
   const hasAppointments = appointments.length > 0;
 
   const [open, setOpen] = useState(false);
-  const [kind, setKind] = useState<Kind>(hasAppointments ? "CONTRACTOR_REPORT" : "TENANT_FEEDBACK");
+  const [kind, setKind] = useState<Kind>(hasAppointments ? "CONTRACTOR_REPORT" : "TENANT_UPDATE");
   // Nullable operator override rather than an eagerly-initialized default:
   // this dialog stays mounted while the route polls, so `appointments` can
   // go from empty to populated (exactly the hero path, right after the
@@ -61,25 +63,29 @@ export function SimulateObservationDialog({
   // the way a one-time useState initializer would miss it.
   const [appointmentIdOverride, setAppointmentIdOverride] = useState<string | null>(null);
   const [text, setText] = useState("");
+  // Who actually said it. Required for both narrative kinds: an
+  // unattributed report is exactly the thing this form exists to avoid.
+  const [reportedBy, setReportedBy] = useState("");
+  const [observedAt, setObservedAt] = useState("");
   const [confirmsResolved, setConfirmsResolved] = useState(true);
-  const submit = useSubmitSimulationObservation(caseId);
+  const submit = useSubmitFieldUpdate(caseId);
 
   const selectedAppointmentId = appointmentIdOverride ?? appointments[0]?.id ?? null;
 
   function reset() {
-    setKind(appointments.length > 0 ? "CONTRACTOR_REPORT" : "TENANT_FEEDBACK");
+    setKind(appointments.length > 0 ? "CONTRACTOR_REPORT" : "TENANT_UPDATE");
     setAppointmentIdOverride(null);
     setText("");
+    setReportedBy("");
+    setObservedAt("");
     setConfirmsResolved(true);
   }
 
+  const needsAttribution = kind === "TENANT_UPDATE" || kind === "CONTRACTOR_REPORT";
   const canSubmit =
     !submit.isPending &&
-    (kind === "TENANT_FEEDBACK"
-      ? text.trim().length > 0
-      : kind === "CONTRACTOR_REPORT"
-        ? !!selectedAppointmentId && text.trim().length > 0
-        : !!selectedAppointmentId);
+    (!needsAttribution || (text.trim().length >= 4 && reportedBy.trim().length >= 2)) &&
+    (kind === "TENANT_UPDATE" || !!selectedAppointmentId);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -90,13 +96,20 @@ export function SimulateObservationDialog({
           kind: "CONTRACTOR_REPORT",
           appointment_id: selectedAppointmentId,
           text: text.trim(),
-          observed_at: new Date().toISOString(),
+          // Defaults to now, but an operator writing up a call from
+          // earlier can say when it actually happened -- the timeline is
+          // only useful if it reflects the real sequence of events.
+          observed_at: observedAt
+            ? new Date(observedAt).toISOString()
+            : new Date().toISOString(),
+          reported_by: reportedBy.trim(),
         });
-      } else if (kind === "TENANT_FEEDBACK") {
+      } else if (kind === "TENANT_UPDATE") {
         await submit.mutateAsync({
-          kind: "TENANT_FEEDBACK",
+          kind: "TENANT_UPDATE",
           confirms_resolved: confirmsResolved,
           text: text.trim(),
+          reported_by: reportedBy.trim(),
         });
       } else {
         if (!selectedAppointmentId) return;
@@ -122,13 +135,13 @@ export function SimulateObservationDialog({
       }}
     >
       <Dialog.Trigger asChild>
-        <button
-          type="button"
-          title="Manually simulate what a contractor or tenant reported -- there's no live phone channel in this MVP"
-          className="flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 text-sm font-medium shadow-card transition-colors hover:bg-accent"
+        <Button
+          variant="outline"
+          className="rounded-xl bg-card"
+          title="Write up what a contractor or tenant told you. Contacts nobody."
         >
-          <FlaskConical className="h-4 w-4" /> Simulate contractor/tenant update
-        </button>
+          <ClipboardPen /> Record an update
+        </Button>
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-foreground/20" />
@@ -136,11 +149,12 @@ export function SimulateObservationDialog({
           <div className="flex items-start justify-between">
             <div>
               <Dialog.Title className="text-sm font-semibold text-foreground">
-                Simulate an observation
+                Record an update
               </Dialog.Title>
-              <Dialog.Description className="mt-1 text-xs text-muted-foreground">
-                Manual input standing in for a real phone call -- there's no live contractor or
-                tenant channel in this MVP. Recorded with SIMULATED provenance.
+              <Dialog.Description className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Write up what a contractor or tenant told you. It is recorded
+                against the case in your name, attributed to whoever reported
+                it. Nobody is contacted.
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
@@ -156,7 +170,7 @@ export function SimulateObservationDialog({
           <form onSubmit={(e) => void handleSubmit(e)}>
             <div className="mt-4 flex gap-1.5">
               {(Object.keys(kindLabel) as Kind[]).map((k) => {
-                const disabled = k !== "TENANT_FEEDBACK" && !hasAppointments;
+                const disabled = k !== "TENANT_UPDATE" && !hasAppointments;
                 return (
                   <button
                     key={k}
@@ -177,8 +191,9 @@ export function SimulateObservationDialog({
             </div>
             {!hasAppointments && (
               <p className="mt-2 text-xs text-muted-foreground">
-                No booked appointment on this case yet, so there's no real appointment to pick for a
-                contractor report or attendance-window update -- only tenant feedback needs none.
+                No booked visit on this case yet, so there is nothing to attach a
+                contractor report or a missed-window note to. A tenant update
+                needs no appointment.
               </p>
             )}
 
@@ -212,7 +227,7 @@ export function SimulateObservationDialog({
                   className="mt-3 block text-xs font-medium text-muted-foreground"
                   htmlFor="sim-report-text"
                 >
-                  What did the contractor report?
+                  What did they find?
                 </label>
                 <textarea
                   id="sim-report-text"
@@ -225,13 +240,13 @@ export function SimulateObservationDialog({
               </>
             )}
 
-            {kind === "TENANT_FEEDBACK" && (
+            {kind === "TENANT_UPDATE" && (
               <>
                 <label
                   className="mt-4 block text-xs font-medium text-muted-foreground"
                   htmlFor="sim-feedback-text"
                 >
-                  What did the tenant say?
+                  What did they say?
                 </label>
                 <textarea
                   id="sim-feedback-text"
@@ -275,20 +290,65 @@ export function SimulateObservationDialog({
               </>
             )}
 
+            {needsAttribution && (
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div>
+                  <label
+                    className="block text-xs font-medium text-muted-foreground"
+                    htmlFor="field-update-reported-by"
+                  >
+                    Who reported this?
+                  </label>
+                  <input
+                    id="field-update-reported-by"
+                    className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                    value={reportedBy}
+                    onChange={(e) => setReportedBy(e.target.value)}
+                    placeholder="Name of the contractor or tenant"
+                  />
+                </div>
+                {kind === "CONTRACTOR_REPORT" && (
+                  <div>
+                    <label
+                      className="block text-xs font-medium text-muted-foreground"
+                      htmlFor="field-update-observed-at"
+                    >
+                      When (optional)
+                    </label>
+                    <input
+                      id="field-update-observed-at"
+                      type="datetime-local"
+                      className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                      value={observedAt}
+                      onChange={(e) => setObservedAt(e.target.value)}
+                      max={new Date().toISOString().slice(0, 16)}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
             {kind === "ATTENDANCE_WINDOW_ENDED" && (
               <p className="mt-3 text-xs text-muted-foreground">
-                Marks the selected appointment's attendance window as ended -- no further detail
-                needed.
+                Records that the booked window passed without a report arriving.
+                No further detail needed.
               </p>
             )}
 
-            <button
+            <Button
               type="submit"
               disabled={!canSubmit}
-              className="mt-5 flex h-9 w-full items-center justify-center rounded-lg bg-primary text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+              className="mt-5 w-full"
+              title={
+                canSubmit
+                  ? undefined
+                  : needsAttribution
+                    ? "Describe what was reported and name who reported it."
+                    : "Select the visit this applies to."
+              }
             >
-              {submit.isPending ? "Submitting…" : "Submit simulated observation"}
-            </button>
+              {submit.isPending ? "Recording…" : "Record on the case"}
+            </Button>
           </form>
         </Dialog.Content>
       </Dialog.Portal>

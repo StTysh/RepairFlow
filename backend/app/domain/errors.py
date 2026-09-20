@@ -38,6 +38,14 @@ class ApprovalRequiredError(DomainError):
     code = ToolErrorCode.APPROVAL_REQUIRED
 
 
+class PayloadTooLargeError(DomainError):
+    """An upload exceeded the configured size cap. Distinct from a
+    validation error so the client sees a true 413 and can tell
+    "this file is too big" from "this field is wrong"."""
+
+    code = ToolErrorCode.PAYLOAD_TOO_LARGE
+
+
 class ConflictError(DomainError):
     code = ToolErrorCode.CONFLICT
 

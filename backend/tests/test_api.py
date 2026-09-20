@@ -80,7 +80,7 @@ async def test_intake_approve_and_progress_through_http(app_db):
 
     async with await _client() as client:
         r = await client.post(
-            "/api/v1/demo/intake",
+            "/api/v1/cases",
             json={
                 "property_id": property_id, "tenant_id": tenant_id,
                 "description": "Water ingress near the roofline.", "location": "Rear bedroom ceiling", "source_text": "src",
@@ -117,7 +117,7 @@ async def test_approval_round_trip_through_http(app_db):
 
     async with await _client() as client:
         r = await client.post(
-            "/api/v1/demo/intake",
+            "/api/v1/cases",
             json={
                 "property_id": property_id, "tenant_id": tenant_id,
                 "description": "Gas smell near the boiler.", "location": "Airing cupboard", "source_text": "src",
@@ -167,35 +167,3 @@ async def test_approval_round_trip_through_http(app_db):
         snapshot = r.json()["snapshot"]
         assert any(w["status"] == "READY" for w in snapshot["work_orders"])
 
-
-@pytest.mark.asyncio
-async def test_demo_reset_clears_case_and_releases_mock_reservation(app_db):
-    """demo_reset must not violate FKs (dependencies -> reports -> appointments
-    -> action_records is the load-bearing chain) and must release, not orphan,
-    the MockReservationModel/MockSlotModel rows a booked SCHEDULE_VISIT
-    created (those tables have no case_id column, so they're cleaned up
-    through work_order_id instead)."""
-    property_id, tenant_id, roofer_id, scaffolder_id = await _seed_reference_data()
-    case_id, report_id, _coordinator = await _drive_to_blocked_repair(uid(), property_id, tenant_id, roofer_id, scaffolder_id)
-
-    # approve + execute the pending scaffold booking so a real
-    # MockReservationModel row exists to be cleaned up
-    await _approve_latest_awaiting(case_id, "Approved for reset test.", limit_pence=30_000)
-    await worker.drain_due_jobs(dispatcher.FixtureCoordinator(), raise_on_error=True)
-
-    async with session_scope() as session:
-        reservations_before = (await session.execute(select(MockReservationModel))).scalars().all()
-    assert len(reservations_before) >= 1, "expected a booked scaffold slot to produce a reservation"
-
-    async with await _client() as client:
-        r = await client.post("/api/v1/demo/reset", params={"confirm_reset": "true"}, auth=AUTH)
-        assert r.status_code == 202, r.text
-        body = r.json()
-        assert body["cleared"] is True
-        assert body["case_count"] >= 1
-
-    async with session_scope() as session:
-        remaining_case = await session.get(RepairCaseModel, case_id)
-        reservations_after = (await session.execute(select(MockReservationModel))).scalars().all()
-    assert remaining_case is None
-    assert reservations_after == []

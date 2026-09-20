@@ -20,6 +20,11 @@ import httpx
 from app.config import get_settings
 from app.db import session_scope
 from app.domain.errors import NotFoundError
+from app.integrations.no_contact import (
+    assert_contact_allowed,
+    no_contact_enabled,
+    substitute_installed,
+)
 from app.schemas import CallOutcome, CallOutcomeStatus, Recording, RecordingStatus, Speaker, TranscriptTurn
 
 API_BASE = "https://api.elevenlabs.io"
@@ -98,7 +103,14 @@ async def place_outbound_call(
     ElevenLabs' own Twilio integration (verified live 2026-09-19 against the
     real API; see docs/26). Returns the raw response body, which on success
     contains conversation_id and callSid -- the call is only INITIATED at
-    this point, not answered; poll fetch_conversation_details for status."""
+    this point, not answered; poll fetch_conversation_details for status.
+
+    The no-contact guard sits here, at the transport itself, rather than
+    only at place_call()'s policy checks above it: this is the single
+    function in the codebase that makes a phone ring, so guarding it
+    covers every caller including future ones and any test that reaches
+    it by mistake."""
+    assert_contact_allowed("voice_call", to_number)
     async with httpx.AsyncClient(base_url=API_BASE, timeout=15.0) as client:
         response = await client.post(
             "/v1/convai/twilio/outbound-call",
@@ -267,6 +279,13 @@ async def place_call(communication_id: str, *, question: str = "") -> None:
                 actor=actor, source_event_key=f"call-skipped:{communication_id}",
             )
 
+    # Checked before the policy flags so the recorded reason names the
+    # real cause. The transport-level assert_contact_allowed() in
+    # place_outbound_call() stays as the backstop for any path that
+    # skips this function.
+    if no_contact_enabled() and not substitute_installed():
+        await _skip("this process is running in no-contact mode (FIXI_NO_CONTACT)")
+        return
     if not settings.outbound_calls_enabled:
         await _skip("outbound calling is disabled (OUTBOUND_CALLS_ENABLED is not set)")
         return

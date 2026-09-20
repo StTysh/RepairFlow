@@ -20,6 +20,7 @@ _STATUS_BY_CODE: dict[ToolErrorCode, int] = {
     ToolErrorCode.RATE_LIMITED: 429,
     ToolErrorCode.PROVIDER_UNAVAILABLE: 503,
     ToolErrorCode.EXTERNAL_RESULT_UNKNOWN: 202,
+    ToolErrorCode.PAYLOAD_TOO_LARGE: 413,
 }
 
 

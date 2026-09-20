@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     data_dir: Path = BACKEND_DIR / "data"
     database_path: Path = BACKEND_DIR / "data" / "repairflow.db"
     recordings_dir: Path = BACKEND_DIR / "data" / "recordings"
+    documents_dir: Path = BACKEND_DIR / "data" / "documents"
 
     operator_username: str = "operator"
     operator_password: str = "repairflow-demo"
@@ -56,6 +57,11 @@ class Settings(BaseSettings):
     # has already expired the instant it's created (see booking.py).
     demo_slot_offset_days: int = 2
 
+    # Largest single upload accepted by the documents endpoint. Bounded
+    # because the whole body is buffered to hash and size it before it is
+    # written; an unbounded upload is a trivial memory exhaustion.
+    max_document_bytes: int = 25 * 1024 * 1024
+
     # Tavily
     tavily_api_key: str | None = None
 
@@ -79,6 +85,7 @@ class Settings(BaseSettings):
     def ensure_directories(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.recordings_dir.mkdir(parents=True, exist_ok=True)
+        self.documents_dir.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache

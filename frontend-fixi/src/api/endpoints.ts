@@ -16,16 +16,16 @@ import type {
   CaseMessagesResponse,
   CaseVersionResponse,
   DashboardMetrics,
-  DemoIntakeRequest,
-  DemoSeedRefs,
+  FieldUpdateRequest,
+  FieldUpdateResponse,
   IntakeResponse,
   NotificationsResponse,
+  OperatorIntakeRequest,
   PropertyHistoryResponse,
+  PropertyListResponse,
   PropertyStatsResponse,
   ReopenCaseRequest,
   ResumeCaseRequest,
-  SimulationObservationRequest,
-  SimulationObservationResponse,
   UpcomingAppointmentsResponse,
 } from "@/api/types";
 // CaseStatus is a UI-facing display concept as much as a wire type (see
@@ -104,6 +104,43 @@ export function fetchPropertyHistory(
   return request<PropertyHistoryResponse>(creds, `/api/v1/properties/${propertyId}/history`);
 }
 
+export function fetchProperties(
+  creds: OperatorCredentials,
+  params: { q?: string; limit?: number; offset?: number } = {},
+): Promise<PropertyListResponse> {
+  const search = new URLSearchParams();
+  if (params.q) search.set("q", params.q);
+  search.set("limit", String(params.limit ?? 200));
+  if (params.offset) search.set("offset", String(params.offset));
+  return request<PropertyListResponse>(creds, `/api/v1/properties?${search.toString()}`);
+}
+
+/** Create a case from an operator-recorded report (POST /api/v1/cases). */
+export function submitOperatorIntake(
+  creds: OperatorCredentials,
+  body: OperatorIntakeRequest,
+): Promise<IntakeResponse> {
+  return request<IntakeResponse>(creds, "/api/v1/cases", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Record what a contractor or tenant actually told the operator
+ * (POST /api/v1/cases/{id}/field-updates). The operator's identity is taken
+ * from the authenticated session server-side, so it cannot be spoofed here;
+ * `reported_by` inside the body names the person who gave the report. */
+export function submitFieldUpdate(
+  creds: OperatorCredentials,
+  caseId: string,
+  body: FieldUpdateRequest,
+): Promise<FieldUpdateResponse> {
+  return request<FieldUpdateResponse>(creds, `/api/v1/cases/${caseId}/field-updates`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 export function fetchPropertyStats(
   creds: OperatorCredentials,
   propertyId: string,
@@ -111,28 +148,8 @@ export function fetchPropertyStats(
   return request<PropertyStatsResponse>(creds, `/api/v1/properties/${propertyId}/stats`);
 }
 
-export function fetchDemoSeedRefs(creds: OperatorCredentials): Promise<DemoSeedRefs> {
-  return request<DemoSeedRefs>(creds, "/api/v1/demo/seed-refs");
-}
 
-export function submitDemoIntake(
-  creds: OperatorCredentials,
-  body: DemoIntakeRequest,
-): Promise<IntakeResponse> {
-  return request<IntakeResponse>(creds, "/api/v1/demo/intake", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
 
-/** Demo-only: resets this one case back to its just-created state (same id,
- * same case_number) and re-triggers the coordinator -- a repeatable "Play"
- * button for a rehearsed demo case rather than retyping an intake each time. */
-export function replayCase(creds: OperatorCredentials, caseId: string): Promise<IntakeResponse> {
-  return request<IntakeResponse>(creds, `/api/v1/demo/cases/${caseId}/replay`, {
-    method: "POST",
-  });
-}
 
 export function resumeCase(
   creds: OperatorCredentials,
@@ -167,16 +184,6 @@ export function cancelCase(
   });
 }
 
-/** Demo-only: permanently removes a test/duplicate ticket, unlike Cancel
- * (which just marks it terminal but keeps it around). */
-export function deleteCase(
-  creds: OperatorCredentials,
-  caseId: string,
-): Promise<{ cleared: boolean }> {
-  return request<{ cleared: boolean }>(creds, `/api/v1/demo/cases/${caseId}`, {
-    method: "DELETE",
-  });
-}
 
 /** Approve or reject an ActionRecord sitting in AWAITING_APPROVAL. The
  * caller supplies expected_case_version/action_payload_hash echoed from
@@ -208,23 +215,3 @@ export function cancelAppointment(
   });
 }
 
-/** Demo-only: records a manually-simulated contractor report / tenant
- * feedback / attendance-window-ended observation, exactly as if it had
- * arrived from a real phone call -- there's no live contractor/tenant
- * channel in this MVP. Submitted with SIMULATED provenance by the backend
- * (backend/app/api/demo.py's demo_simulation_observation), not something
- * this call fabricates itself. See SimulateObservationDialog.tsx. */
-export function submitSimulationObservation(
-  creds: OperatorCredentials,
-  caseId: string,
-  body: SimulationObservationRequest,
-): Promise<SimulationObservationResponse> {
-  return request<SimulationObservationResponse>(
-    creds,
-    `/api/v1/demo/cases/${caseId}/observations`,
-    {
-      method: "POST",
-      body: JSON.stringify(body),
-    },
-  );
-}

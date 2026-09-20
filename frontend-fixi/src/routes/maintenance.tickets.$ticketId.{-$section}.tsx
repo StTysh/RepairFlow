@@ -19,7 +19,7 @@ import { Pill, StatusBadge, UrgencyBadge } from "@/components/fixi/Badge";
 import { CaseLifecycleActions } from "@/components/fixi/CaseLifecycleActions";
 import { DecisionCard } from "@/components/fixi/DecisionCard";
 import { WorkGraph } from "@/components/fixi/WorkGraph";
-import { SimulateObservationDialog } from "@/components/fixi/SimulateObservationDialog";
+import { RecordFieldUpdateDialog } from "@/components/fixi/RecordFieldUpdateDialog";
 import { MessagesPanel } from "@/components/fixi/MessagesPanel";
 import { authHeader, BASE_URL } from "@/api/client";
 import { useCaseDetail } from "@/hooks/use-case-detail";
@@ -175,9 +175,9 @@ function CasePage() {
          * this is how the hero demo path (contractor reports scaffolding
          * needed, tenant confirms a repair) gets driven from the UI at all:
          * an operator manually feeds in what a real call would have
-         * reported. See SimulateObservationDialog.tsx. */}
+         * reported. See RecordFieldUpdateDialog.tsx. */}
         <div className="mt-3 flex justify-end">
-          <SimulateObservationDialog
+          <RecordFieldUpdateDialog
             caseId={c.id}
             appointments={snapshot.appointments}
             workOrders={snapshot.work_orders}
@@ -663,8 +663,8 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
         <Label>Contractor reports</Label>
         {/* Real ContractorReportModel rows (backend/app/schemas.py
          * ContractorReport, up to the 10 most recent) -- populated by a
-         * real ElevenLabs contractor call or by simulating one via the
-         * "Simulate contractor/tenant update" dialog above. Untyped/unread
+         * real ElevenLabs contractor call, or by an operator writing one
+         * up in the "Record an update" dialog above. Untyped/unread
          * before this (CaseSnapshot.latest_reports was `unknown[]`); this
          * is the fix, and the one place these reports render. */}
         {latest_reports.length === 0 ? (

@@ -22,15 +22,19 @@ from app.schemas import (
     CommPurpose,
     CommState,
     ConnectorType,
+    CostKind,
     ContractorApprovalStatus,
     DependencyStatus,
     InterpretationStatus,
     JobKind,
     JobStatus,
+    MessageChannel,
+    MessageDeliveryState,
     MessageSenderType,
     OrchestrationRunState,
     PersonType,
     Provenance,
+    RecordSubject,
     RoofResponsibility,
     Trade,
     VerificationStatus,
@@ -91,6 +95,19 @@ class PropertyModel(Base):
     # from seed/reference data, never a plausible-looking guess. None for
     # every seeded property today -- no source of truth for it exists yet.
     build_year: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    property_type: Mapped[str | None] = mapped_column(sa.String(48), nullable=True)
+    bedrooms: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    # Filename (not a path) of a bundled photo in the frontend asset set,
+    # e.g. "property-oak-avenue.jpg". Null means "no photo on file" and the
+    # UI shows a placeholder -- never a stand-in photo of a different
+    # building presented as this one.
+    photo_key: Mapped[str | None] = mapped_column(sa.String(96), nullable=True)
+    # Set only on properties created by the synthetic archive import. A
+    # non-null value means every case, cost and document under this
+    # property is illustrative sample history, not a real portfolio record.
+    archive_batch_id: Mapped[str | None] = mapped_column(
+        sa.ForeignKey("archive_batches.id"), nullable=True, index=True
+    )
 
 
 class TenantModel(Base):
@@ -155,6 +172,23 @@ class RepairCaseModel(Base):
     next_follow_up_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     escalation_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     resume_status: Mapped[CaseStatus | None] = enum_column(CaseStatus, nullable=True)
+    # Normalised issue classification, assigned at intake. Distinct from a
+    # work order's Trade: a case has exactly one category for the whole of
+    # its life (it is what the issue *is*), whereas one case can spawn work
+    # orders in several trades. Every count-by-category figure -- the
+    # property donut, recurrence grouping, Insights -- reads this, so those
+    # numbers stay stable when work orders are added or retraded.
+    category: Mapped[Trade | None] = enum_column(Trade, nullable=True)
+    # Non-null marks the case as synthetic archival history from a named
+    # import batch. Such cases are excluded from every current-workload
+    # count, notification feed and agent wake, and can never be actioned.
+    archive_batch_id: Mapped[str | None] = mapped_column(
+        sa.ForeignKey("archive_batches.id"), nullable=True, index=True
+    )
+    # Only set on archival cases: when the case was closed. Real cases read
+    # their resolution time from their CaseEvent history instead; an
+    # archival case has no event stream to read.
+    archived_closed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class RepairIssueModel(Base):
@@ -362,6 +396,28 @@ class MessageModel(Base):
     text: Mapped[str] = mapped_column(sa.Text)
     photo_url: Mapped[str | None] = mapped_column(sa.String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    channel: Mapped[MessageChannel] = enum_column(MessageChannel, default=MessageChannel.INTERNAL)
+    # Saving a row never implies it went anywhere. A composed outbound
+    # message starts DRAFT and only becomes QUEUED/SENT/DELIVERED/FAILED
+    # when a transport actually reports that outcome, so nothing in the UI
+    # can claim "sent" on the strength of a successful INSERT.
+    delivery_state: Mapped[MessageDeliveryState] = enum_column(
+        MessageDeliveryState, default=MessageDeliveryState.INTERNAL_NOTE
+    )
+    delivery_detail: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    queued_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    read_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    attachments: Mapped[list[dict]] = mapped_column(sa.JSON, default=list)
+    # Set when this row is the thread-visible face of a real voice
+    # conversation; the Communication row stays authoritative for
+    # transcript, recording and outcome.
+    communication_id: Mapped[str | None] = mapped_column(
+        sa.ForeignKey("communications.id"), nullable=True
+    )
+    archive_batch_id: Mapped[str | None] = mapped_column(
+        sa.ForeignKey("archive_batches.id"), nullable=True, index=True
+    )
 
 
 class WebhookReceiptModel(Base):
@@ -499,3 +555,101 @@ class MockReservationModel(Base):
     provider_booking_id: Mapped[str] = mapped_column(sa.String(80))
     status: Mapped[str] = mapped_column(sa.String(16), default="RESERVED")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class ArchiveBatchModel(Base):
+    """One run of the synthetic historical import.
+
+    Exists so the sample archive is removable as a unit and identifiable
+    on sight. Everything the import writes carries this row's id, which is
+    what lets reporting label archival figures honestly and lets
+    "archive_import --remove" delete exactly that batch and nothing else.
+    """
+
+    __tablename__ = "archive_batches"
+
+    id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_uuid)
+    label: Mapped[str] = mapped_column(sa.String(96), unique=True)
+    generator_version: Mapped[str] = mapped_column(sa.String(32))
+    random_seed: Mapped[int] = mapped_column(sa.Integer)
+    description: Mapped[str] = mapped_column(sa.Text, default="")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class NoteModel(Base):
+    """Free-text operator note against a property, case, contractor or
+    tenant. Authored by a person, never by the coordinator -- the agent's
+    reasoning goes to CaseEvent, which is append-only; notes are editable
+    and therefore cannot be part of the audit record."""
+
+    __tablename__ = "notes"
+    __table_args__ = (sa.Index("ix_note_subject", "subject_type", "subject_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_uuid)
+    subject_type: Mapped[RecordSubject] = enum_column(RecordSubject)
+    subject_id: Mapped[str] = mapped_column(sa.String(36))
+    body: Mapped[str] = mapped_column(sa.Text)
+    author: Mapped[str] = mapped_column(sa.String(64))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    archive_batch_id: Mapped[str | None] = mapped_column(
+        sa.ForeignKey("archive_batches.id"), nullable=True, index=True
+    )
+
+
+class DocumentModel(Base):
+    """Metadata for a file actually written to disk under
+    settings.documents_dir. `stored_name` is a generated uuid filename,
+    never the uploaded name: the original is untrusted input and is kept
+    only as a display label, so a traversal-shaped filename cannot decide
+    where bytes land."""
+
+    __tablename__ = "documents"
+    __table_args__ = (
+        sa.Index("ix_document_subject", "subject_type", "subject_id", "uploaded_at"),
+    )
+
+    id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_uuid)
+    subject_type: Mapped[RecordSubject] = enum_column(RecordSubject)
+    subject_id: Mapped[str] = mapped_column(sa.String(36))
+    display_name: Mapped[str] = mapped_column(sa.String(255))
+    stored_name: Mapped[str] = mapped_column(sa.String(80), unique=True)
+    content_type: Mapped[str] = mapped_column(sa.String(128))
+    size_bytes: Mapped[int] = mapped_column(sa.Integer)
+    description: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    uploaded_by: Mapped[str] = mapped_column(sa.String(64))
+    uploaded_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    archive_batch_id: Mapped[str | None] = mapped_column(
+        sa.ForeignKey("archive_batches.id"), nullable=True, index=True
+    )
+
+
+class CostEntryModel(Base):
+    """A single money fact against a case, in integer pence.
+
+    Integer minor units throughout: no float ever touches a monetary value,
+    so a chart, a total and a CSV export of the same scope reconcile
+    exactly. `amount_pence` is signed so an ADJUSTMENT can reduce a total
+    without anyone editing the original row it corrects.
+    """
+
+    __tablename__ = "cost_entries"
+    __table_args__ = (
+        sa.Index("ix_cost_case", "case_id"),
+        sa.Index("ix_cost_incurred", "incurred_at"),
+    )
+
+    id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_uuid)
+    case_id: Mapped[str] = mapped_column(sa.ForeignKey("repair_cases.id"))
+    work_order_id: Mapped[str | None] = mapped_column(
+        sa.ForeignKey("work_orders.id"), nullable=True
+    )
+    kind: Mapped[CostKind] = enum_column(CostKind)
+    amount_pence: Mapped[int] = mapped_column(sa.Integer)
+    description: Mapped[str] = mapped_column(sa.Text)
+    incurred_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    recorded_by: Mapped[str] = mapped_column(sa.String(64))
+    recorded_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    archive_batch_id: Mapped[str | None] = mapped_column(
+        sa.ForeignKey("archive_batches.id"), nullable=True, index=True
+    )

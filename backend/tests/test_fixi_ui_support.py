@@ -571,61 +571,6 @@ async def test_seed_is_idempotent_per_row(app_db):
         assert {p.id: p.build_year for p in properties} == build_years_after_first_run
 
 
-@pytest.mark.asyncio
-async def test_seed_demo_activity_is_idempotent_and_snapshot_valid(app_db):
-    """The demo-activity rows (closed history, the scaffold dependency,
-    upcoming visits, messages) have a deep FK chain -- case -> work order ->
-    action -> appointment -> report -> dependency -- so a re-run is where a
-    duplicate or a broken link would show up. Also validates the seeded
-    ActionRecord's proposal against the real schema: CaseSnapshot validates
-    every pending action, so a payload missing a required ScheduleVisit
-    field would 500 the case-detail endpoint rather than fail quietly."""
-    from app import seed as seed_module
-    from app.domain import services
-    from app.models import (
-        AppointmentModel,
-        ContractorReportModel,
-        DependencyModel,
-        MessageModel,
-        RepairCaseModel,
-    )
-
-    await seed_module.seed()
-
-    async def counts() -> dict[str, int]:
-        async with session_scope() as session:
-            return {
-                name: len((await session.execute(select(model))).scalars().all())
-                for name, model in (
-                    ("cases", RepairCaseModel), ("appointments", AppointmentModel),
-                    ("reports", ContractorReportModel), ("dependencies", DependencyModel),
-                    ("messages", MessageModel),
-                )
-            }
-
-    first = await counts()
-    assert first["cases"] > 0 and first["dependencies"] > 0 and first["messages"] > 0
-
-    await seed_module.seed()
-    assert await counts() == first, "re-running seed() duplicated demo activity rows"
-
-    # The dependency case must load as a real snapshot (this is what the
-    # ticket page renders) with its graph edge and pending approval intact.
-    scaffold_case_id = seed_module._hist_ids(seed_module._SCAFFOLD_CASE_LABEL)["case"]
-    async with session_scope() as session:
-        snapshot = await services.load_case_snapshot(session, scaffold_case_id)
-    assert len(snapshot.work_orders) == 2
-    assert len(snapshot.dependencies) == 1
-    assert len(snapshot.latest_reports) == 1
-    assert len(snapshot.pending_actions) == 1
-    dependency = snapshot.dependencies[0]
-    prerequisite = next(w for w in snapshot.work_orders if w.id == dependency.prerequisite_work_order_id)
-    dependent = next(w for w in snapshot.work_orders if w.id == dependency.dependent_work_order_id)
-    assert prerequisite.kind.value == "SCAFFOLD_INSTALL"
-    assert dependent.kind.value == "REPAIR"
-    assert dependent.status.value == "BLOCKED"
-
-
 # --------------------------------------------------------------------------
 # G. Property history enrichment (contractor_name / quoted_pence / trade)
 # --------------------------------------------------------------------------
@@ -709,13 +654,14 @@ async def test_property_build_year_present_for_seeded_properties(app_db):
     await seed_module.seed()
 
     async with await _client() as client:
-        r = await client.get("/api/v1/demo/seed-refs", auth=AUTH)
+        r = await client.get("/api/v1/properties", auth=AUTH)
         assert r.status_code == 200
         body = r.json()
 
-    assert body["properties"], "expected seeded demo properties"
-    assert all(p["build_year"] is not None for p in body["properties"])
-    assert all(1900 <= p["build_year"] <= 2026 for p in body["properties"])
+    rows = body["items"]
+    assert rows, "expected the sample portfolio command to have created properties"
+    assert all(p["build_year"] is not None for p in rows)
+    assert all(1900 <= p["build_year"] <= 2026 for p in rows)
 
 
 # --------------------------------------------------------------------------
@@ -1109,50 +1055,3 @@ async def test_notifications_empty_when_nothing_pending(app_db):
     assert body["items"] == []
     assert body["unread_count"] == 0
 
-
-@pytest.mark.asyncio
-async def test_demo_delete_replay_reset_clear_messages(app_db):
-    """MessageModel was added after demo.py's deletion sequences were
-    written, so it wasn't in any of them. Since messages.case_id is a real
-    FK and SQLite runs with PRAGMA foreign_keys=ON, deleting/replaying/
-    resetting a case that has messages raised an IntegrityError instead of
-    succeeding -- and every seeded demo case now has messages, so "Play
-    demo" and "Delete ticket" would both fail on them."""
-    from app.models import MessageModel
-
-    property_id, tenant_id, _roofer_id, _ = await _seed_reference_data()
-
-    async def case_with_message() -> str:
-        case_id = await _intake(property_id, tenant_id, "Case carrying a message thread")
-        async with session_scope() as session:
-            session.add(
-                MessageModel(
-                    id=uid(), case_id=case_id, sender_type="TENANT",
-                    sender_name="Test Tenant", text="Any update on this?",
-                )
-            )
-        return case_id
-
-    async def message_count(case_id: str) -> int:
-        async with session_scope() as session:
-            rows = (
-                await session.execute(select(MessageModel).where(MessageModel.case_id == case_id))
-            ).scalars().all()
-            return len(rows)
-
-    async with await _client() as client:
-        replay_case = await case_with_message()
-        assert await message_count(replay_case) == 1
-        response = await client.post(f"/api/v1/demo/cases/{replay_case}/replay", auth=AUTH)
-        assert response.status_code == 202, response.text
-        assert await message_count(replay_case) == 0
-
-        delete_case = await case_with_message()
-        response = await client.delete(f"/api/v1/demo/cases/{delete_case}", auth=AUTH)
-        assert response.status_code == 202, response.text
-        assert await message_count(delete_case) == 0
-
-        reset_case = await case_with_message()
-        response = await client.post("/api/v1/demo/reset?confirm_reset=true", auth=AUTH)
-        assert response.status_code == 202, response.text
-        assert await message_count(reset_case) == 0

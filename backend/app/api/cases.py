@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,6 +52,8 @@ from app.schemas import (
     ReportSubmitResponse,
     ResearchSnapshot,
     RetryRecordingResponse,
+    SafetyAnswers,
+    Trade,
     ResumeCaseRequest,
     UpcomingAppointmentsResponse,
     EvidenceRef,
@@ -81,6 +84,8 @@ async def list_cases(
     property_id: str | None = None,
     q: str | None = None,
     contractor_id: str | None = None,
+    category: Trade | None = None,
+    include_archived: bool = Query(default=False),
     session: AsyncSession = Depends(get_session),
 ) -> CaseListResponse:
     query = (
@@ -93,6 +98,12 @@ async def list_cases(
         .order_by(RepairCaseModel.updated_at.desc())
         .limit(limit + 1)
     )
+    if not include_archived:
+        # Synthetic archival history is excluded from the operational list
+        # by default: it exists to populate charts, not to be worked on.
+        query = query.where(RepairCaseModel.archive_batch_id.is_(None))
+    if category is not None:
+        query = query.where(RepairCaseModel.category == category)
     if cursor:
         try:
             cursor_dt = datetime.fromisoformat(cursor)
@@ -144,6 +155,8 @@ async def list_cases(
             assigned_contractor_name=(
                 contractors_by_case[case.id].display_name if case.id in contractors_by_case else None
             ),
+            category=case.category,
+            is_archived=case.archive_batch_id is not None,
         )
         for case, address_line, _description in rows
     ]
@@ -204,6 +217,187 @@ async def submit_intake_endpoint(submission: IntakeSubmission, response: Respons
     )
     response.status_code = 200 if result.status == CommandResultStatus.NOOP else 201
     return IntakeResponse(case_id=case_id, communication_id=submission.communication_id, result=result)
+
+
+class OperatorIntakeRequest(BaseModel):
+    """An operator typing a reported repair into the New Ticket form.
+
+    This is a real intake channel, not a demo shortcut: a housing officer
+    taking a report over the counter or by phone is exactly how most cases
+    start. It differs from the voice path only in where the words came
+    from, so it goes through the same `services.submit_intake` -- same
+    safety triage, same policy, same events -- rather than writing a case
+    row directly.
+    """
+
+    property_id: uuid.UUID
+    tenant_id: uuid.UUID
+    description: str = Field(min_length=8, max_length=2000)
+    location: str = Field(min_length=1, max_length=128)
+    # Verbatim record of what the reporter actually said, kept separate
+    # from the operator's own summary above so the two are never confused.
+    source_text: str = Field(min_length=1, max_length=4000)
+    category: Trade | None = None
+    started_at: datetime | None = None
+    safety_answers: SafetyAnswers = Field(default_factory=SafetyAnswers)
+
+
+@router.post("/cases", status_code=201)
+async def create_case_from_operator_intake(
+    request: OperatorIntakeRequest,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+    operator: str = Depends(require_operator),
+) -> IntakeResponse:
+    """Create a case from an operator-recorded report.
+
+    A Communication row is still created because intake is defined in
+    terms of one (docs/16): it records *which conversation* produced the
+    case. Here that conversation happened in person or on a handset the
+    operator was holding, so the row is marked as an operator-recorded
+    intake with LIVE provenance -- this genuinely happened, it simply was
+    not carried by a provider. Nothing about it is simulated.
+    """
+    property_row = await session.get(PropertyModel, str(request.property_id))
+    if property_row is None:
+        raise NotFoundError(f"property {request.property_id} not found")
+    if property_row.archive_batch_id is not None:
+        raise ConflictError(
+            "this property is an archival sample record; new cases cannot be raised against it"
+        )
+    tenant_row = await session.get(TenantModel, str(request.tenant_id))
+    if tenant_row is None:
+        raise NotFoundError(f"tenant {request.tenant_id} not found")
+    if tenant_row.property_id != property_row.id:
+        raise ConflictError("that tenant does not live at the selected property")
+
+    comm_id = str(uuid.uuid4())
+    session.add(
+        CommunicationModel(
+            id=comm_id,
+            purpose="INTAKE",
+            direction="BROWSER",
+            provider="OPERATOR",
+            correlation_token_hash=str(uuid.uuid4()),
+            state="ENDED",
+            provenance=Provenance.LIVE,
+            started_at=datetime.now(timezone.utc),
+            ended_at=datetime.now(timezone.utc),
+        )
+    )
+    await session.flush()
+
+    case_id, result = await services.submit_intake(
+        session,
+        communication_id=comm_id,
+        submission=IntakeSubmission(
+            communication_id=uuid.UUID(comm_id),
+            property_id=request.property_id,
+            tenant_id=request.tenant_id,
+            description=request.description,
+            location=request.location,
+            started_at=request.started_at,
+            source_text=request.source_text,
+            safety_answers=request.safety_answers,
+        ),
+        actor=ActorContext("OPERATOR", operator, comm_id),
+    )
+
+    if request.category is not None:
+        case_row = await session.get(RepairCaseModel, case_id)
+        if case_row is not None and case_row.category is None:
+            case_row.category = request.category
+
+    response.status_code = 200 if result.status == CommandResultStatus.NOOP else 201
+    return IntakeResponse(case_id=case_id, communication_id=comm_id, result=result)
+
+
+class CaseEditRequest(BaseModel):
+    """Editable descriptive fields on a case.
+
+    Status is absent on purpose: it is not a property of the case that an
+    operator sets, it is the outcome of domain actions with preconditions
+    (see /cases/{id}/cancel, /resume, /reopen and the approval flow). An
+    edit endpoint that could write it would be a back door around every
+    one of those rules.
+
+    `expected_version` is required for the same reason every other write
+    requires it: two operators editing the same case must not silently
+    overwrite each other.
+    """
+
+    expected_version: int
+    title: str | None = Field(default=None, min_length=4, max_length=255)
+    category: Trade | None = None
+    location: str | None = Field(default=None, min_length=1, max_length=128)
+    description: str | None = Field(default=None, min_length=4, max_length=2000)
+    access_notes: str | None = Field(default=None, max_length=2000)
+
+
+@router.patch("/cases/{case_id}")
+async def edit_case(
+    case_id: str,
+    request: CaseEditRequest,
+    session: AsyncSession = Depends(get_session),
+    operator: str = Depends(require_operator),
+) -> CaseVersionResponse:
+    case = await services.load_case(session, case_id)
+    if case.archive_batch_id is not None:
+        raise ConflictError(
+            "this is an archival sample case; archival records are read-only"
+        )
+    if case.version != request.expected_version:
+        from app.domain.errors import StaleVersionError
+
+        raise StaleVersionError("stale case version", current_version=case.version)
+
+    changed: dict[str, object] = {}
+    if request.title is not None and request.title != case.title:
+        changed["title"] = {"from": case.title, "to": request.title}
+        case.title = request.title
+    if request.category is not None and request.category != case.category:
+        changed["category"] = {
+            "from": case.category.value if case.category else None,
+            "to": request.category.value,
+        }
+        case.category = request.category
+
+    issue = (
+        await session.execute(select(RepairIssueModel).where(RepairIssueModel.case_id == case_id))
+    ).scalars().first()
+    if issue is not None:
+        if request.location is not None and request.location != issue.location:
+            changed["location"] = {"from": issue.location, "to": request.location}
+            issue.location = request.location
+        if request.description is not None and request.description != issue.description:
+            changed["description"] = {"from": issue.description, "to": request.description}
+            issue.description = request.description
+
+    if request.access_notes is not None:
+        property_row = await session.get(PropertyModel, case.property_id)
+        if property_row is not None and property_row.access_notes != request.access_notes:
+            changed["access_notes"] = {
+                "from": property_row.access_notes,
+                "to": request.access_notes,
+            }
+            property_row.access_notes = request.access_notes
+
+    if not changed:
+        # Nothing actually differs. Returning the current version without
+        # bumping it keeps a no-op save from invalidating everyone else's
+        # in-flight version, and keeps the event log free of empty edits.
+        return CaseVersionResponse(case_id=case_id, version=case.version)
+
+    services.bump_version(case)
+    await services.append_event(
+        session,
+        case_id=case_id,
+        event_type="CASE_EDITED",
+        payload={"changes": changed, "edited_by": operator},
+        actor=ActorContext("OPERATOR", operator, str(uuid.uuid4())),
+        source_event_key=f"case-edited:{case_id}:{case.version}",
+    )
+    return CaseVersionResponse(case_id=case_id, version=case.version)
 
 
 @router.post("/cases/{case_id}/reports", status_code=202)
@@ -286,6 +480,125 @@ async def cancel_appointment(appointment_id: str, request: CancellationRequest, 
         actor=ActorContext("OPERATOR", "operator", str(uuid.uuid4())),
     )
     return AppointmentCancelResponse(appointment_id=appointment_id, outcome=outcome, case_version=case_version)
+
+
+class RescheduleRequest(BaseModel):
+    """An operator moving a visit to a time they arranged themselves."""
+
+    start_at: datetime
+    end_at: datetime
+    reason: str = Field(min_length=3, max_length=500)
+    # Who actually agreed the new slot, in the operator's words. Required:
+    # an appointment with no named source is indistinguishable from one the
+    # system invented, and this system never invents availability.
+    arranged_with: str = Field(min_length=2, max_length=128)
+
+
+@router.post("/appointments/{appointment_id}/reschedule", status_code=202)
+async def reschedule_appointment(
+    appointment_id: str,
+    request: RescheduleRequest,
+    session: AsyncSession = Depends(get_session),
+    operator: str = Depends(require_operator),
+) -> dict:
+    """Move a visit to a time the operator arranged out-of-band.
+
+    Two separate facts, kept separate (docs/19; "provider acceptance is not
+    booking confirmation" cuts both ways):
+
+    * the old appointment is genuinely cancelled through the connector, so
+      its slot is released rather than orphaned;
+    * the replacement is recorded as **PENDING**, never CONFIRMED, with
+      `provider_booking_id = None` and `connector = HUMAN`. An operator
+      writing a time into this system is not a contractor accepting it.
+      Confirmation is a separate, later fact.
+
+    The event records who arranged it and with whom, so the case history
+    can always answer "who says this visit is happening?".
+    """
+    from app.models import AppointmentModel
+    from app.schemas import AppointmentStatus, ConnectorType
+
+    now = datetime.now(timezone.utc)
+    if request.end_at <= request.start_at:
+        raise DomainError("the new visit must end after it starts")
+    if request.start_at <= now:
+        raise DomainError("the new visit must be in the future")
+
+    appointment = await session.get(AppointmentModel, appointment_id)
+    if appointment is None:
+        raise NotFoundError(f"appointment {appointment_id} not found")
+    if appointment.status in (AppointmentStatus.FINISHED, AppointmentStatus.CANCELLED):
+        raise ConflictError(
+            f"appointment {appointment_id} is {appointment.status.value.lower()} and cannot be moved"
+        )
+
+    case_id = appointment.case_id
+    work_order_id = appointment.work_order_id
+    contractor_id = appointment.contractor_id
+    action_id = appointment.action_id
+    attempt = appointment.attempt_number
+
+    outcome, _version = await services.cancel_appointment(
+        session,
+        appointment_id=appointment_id,
+        reason=f"Rescheduled by {operator}: {request.reason}",
+        actor=ActorContext("OPERATOR", operator, str(uuid.uuid4())),
+    )
+
+    replacement_id = str(uuid.uuid4())
+    session.add(
+        AppointmentModel(
+            id=replacement_id,
+            case_id=case_id,
+            work_order_id=work_order_id,
+            contractor_id=contractor_id,
+            slot_id=f"manual:{replacement_id}",
+            start_at=request.start_at,
+            end_at=request.end_at,
+            status=AppointmentStatus.PENDING,
+            connector=ConnectorType.HUMAN,
+            provider_booking_id=None,
+            action_id=action_id,
+            attempt_number=attempt + 1,
+            provenance=Provenance.LIVE,
+        )
+    )
+    await session.flush()
+
+    case = await services.load_case(session, case_id)
+    services.bump_version(case)
+    await services.append_event(
+        session,
+        case_id=case_id,
+        event_type="APPOINTMENT_RESCHEDULED",
+        payload={
+            "previous_appointment_id": appointment_id,
+            "appointment_id": replacement_id,
+            "work_order_id": work_order_id,
+            "start_at": request.start_at.isoformat(),
+            "end_at": request.end_at.isoformat(),
+            "reason": request.reason,
+            "arranged_with": request.arranged_with,
+            "recorded_by": operator,
+            "recorded_at": now.isoformat(),
+            "contractor_confirmed": False,
+        },
+        actor=ActorContext("OPERATOR", operator, str(uuid.uuid4())),
+        source_event_key=f"appointment-rescheduled:{replacement_id}",
+    )
+
+    return {
+        "previous_appointment_id": appointment_id,
+        "appointment_id": replacement_id,
+        "status": AppointmentStatus.PENDING.value,
+        "cancellation": outcome.model_dump(mode="json"),
+        "case_version": case.version,
+        "note": (
+            "Recorded as pending. The contractor has not confirmed this time through "
+            "any provider; confirmation is a separate fact."
+        ),
+    }
 
 
 @router.get("/appointments/upcoming")

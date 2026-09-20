@@ -292,6 +292,7 @@ class ToolErrorCode(str, enum.Enum):
     RATE_LIMITED = "RATE_LIMITED"
     PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
     EXTERNAL_RESULT_UNKNOWN = "EXTERNAL_RESULT_UNKNOWN"
+    PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE"
 
 
 # --------------------------------------------------------------------------
@@ -1185,6 +1186,11 @@ class CaseListItem(StrictModel):
     # status). "UNKNOWN" until triage has run.
     urgency: Literal["EMERGENCY", "URGENT", "ROUTINE", "UNKNOWN"] = "UNKNOWN"
     assigned_contractor_name: str | None = None
+    category: Trade | None = None
+    # True when this row is synthetic archival history rather than
+    # live work. Every list that can show one must label it, so a
+    # sample case is never mistaken for something to act on.
+    is_archived: bool = False
 
 
 class CaseListResponse(StrictModel):
@@ -1373,6 +1379,55 @@ class UpcomingAppointmentItem(StrictModel):
 
 class UpcomingAppointmentsResponse(StrictModel):
     items: list[UpcomingAppointmentItem]
+
+
+class RecordSubject(str, enum.Enum):
+    """What a note or document is filed against. One enum rather than a
+    table per subject: notes and documents carry no domain semantics of
+    their own, so splitting them would multiply tables without adding a
+    single rule."""
+
+    PROPERTY = "PROPERTY"
+    CASE = "CASE"
+    CONTRACTOR = "CONTRACTOR"
+    TENANT = "TENANT"
+
+
+class CostKind(str, enum.Enum):
+    """Why a money row exists. QUOTE is an expected amount, INVOICE an
+    amount actually billed, ADJUSTMENT a signed correction to either.
+    Kept distinct so spend reporting can state whether it is showing
+    quoted or actual money instead of silently mixing them (docs/17)."""
+
+    QUOTE = "QUOTE"
+    INVOICE = "INVOICE"
+    ADJUSTMENT = "ADJUSTMENT"
+
+
+class MessageChannel(str, enum.Enum):
+    """How a message is (or would be) carried. INTERNAL never leaves the
+    system; VOICE is the ElevenLabs conversation path and is recorded
+    here only as a pointer to the authoritative Communication row."""
+
+    INTERNAL = "INTERNAL"
+    EMAIL = "EMAIL"
+    SMS = "SMS"
+    VOICE = "VOICE"
+
+
+class MessageDeliveryState(str, enum.Enum):
+    """Deliberately distinguishes "we saved it" from "a provider accepted
+    it" from "it reached somebody" (docs/16, and the standing rule that
+    provider acceptance is not delivery). Nothing may display as SENT
+    because a draft was persisted."""
+
+    DRAFT = "DRAFT"
+    INTERNAL_NOTE = "INTERNAL_NOTE"
+    QUEUED = "QUEUED"
+    SENT = "SENT"
+    DELIVERED = "DELIVERED"
+    FAILED = "FAILED"
+    RECEIVED = "RECEIVED"
 
 
 class MessageSenderType(str, enum.Enum):

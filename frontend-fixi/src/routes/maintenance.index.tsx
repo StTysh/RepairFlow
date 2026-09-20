@@ -1,3 +1,4 @@
+import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
@@ -17,11 +18,12 @@ import { useMemo, useState } from "react";
 import houseExterior from "@/assets/house-exterior.jpg";
 import { AppShell, Card } from "@/components/fixi/AppShell";
 import { StatusBadge, UrgencyBadge } from "@/components/fixi/Badge";
-import { useCancelCase, useDeleteCase } from "@/hooks/use-case-actions";
+import { Button } from "@/components/ui/button";
+import { useCancelCase } from "@/hooks/use-case-actions";
 import { useCaseList } from "@/hooks/use-case-list";
 import { useDashboardMetrics } from "@/hooks/use-dashboard-metrics";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import { useSeedRefs } from "@/hooks/use-new-ticket";
+import { usePropertyOptions } from "@/hooks/use-new-ticket";
 import { useUpcomingAppointments } from "@/hooks/use-upcoming-appointments";
 import { useCaseSearch } from "@/lib/case-search-context";
 import {
@@ -91,7 +93,7 @@ function MaintenancePage() {
   const debouncedSearch = useDebouncedValue(search, 300);
 
   const metrics = useDashboardMetrics();
-  const seedRefs = useSeedRefs();
+  const properties = usePropertyOptions();
   const upcoming = useUpcomingAppointments();
   const cases = useCaseList({
     status: statusFilter === "ALL" ? undefined : statusFilter,
@@ -259,8 +261,8 @@ function MaintenancePage() {
               value={propertyFilter}
               onChange={setPropertyFilter}
               allLabel="All properties"
-              options={(seedRefs.data?.properties ?? []).map((p) => ({
-                value: p.property_id,
+              options={(properties.data?.items ?? []).map((p) => ({
+                value: p.id,
                 label: p.address_line,
               }))}
             />
@@ -357,7 +359,12 @@ function MaintenancePage() {
                       {formatRelative(t.updated_at)}
                     </td>
                     <td className="px-2 py-2 text-right">
-                      <RowActions caseId={t.id} status={t.status} version={t.version} />
+                      <RowActions
+                        caseId={t.id}
+                        caseNumber={t.case_number}
+                        status={t.status}
+                        version={t.version}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -446,120 +453,143 @@ function MaintenancePage() {
   );
 }
 
-/** Row-level "..." menu -- used to be a button with no onClick at all.
- * Wired to the same Cancel/Delete mutations CaseLifecycleActions uses on
- * the ticket detail page (window.confirm/prompt + mutateAsync + the
- * hooks' own onError toast), just reachable without opening the ticket
- * first. Each row needs its own hook instances since they're keyed on
- * caseId, so this has to be a component rather than inline JSX inside
- * the .map(). */
+/** Row-level "…" menu.
+ *
+ * Offers only the actions the legal transition graph permits from this
+ * row's status. Hard delete is deliberately absent: it existed to reset a
+ * rehearsed demo, and permanently destroying a case -- with its events,
+ * calls and work orders -- is not something a list row should offer.
+ * Cancel closes a case without a repair outcome and keeps the record.
+ *
+ * Each row needs its own mutation instance (they are keyed on caseId), so
+ * this is a component rather than inline JSX inside the .map().
+ */
 function RowActions({
   caseId,
+  caseNumber,
   status,
   version,
 }: {
   caseId: string;
+  caseNumber: number;
   status: CaseStatus;
   version: number;
 }) {
   const cancel = useCancelCase(caseId);
-  const deleteTicket = useDeleteCase(caseId);
-  const busy = cancel.isPending || deleteTicket.isPending;
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const canCancel =
     status === "ACTIVE" || status === "AWAITING_CONFIRMATION" || status === "ESCALATED";
 
-  async function handleCancel() {
-    const reason = window.prompt("Reason for cancelling this case?");
-    if (!reason) return;
+  async function submit() {
+    if (!reason.trim()) return;
+    setError(null);
     try {
-      await cancel.mutateAsync({ version, reason });
-    } catch {
-      // handled by onError toast (see use-case-actions.ts)
-    }
-  }
-
-  async function handleDelete() {
-    if (
-      !window.confirm(
-        "Permanently delete this ticket? This removes it and everything on it (events, calls, work orders) -- unlike Cancel, this can't be undone.",
-      )
-    ) {
-      return;
-    }
-    try {
-      await deleteTicket.mutateAsync();
-    } catch {
-      // handled by onError toast
+      await cancel.mutateAsync({ version, reason: reason.trim() });
+      setOpen(false);
+      setReason("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That case could not be cancelled.");
     }
   }
 
   return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger asChild>
-        <button
-          type="button"
-          disabled={busy}
-          className="rounded-md p-1 text-muted-foreground hover:bg-accent disabled:opacity-50"
-        >
-          <MoreHorizontal className="h-4 w-4" />
-        </button>
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="end"
-          className="z-50 min-w-[160px] rounded-lg border border-border bg-card p-1 shadow-panel"
-        >
-          {canCancel && (
-            <DropdownMenu.Item
-              onSelect={() => void handleCancel()}
-              className="cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium text-destructive outline-none hover:bg-destructive/10"
-            >
-              Cancel case
-            </DropdownMenu.Item>
-          )}
-          <DropdownMenu.Item
-            onSelect={() => void handleDelete()}
-            className="cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium text-destructive outline-none hover:bg-destructive/10"
+    <>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <button
+            type="button"
+            aria-label={`Actions for ticket #${caseNumber}`}
+            disabled={cancel.isPending}
+            className="rounded-md p-1 text-muted-foreground hover:bg-accent disabled:opacity-50"
           >
-            Delete ticket
-          </DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
-  );
-}
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            align="end"
+            className="z-50 min-w-[180px] rounded-lg border border-border bg-card p-1 shadow-panel"
+          >
+            <DropdownMenu.Item asChild>
+              <Link
+                to="/maintenance/tickets/$ticketId/{-$section}"
+                params={{ ticketId: caseId, section: undefined }}
+                className="block cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium outline-none hover:bg-accent data-[highlighted]:bg-accent"
+              >
+                Open ticket
+              </Link>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item asChild>
+              <Link
+                to="/messages/$caseId"
+                params={{ caseId }}
+                className="block cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium outline-none hover:bg-accent data-[highlighted]:bg-accent"
+              >
+                Open conversation
+              </Link>
+            </DropdownMenu.Item>
+            {canCancel ? (
+              <DropdownMenu.Item
+                onSelect={() => {
+                  setError(null);
+                  setOpen(true);
+                }}
+                className="cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium text-destructive outline-none hover:bg-destructive/10 data-[highlighted]:bg-destructive/10"
+              >
+                Cancel case
+              </DropdownMenu.Item>
+            ) : (
+              <div className="px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                This case is {STATUS_LABEL[status].toLowerCase()} — it cannot be cancelled.
+              </div>
+            )}
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
 
-/** Generic status/urgency/property/contractor filter select, replacing the
- * old one-off UrgencyDropdown now that the filter row has three of these. */
-function FilterDropdown<T extends string>({
-  value,
-  onChange,
-  allLabel,
-  options,
-}: {
-  value: T | "ALL";
-  onChange: (v: T | "ALL") => void;
-  allLabel: string;
-  options: Array<{ value: T; label: string }>;
-}) {
-  return (
-    <label className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent">
-      {/* appearance-none drops the browser's own arrow so only the
-       * ChevronDown below renders -- without it the native select arrow
-       * and this icon would both show. */}
-      <select
-        className="max-w-[160px] truncate appearance-none bg-transparent outline-none"
-        value={value}
-        onChange={(e) => onChange(e.target.value as T | "ALL")}
-      >
-        <option value="ALL">{allLabel}</option>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-    </label>
+      <Dialog.Root open={open} onOpenChange={setOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-foreground/25 backdrop-blur-[1px]" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(26rem,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-card p-5 shadow-panel">
+            <Dialog.Title className="text-sm font-semibold">Cancel ticket #{caseNumber}</Dialog.Title>
+            <Dialog.Description className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Closes the case without a repair outcome. The case and its history stay readable —
+              nothing is deleted.
+            </Dialog.Description>
+            <label className="mt-4 block">
+              <span className="text-xs font-medium">
+                Reason<span className="text-destructive"> *</span>
+              </span>
+              <textarea
+                rows={3}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Recorded on the case timeline."
+                className="mt-1 w-full resize-y rounded-lg border border-border bg-background px-2.5 py-2 text-xs outline-none focus:ring-2 focus:ring-ring"
+              />
+            </label>
+            {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
+            <div className="mt-4 flex justify-end gap-2">
+              <Dialog.Close asChild>
+                <Button variant="ghost" size="sm" disabled={cancel.isPending}>
+                  Keep open
+                </Button>
+              </Dialog.Close>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={cancel.isPending || !reason.trim()}
+                title={reason.trim() ? undefined : "A reason is required"}
+                onClick={() => void submit()}
+              >
+                {cancel.isPending ? "Cancelling…" : "Cancel case"}
+              </Button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </>
   );
 }

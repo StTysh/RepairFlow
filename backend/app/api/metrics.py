@@ -21,8 +21,17 @@ router = APIRouter(prefix="/api/v1/metrics", dependencies=[Depends(require_opera
 
 @router.get("/dashboard")
 async def dashboard_metrics(session: AsyncSession = Depends(get_session)) -> DashboardMetricsResponse:
+    # Operational figures only. Cases carrying an archive_batch_id are
+    # synthetic sample history imported for charts; counting them here
+    # would put fictional work on the operator's dashboard, which is
+    # exactly what an empty-but-honest workspace is supposed to avoid.
+    operational = RepairCaseModel.archive_batch_id.is_(None)
     status_rows = (
-        await session.execute(select(RepairCaseModel.status, func.count()).group_by(RepairCaseModel.status))
+        await session.execute(
+            select(RepairCaseModel.status, func.count())
+            .where(operational)
+            .group_by(RepairCaseModel.status)
+        )
     ).all()
     counts: dict[str, int] = {status.value: 0 for status in CaseStatus}
     for status, count in status_rows:
@@ -32,8 +41,12 @@ async def dashboard_metrics(session: AsyncSession = Depends(get_session)) -> Das
     week_ago = datetime.now(timezone.utc) - timedelta(days=7)
     resolved_this_week = (
         await session.execute(
-            select(func.count(func.distinct(CaseEventModel.case_id))).where(
-                CaseEventModel.type == "CASE_RESOLVED", CaseEventModel.occurred_at >= week_ago,
+            select(func.count(func.distinct(CaseEventModel.case_id)))
+            .join(RepairCaseModel, RepairCaseModel.id == CaseEventModel.case_id)
+            .where(
+                CaseEventModel.type == "CASE_RESOLVED",
+                CaseEventModel.occurred_at >= week_ago,
+                operational,
             )
         )
     ).scalar_one()

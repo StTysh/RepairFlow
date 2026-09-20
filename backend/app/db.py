@@ -67,12 +67,58 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
             raise
 
 
+def _add_missing_columns(conn) -> list[str]:
+    """Bring an existing SQLite file up to the current model definitions.
+
+    `Base.metadata.create_all` creates missing *tables* but never touches a
+    table that already exists, so a column added to a model after a
+    database was first created is silently absent until every query that
+    mentions it fails. Alembic revisions are kept in `alembic/versions/`
+    for the record, but the running application has always bootstrapped
+    itself with create_all -- this closes the gap between the two rather
+    than requiring an out-of-band migration step before the app will boot.
+
+    Only ever ADDs nullable/defaulted columns, which is the one schema
+    change SQLite performs in place and the only one that cannot lose
+    data. Anything destructive (drop, retype, rename) is deliberately not
+    handled here and belongs in a reviewed Alembic revision.
+    """
+    from sqlalchemy import inspect as sa_inspect
+
+    inspector = sa_inspect(conn)
+    existing_tables = set(inspector.get_table_names())
+    applied: list[str] = []
+
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue
+        present = {c["name"] for c in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name in present:
+                continue
+            if not column.nullable and column.default is None and column.server_default is None:
+                # Adding a NOT NULL column with no default to a populated
+                # table cannot succeed; surface it instead of half-applying.
+                raise RuntimeError(
+                    f"cannot auto-add non-nullable column {table.name}.{column.name} "
+                    "without a default -- write an Alembic revision for it"
+                )
+            ddl_type = column.type.compile(dialect=conn.dialect)
+            conn.exec_driver_sql(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {ddl_type}')
+            applied.append(f"{table.name}.{column.name}")
+
+    return applied
+
+
 async def create_all() -> None:
     from app import models  # noqa: F401  ensure models are registered
 
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        added = await conn.run_sync(_add_missing_columns)
+    if added:
+        print(f"Schema: added {len(added)} missing column(s): {', '.join(added)}")
 
 
 async def dispose_engine() -> None:

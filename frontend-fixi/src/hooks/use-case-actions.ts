@@ -4,17 +4,15 @@ import {
   cancelAppointment,
   cancelCase,
   decideActionApproval,
-  deleteCase,
   reopenCase,
-  replayCase,
   resumeCase,
-  submitSimulationObservation,
+  submitFieldUpdate,
 } from "@/api/endpoints";
 import type {
   CancelCaseRequest,
+  FieldUpdateRequest,
   ReopenCaseRequest,
   ResumeCaseRequest,
-  SimulationObservationRequest,
 } from "@/api/types";
 import { caseDetailQueryKey } from "@/hooks/use-case-detail";
 import { useAuthedCreds } from "@/lib/auth-context";
@@ -74,35 +72,7 @@ export function useCancelCase(caseId: string) {
   });
 }
 
-/** Demo-only: permanently removes this ticket. Unlike the other lifecycle
- * actions, there's no case-detail query left to invalidate afterward (the
- * ticket is gone) -- the caller is responsible for navigating away. */
-export function useDeleteCase(caseId: string) {
-  const creds = useAuthedCreds();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: () => deleteCase(creds, caseId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["cases"] });
-      void queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
-      toast.success("Ticket deleted");
-    },
-    onError: (error: Error) => toast.error(`Could not delete ticket: ${error.message}`),
-  });
-}
 
-export function useReplayCase(caseId: string) {
-  const creds = useAuthedCreds();
-  const invalidate = useInvalidateAfterAction(caseId);
-  return useMutation({
-    mutationFn: () => replayCase(creds, caseId),
-    onSuccess: () => {
-      invalidate();
-      toast.success("Replaying from scratch — the coordinator is re-triaging now");
-    },
-    onError: (error: Error) => toast.error(`Could not replay case: ${error.message}`),
-  });
-}
 
 /** Approve/reject one ActionRecord that's sitting in AWAITING_APPROVAL --
  * see api/endpoints.ts's decideActionApproval and DecisionCard.tsx, which
@@ -151,21 +121,22 @@ export function useCancelAppointment(caseId: string) {
   });
 }
 
-/** Demo-only: feeds in a manually-simulated contractor report / tenant
- * feedback / attendance-window-ended observation -- the operator's stand-in
- * for a real phone call, since there's no live contractor/tenant channel in
- * this MVP. See api/endpoints.ts's submitSimulationObservation and
- * SimulateObservationDialog.tsx, the only caller. */
-export function useSubmitSimulationObservation(caseId: string) {
+/** Record what a contractor or tenant actually told the operator.
+ *
+ * Replaces the retired "simulate an observation" demo mutation. Same
+ * domain services underneath; the difference is that this records a real
+ * report relayed by a named person at a recorded time, rather than
+ * asserting a fictional event. See api/endpoints.ts's submitFieldUpdate
+ * and RecordFieldUpdateDialog.tsx. */
+export function useSubmitFieldUpdate(caseId: string) {
   const creds = useAuthedCreds();
   const invalidate = useInvalidateAfterAction(caseId);
   return useMutation({
-    mutationFn: (body: SimulationObservationRequest) =>
-      submitSimulationObservation(creds, caseId, body),
+    mutationFn: (body: FieldUpdateRequest) => submitFieldUpdate(creds, caseId, body),
     onSuccess: () => {
       invalidate();
-      toast.success("Simulated observation recorded");
+      toast.success("Update recorded on the case");
     },
-    onError: (error: Error) => toast.error(`Could not record observation: ${error.message}`),
+    onError: (error: Error) => toast.error(`Could not record that update: ${error.message}`),
   });
 }
