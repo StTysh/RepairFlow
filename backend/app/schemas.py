@@ -1329,11 +1329,23 @@ class PropertyHistoryItem(StrictModel):
     # scaffold/access prerequisite); if several qualify, or none do, take
     # the first work order created. See services._pick_primary_trade.
     trade: Trade | None = None
+    # Whether this row is an archival sample case rather than real work.
+    # Without it the list is indistinguishable from real history, which
+    # is the whole reason the parent response now discloses the mix.
+    is_archived: bool = False
 
 
 class PropertyHistoryResponse(StrictModel):
     property_id: UUID
     items: list[PropertyHistoryItem]
+    # Archival sample cases used to be blended into a real property's
+    # history with nothing on the wire saying so. The mixing is wanted --
+    # it is most of what makes a property history worth reading -- but a
+    # reader has to be able to tell. Insights and Reports already
+    # disclose exactly this pair; these two make the property screens
+    # consistent with them.
+    includes_archived_history: bool = True
+    archived_case_count: int = 0
 
 
 class TradeQuoteBreakdown(StrictModel):
@@ -1364,6 +1376,10 @@ class PropertyStatsResponse(StrictModel):
     (documented, judgment-call) computation of each derived field."""
 
     property_id: UUID
+    # See PropertyHistoryResponse: which cases these figures were computed
+    # over, and how many of them were archival.
+    includes_archived_history: bool = True
+    archived_case_count: int = 0
     # Count of cases currently in CaseStatus.ACTIVE for this property -- the
     # same strict reading of "active" DashboardMetricsResponse uses (not a
     # broader "still open" definition spanning AWAITING_CONFIRMATION/

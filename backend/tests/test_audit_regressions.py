@@ -1150,3 +1150,234 @@ def test_settings_do_not_read_the_developer_dotenv():
     assert Settings.model_config.get("env_file") is None, (
         "tests must not inherit backend/.env; see conftest._ignore_developer_dotenv"
     )
+
+
+# --------------------------------------------------------------------------
+# 18. docs/19's vulnerability rule, and archival disclosure on the property
+#     screens (app/domain/policy.py, app/analytics.py, app/api/cases.py)
+# --------------------------------------------------------------------------
+
+
+def test_vulnerability_concern_forces_a_reviewed_plan_before_booking():
+    """docs/19 permits automatic booking for a vulnerability or
+    accessibility concern "only with explicit reviewed plan".
+    `vulnerability_concern` was collected at intake, stored on the case
+    and shown in the UI, but no policy function read it -- so a case
+    flagged as involving a vulnerable occupant auto-booked on exactly
+    the same rules as any other. It must require approval even when the
+    work order is ordinary and priced well inside authority."""
+    from app.domain import policy
+    from app.schemas import Answer, RiskAssessment, WorkOrderKind
+
+    cheap_and_ordinary = dict(kind=WorkOrderKind.REPAIR, quote_pence=1_000, limit_pence=50_000)
+
+    no_concern = RiskAssessment(vulnerability_concern=Answer.NO)
+    assert policy.work_order_requires_approval_to_schedule(**cheap_and_ordinary, risk=no_concern) is False
+
+    concern = RiskAssessment(vulnerability_concern=Answer.YES)
+    assert policy.work_order_requires_approval_to_schedule(**cheap_and_ordinary, risk=concern) is True
+    assert policy.vulnerability_requires_reviewed_plan(concern) is True
+
+    # It must NOT be folded into the hazard gate: a hazard freezes the
+    # case before any model call, which would strand a repair that still
+    # needs doing. Approval is the right instrument, not escalation.
+    assert policy.is_hazard(concern) is False
+
+
+@pytest.mark.asyncio
+async def test_schedule_visit_approval_reads_the_case_risk(app_db):
+    """The gate above is only worth anything if the executor actually
+    hands it the case's risk -- the work order alone cannot know."""
+    from app.orchestration.executor import _needs_approval
+    from app.schemas import Answer, RiskAssessment, ScheduleVisit, Trade, WorkOrderKind
+
+    property_id, tenant_id = await _seed_property_tenant()
+    risk = RiskAssessment(vulnerability_concern=Answer.YES).model_dump(mode="json")
+    case_id = await _seed_bare_case(property_id, tenant_id, risk=risk)
+    work_order_id, issue_id = uid(), uid()
+    async with session_scope() as session:
+        session.add(RepairIssueModel(id=issue_id, case_id=case_id, description="Leak", location="Bathroom"))
+        await session.flush()
+        session.add(
+            WorkOrderModel(
+                id=work_order_id, case_id=case_id, issue_id=issue_id, kind=WorkOrderKind.REPAIR.value,
+                trade=Trade.PLUMBING.value, scope="Fix the leak", status="READY",
+                required_for_resolution=True, quote_pence=1_000, approved_limit_pence=50_000,
+            )
+        )
+    action = ScheduleVisit(
+        work_order_id=uuid.UUID(work_order_id), contractor_id=uuid.uuid4(),
+        slot_id="slot-1", tenant_availability_ids=[],
+    )
+    async with session_scope() as session:
+        assert await _needs_approval(session, action) is True, (
+            "a visit to a vulnerable occupant must not auto-book, even when cheap and ordinary"
+        )
+
+
+@pytest.mark.asyncio
+async def test_property_history_and_stats_disclose_their_archival_mix(app_db):
+    """Both screens blend archival sample cases into a real property's
+    history and totals. That blending is wanted -- it is most of what
+    makes the page worth reading -- but nothing on the wire said so, and
+    there was no way to ask for real work only. An honest number that
+    looks invented is worth as little as an invented one."""
+    property_id, tenant_id = await _seed_property_tenant()
+    batch_id = uid()
+    async with session_scope() as session:
+        session.add(
+            ArchiveBatchModel(id=batch_id, label=f"prop-{batch_id}", generator_version="test", random_seed=1)
+        )
+    await _seed_bare_case(property_id, tenant_id)
+    await _seed_bare_case(property_id, tenant_id, archive_batch_id=batch_id)
+
+    async with await _client() as client:
+        mixed = await client.get(f"/api/v1/properties/{property_id}/history", auth=AUTH)
+        real_only = await client.get(
+            f"/api/v1/properties/{property_id}/history",
+            params={"include_archived": "false"}, auth=AUTH,
+        )
+        stats_mixed = await client.get(f"/api/v1/properties/{property_id}/stats", auth=AUTH)
+        stats_real = await client.get(
+            f"/api/v1/properties/{property_id}/stats",
+            params={"include_archived": "false"}, auth=AUTH,
+        )
+    assert mixed.status_code == 200 and real_only.status_code == 200
+    assert stats_mixed.status_code == 200 and stats_real.status_code == 200
+
+    body = mixed.json()
+    assert body["includes_archived_history"] is True
+    assert body["archived_case_count"] == 1, "the response must say how much of this is sample data"
+    assert len(body["items"]) == 2
+    assert sum(1 for i in body["items"] if i["is_archived"]) == 1, "each row must say which it is"
+
+    real_body = real_only.json()
+    assert real_body["includes_archived_history"] is False
+    assert real_body["archived_case_count"] == 0
+    assert len(real_body["items"]) == 1
+    assert all(i["is_archived"] is False for i in real_body["items"])
+
+    assert stats_mixed.json()["total_count"] == 2
+    assert stats_mixed.json()["archived_case_count"] == 1
+    assert stats_real.json()["total_count"] == 1
+    assert stats_real.json()["archived_case_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_a_late_reopen_reports_the_latest_resolution_not_the_first(app_db):
+    """A case resolved quickly, reopened, and resolved again months later
+    must report the second close. Taking the first would report 48h
+    against a true 2,376h and quietly flatter every average that reads
+    it. `_terminal_event_at_by_case` takes MAX for exactly this reason;
+    nothing held it to that."""
+    from app import analytics
+
+    property_id, tenant_id = await _seed_property_tenant()
+    now = datetime.now(timezone.utc)
+    created = now - timedelta(hours=2376)
+    first_close = created + timedelta(hours=48)
+    case_id = await _seed_bare_case(property_id, tenant_id, status="RESOLVED")
+    async with session_scope() as session:
+        case = await session.get(RepairCaseModel, case_id)
+        case.created_at, case.updated_at = created, now
+        await session.flush()
+        for n, occurred in enumerate((first_close, now)):
+            session.add(
+                CaseEventModel(
+                    id=uid(), case_id=case_id, type="CASE_RESOLVED", occurred_at=occurred, seq=n + 1,
+                    source_event_key=f"resolved:{case_id}:{n}", correlation_id=uid(),
+                    payload={}, actor_type="SYSTEM", actor_id="reopen-test",
+                )
+            )
+
+    async with session_scope() as session:
+        lookup = await analytics._terminal_event_at_by_case(session, [case_id])
+    hours = analytics.resolution_hours(
+        analytics.ResolutionInputs(
+            case_id=case_id, created_at=created, archive_batch_id=None,
+            archived_closed_at=None, terminal_event_at=lookup.get(case_id), updated_at=now,
+        )
+    )
+    assert hours == pytest.approx(2376.0, abs=1.0), f"reported {hours}h; the stale first close would be 48h"
+
+
+# --------------------------------------------------------------------------
+# 19. Intake idempotency and job retention
+#     (app/api/cases.py, app/orchestration/worker.py)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_double_submitted_intake_creates_one_case(app_db):
+    """A double-clicked New Ticket form used to create two real cases for
+    one report. `services.submit_intake` was always idempotent per
+    communication, but the endpoint minted a fresh communication every
+    call, so nothing could ever match. An Idempotency-Key now pins it."""
+    property_id, tenant_id = await _seed_property_tenant()
+    payload = {
+        "property_id": property_id, "tenant_id": tenant_id,
+        "description": "Water coming through the bedroom ceiling",
+        "location": "Bedroom", "source_text": "caller said it started last night",
+        "safety_answers": {},
+    }
+    headers = {"Idempotency-Key": "new-ticket-form-abc123"}
+    async with await _client() as client:
+        first = await client.post("/api/v1/cases", json=payload, headers=headers, auth=AUTH)
+        second = await client.post("/api/v1/cases", json=payload, headers=headers, auth=AUTH)
+        # A different key is a genuinely separate report and must not merge.
+        third = await client.post(
+            "/api/v1/cases", json=payload, headers={"Idempotency-Key": "a-different-report"}, auth=AUTH
+        )
+    assert first.status_code == 201, first.text
+    assert second.status_code == 200, "a repeat must not report itself as a fresh creation"
+    assert second.json()["case_id"] == first.json()["case_id"], "a retry must return the original case"
+    assert second.json()["result"]["status"] == "NOOP"
+    assert third.status_code == 201
+    assert third.json()["case_id"] != first.json()["case_id"]
+
+    async with session_scope() as session:
+        total = (
+            await session.execute(
+                select(func.count()).select_from(RepairCaseModel).where(RepairCaseModel.property_id == property_id)
+            )
+        ).scalar_one()
+    assert total == 2, f"two distinct reports, three requests, expected 2 cases; got {total}"
+
+
+@pytest.mark.asyncio
+async def test_finished_jobs_are_purged_but_unfinished_ones_are_kept(app_db):
+    """Nothing ever deleted a finished job. The real database holds 5,618
+    rows for 14 cases -- 5,601 of them DONE FETCH_RECORDING attempts from
+    two calls whose provider lookup failed. Bounding the sweep caps the
+    rate; only retention bounds the table."""
+    from app.orchestration.worker import purge_finished_jobs
+
+    property_id, tenant_id = await _seed_property_tenant()
+    case_id = await _seed_bare_case(property_id, tenant_id)
+    old = datetime.now(timezone.utc) - timedelta(days=30)
+    recent = datetime.now(timezone.utc)
+    async with session_scope() as session:
+        for n in range(5):
+            session.add(JobModel(
+                id=uid(), case_id=case_id, kind="FETCH_RECORDING", dedupe_key=f"old-done:{n}",
+                payload={}, run_at=old, status="DONE", attempts=1,
+            ))
+        session.add(JobModel(id=uid(), case_id=case_id, kind="FETCH_RECORDING", dedupe_key="old-failed",
+                             payload={}, run_at=old, status="FAILED", attempts=3))
+        session.add(JobModel(id=uid(), case_id=case_id, kind="COORDINATE", dedupe_key="old-pending",
+                             payload={}, run_at=old, status="PENDING", attempts=0))
+        session.add(JobModel(id=uid(), case_id=case_id, kind="COORDINATE", dedupe_key="recent-done",
+                             payload={}, run_at=recent, status="DONE", attempts=1))
+
+    removed = await purge_finished_jobs(older_than_hours=24 * 7)
+    assert removed == 5, f"expected the five stale DONE rows to go, removed {removed}"
+
+    async with session_scope() as session:
+        remaining = {
+            (j.dedupe_key, j.status)
+            for j in (await session.execute(select(JobModel).where(JobModel.case_id == case_id))).scalars()
+        }
+    assert ("old-failed", "FAILED") in remaining, "a FAILED job is evidence; it must survive"
+    assert ("old-pending", "PENDING") in remaining, "unfinished work must never be purged"
+    assert ("recent-done", "DONE") in remaining, "a job inside the retention window must survive"
+    assert len(remaining) == 3

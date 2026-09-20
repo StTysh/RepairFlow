@@ -1,5 +1,9 @@
 # Implement RepairFlow from this specification
 
+> **Executed (2026-09-20).** This prompt has been run: the repository now
+> contains a working implementation, not just the specification described
+> below. Kept as the historical prompt that drove the original build.
+
 You are the technical lead and coding agent implementing the one-day RepairFlow hackathon MVP. This repository was deliberately produced as a researched architectural specification, with no application implementation. The architecture was reviewed before this prompt was written.
 
 Your task now is to implement the specified working demonstration. Do not repeat the research phase indefinitely, invent integrations, or replace the product with a chatbot.

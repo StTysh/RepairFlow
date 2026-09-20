@@ -1028,7 +1028,9 @@ async def case_detail_rows(
 # --------------------------------------------------------------------------
 
 
-async def property_history_items(session: AsyncSession, property_id: str) -> list["PropertyHistoryItem"]:
+async def property_history_items(
+    session: AsyncSession, property_id: str, *, include_archived: bool = True
+) -> list["PropertyHistoryItem"]:
     """Property History screen: past (and current) cases for a property,
     each with an honest `outcome` when one is grounded in real data --
     never a fabricated summary. `contractor_name`/`trade` reuse the exact
@@ -1040,13 +1042,24 @@ async def property_history_items(session: AsyncSession, property_id: str) -> lis
     see this module's docstring for why a case-level, work-order-less
     QUOTE entry is excluded here (keeps this page's own chart/table
     mutually consistent; not currently reachable with real data).
+
+    `include_archived` defaults to True because that is what this screen
+    has always shown and the archival dataset is most of what makes a
+    property history worth looking at. The caller now has to opt out
+    deliberately -- and, more importantly, the response says which it
+    got. Silently blending archival sample cases into a real property's
+    history with no field admitting it was the actual defect here; the
+    mixing itself is wanted.
     """
     from app.models import ContractorReportModel
     from app.schemas import PropertyHistoryItem
 
+    history_filter = [RepairCaseModel.property_id == property_id]
+    if not include_archived:
+        history_filter.append(RepairCaseModel.archive_batch_id.is_(None))
     cases = (
         await session.execute(
-            select(RepairCaseModel).where(RepairCaseModel.property_id == property_id)
+            select(RepairCaseModel).where(*history_filter)
             .order_by(RepairCaseModel.created_at.desc())
         )
     ).scalars().all()
@@ -1101,13 +1114,14 @@ async def property_history_items(session: AsyncSession, property_id: str) -> lis
                 contractor_name=contractor.display_name if contractor else None,
                 quoted_pence=quoted_by_case.get(case.id) if case.id in priced_case_ids else None,
                 trade=services._pick_primary_trade(work_orders_by_case.get(case.id, [])),
+                is_archived=case.archive_batch_id is not None,
             )
         )
     return items
 
 
 async def property_stats(
-    session: AsyncSession, property_id: str, build_year: int | None
+    session: AsyncSession, property_id: str, build_year: int | None, *, include_archived: bool = True
 ) -> "PropertyStatsResponse":
     """Property Stats screen: "breakdown by trade" / "annual quoted total"
     / "recurring issues". `quoted_by_trade`/`quoted_by_year` both come from
@@ -1128,13 +1142,21 @@ async def property_stats(
     services._pick_primary_trade, and report any trade with 2+ cases,
     most-recently-occurring first. "Occurred" is a case's created_at (when
     the issue was first reported), not its resolution date.
+
+    `include_archived` defaults to True, matching what this screen has
+    always shown. The response now reports which it got and how many
+    archival cases went into it -- these figures used to blend archival
+    sample cases into a real property's totals with nothing on the wire
+    admitting it, which made an honest number look invented.
     """
     from app.schemas import PropertyStatsResponse, RecurringIssue, TradeQuoteBreakdown, YearlyQuoteTotal
 
-    cases = (
-        await session.execute(select(RepairCaseModel).where(RepairCaseModel.property_id == property_id))
-    ).scalars().all()
+    stats_filter = [RepairCaseModel.property_id == property_id]
+    if not include_archived:
+        stats_filter.append(RepairCaseModel.archive_batch_id.is_(None))
+    cases = (await session.execute(select(RepairCaseModel).where(*stats_filter))).scalars().all()
     case_ids = [c.id for c in cases]
+    archived_case_count = sum(1 for c in cases if c.archive_batch_id is not None)
     cases_by_id = {c.id: c for c in cases}
     active_count = sum(1 for c in cases if c.status == CaseStatus.ACTIVE)
     total_count = len(cases)
@@ -1181,6 +1203,7 @@ async def property_stats(
         property_id=property_id, active_count=active_count, total_count=total_count,
         quoted_by_trade=quoted_by_trade, quoted_by_year=quoted_by_year,
         recurring_issues=recurring_issues, build_year=build_year,
+        includes_archived_history=include_archived, archived_case_count=archived_case_count,
     )
 
 

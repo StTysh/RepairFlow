@@ -1,5 +1,12 @@
 # 21 — Sequential implementation plan
 
+> **Superseded (2026-09-20).** This phase-by-phase build order has been
+> fully executed: every phase below was implemented, and the application
+> has since gone through a further migration and a twelve-part audit
+> sweep beyond what this plan describes. Read `docs/APPLICATION_STATE.md`
+> for what was actually built and what is left to fix. This file is kept
+> as a record of the original build sequencing.
+
 This plan begins **after** this documentation phase. Budget: **455 minutes (7h35) engineering**, leaving time for lunch, rule checks, rehearsal and failures in the event's daytime window. It is ambitious for one engineer; the hard cuts in 04 are essential. The full production concept cannot be built in one day.
 
 Do not start with telephony or a polished dashboard. The first demonstrable result is a persisted report-driven dependency loop with fixtures; replace the semantic and voice boundaries with real providers next. Every phase keeps that path runnable.

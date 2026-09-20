@@ -10,6 +10,7 @@ import logging
 import traceback
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -244,11 +245,46 @@ async def drain_due_jobs(
     return count
 
 
+# How long a finished job stays on the queue table, and how often the
+# worker looks. Finished jobs were never deleted at all: the real
+# database accumulated 5,618 rows for 14 cases, 5,601 of them DONE
+# FETCH_RECORDING attempts from two calls whose provider lookup failed.
+# The sweep that produced them is bounded now, but "bounded" only caps
+# the rate -- without retention the table still grows without limit for
+# as long as the process runs, and anyone opening the database to
+# understand what happened has to read past thousands of dead rows to
+# find the handful that matter.
+JOB_RETENTION_HOURS = 24 * 7
+JOB_RETENTION_SWEEP_INTERVAL_SECONDS = 3600
+
+
+async def purge_finished_jobs(*, older_than_hours: int = JOB_RETENTION_HOURS) -> int:
+    """Deletes DONE jobs past the retention window. Returns how many.
+
+    Only DONE. A FAILED job is evidence of something that went wrong and
+    is worth keeping until someone has looked at it; PENDING and RUNNING
+    are live work. Deleting a terminal success loses nothing that the
+    CaseEvent stream -- the actual audit record -- does not already
+    hold, which is why the queue table is safe to trim and the event log
+    is not.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=older_than_hours)
+    async with session_scope() as session:
+        result = await session.execute(
+            sa_delete(JobModel).where(JobModel.status == "DONE", JobModel.run_at < cutoff)
+        )
+    removed = result.rowcount or 0
+    if removed:
+        logger.info("purged %s finished job(s) older than %sh", removed, older_than_hours)
+    return removed
+
+
 async def run_worker_loop(
     coordinator: Coordinator, *, stop_event: asyncio.Event, elevenlabs_configured: bool = False,
     research_adapter=None, poll_interval: float = 0.75,
 ) -> None:
     last_sweep = 0.0
+    last_retention_sweep = 0.0
     consecutive_failures = 0
     while not stop_event.is_set():
         # Everything below is inside the guard on purpose. `process_one_job`
@@ -270,6 +306,11 @@ async def run_worker_loop(
             if elevenlabs_configured and loop_time - last_sweep >= RECONCILE_SWEEP_INTERVAL_SECONDS:
                 await sweep_stale_live_calls()
                 last_sweep = loop_time
+            # Unconditional, unlike the reconciliation sweep: every job
+            # kind leaves DONE rows behind, not just recording fetches.
+            if loop_time - last_retention_sweep >= JOB_RETENTION_SWEEP_INTERVAL_SECONDS:
+                await purge_finished_jobs()
+                last_retention_sweep = loop_time
             consecutive_failures = 0
         except asyncio.CancelledError:
             raise

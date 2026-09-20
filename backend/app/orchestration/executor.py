@@ -34,6 +34,7 @@ from app.models import (
     AppointmentModel,
     ContractorCandidateModel,
     ContractorReportModel,
+    RepairCaseModel,
     ResearchSnapshotModel,
     WorkOrderModel,
     new_uuid,
@@ -56,6 +57,7 @@ from app.schemas import (
     RequestConfirmation,
     RequestInformation,
     ResolveCase,
+    RiskAssessment,
     ScheduleVisit,
     ToolError,
     ToolErrorCode,
@@ -139,7 +141,14 @@ async def _needs_approval(session: AsyncSession, action: NextAction) -> bool:
         wo = await session.get(WorkOrderModel, str(action.work_order_id))
         if wo is None:
             return True
-        return policy.work_order_requires_approval_to_schedule(wo.kind, wo.quote_pence, wo.approved_limit_pence)
+        # The case's risk assessment, not just the work order: docs/19
+        # requires a reviewed plan before booking a visit to a
+        # vulnerable occupant, and that fact lives on the case.
+        case = await session.get(RepairCaseModel, wo.case_id)
+        risk = RiskAssessment.model_validate(case.risk) if case is not None else None
+        return policy.work_order_requires_approval_to_schedule(
+            wo.kind, wo.quote_pence, wo.approved_limit_pence, risk
+        )
     if isinstance(action, AcceptReport):
         if action.outcome != "COMPLETED":
             return False

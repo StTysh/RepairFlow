@@ -45,9 +45,41 @@ def has_unknown_critical_safety_fact(risk: RiskAssessment) -> bool:
     )
 
 
-def work_order_requires_approval_to_schedule(kind: WorkOrderKind, quote_pence: int | None, limit_pence: int | None) -> bool:
+def vulnerability_requires_reviewed_plan(risk: RiskAssessment) -> bool:
+    """docs/19: a vulnerability or accessibility concern affecting safety or
+    contact permits automatic booking "only with explicit reviewed plan".
+
+    This is deliberately *not* part of `is_hazard`. A hazard stops the
+    case dead and escalates before any model call; a vulnerability
+    concern must not do that, because the repair still needs doing and
+    freezing the case would help nobody. What docs/19 requires is that a
+    human sees the visit before it is committed -- which is exactly what
+    the approval gate already provides.
+
+    `vulnerability_concern` was collected at intake, stored on the case
+    and rendered in the UI, but no policy function read it, so the
+    docs/19 row was unenforced: a case flagged as involving a vulnerable
+    occupant auto-booked on the same rules as any other.
+    """
+    return risk.vulnerability_concern == Answer.YES
+
+
+def work_order_requires_approval_to_schedule(
+    kind: WorkOrderKind,
+    quote_pence: int | None,
+    limit_pence: int | None,
+    risk: RiskAssessment | None = None,
+) -> bool:
     """docs/10: "Seeded ordinary mock repair within explicit demo authority can
-    auto-book; all scaffolding and real commitments need approval."""
+    auto-book; all scaffolding and real commitments need approval."
+    docs/19 adds: and anything touching a vulnerable occupant.
+
+    `risk` is optional so existing callers that genuinely have no case
+    context keep working, but the executor always passes it -- an
+    omitted risk must never be read as "no concern".
+    """
+    if risk is not None and vulnerability_requires_reviewed_plan(risk):
+        return True
     if kind in (WorkOrderKind.SCAFFOLD_INSTALL, WorkOrderKind.SCAFFOLD_REMOVE):
         return True
     if quote_pence is None or limit_pence is None:

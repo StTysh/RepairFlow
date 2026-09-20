@@ -1,5 +1,11 @@
 # Fixi UI Specification for Frontend–Backend Integration
 
+> **Superseded (2026-09-20).** This describes the pre-migration Fixi UI
+> mockups, kept here as provenance for what the frontend was designed
+> against — it is not a spec of the running application. Read
+> `docs/APPLICATION_STATE.md` for the current UI reality and
+> `frontend-fixi/` for what is actually built.
+
 ## Purpose
 
 This document describes the **complete information architecture, visible data, buttons, tabs, statuses, actions, and navigation represented in the current Fixi UI mockups**.

@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +41,7 @@ from app.schemas import (
     CaseRunsResponse,
     CaseStatus,
     CaseVersionResponse,
+    CommandResult,
     CommandResultStatus,
     Communication,
     IntakeResponse,
@@ -220,6 +221,11 @@ async def submit_intake_endpoint(submission: IntakeSubmission, response: Respons
     return IntakeResponse(case_id=case_id, communication_id=submission.communication_id, result=result)
 
 
+# Fixed namespace so an Idempotency-Key maps to the same communication id
+# on every call, in every process, for the lifetime of the database.
+_INTAKE_IDEMPOTENCY_NAMESPACE = uuid.UUID("6f3d1a52-6e1c-4a1e-9f3f-7a5f2b0c9d11")
+
+
 class OperatorIntakeRequest(BaseModel):
     """An operator typing a reported repair into the New Ticket form.
 
@@ -249,6 +255,7 @@ async def create_case_from_operator_intake(
     response: Response,
     session: AsyncSession = Depends(get_session),
     operator: str = Depends(require_operator),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> IntakeResponse:
     """Create a case from an operator-recorded report.
 
@@ -258,6 +265,22 @@ async def create_case_from_operator_intake(
     operator was holding, so the row is marked as an operator-recorded
     intake with LIVE provenance -- this genuinely happened, it simply was
     not carried by a provider. Nothing about it is simulated.
+
+    **Idempotency.** `services.submit_intake` has always been idempotent
+    per *communication*: hand it one whose `case_id` is already bound and
+    it returns that case as a NOOP. The gap was here -- this endpoint
+    minted a fresh communication on every call, so a double-submitted
+    form (impatient click, retried request, flaky connection) produced
+    two real cases for one report. An optional `Idempotency-Key` header
+    now derives the communication id deterministically, which routes a
+    repeat into that existing NOOP path instead of adding a table or a
+    second dedupe mechanism. The key is namespaced by operator so two
+    people cannot collide on a generic value like "1".
+
+    Without the header the behaviour is unchanged, because a caller that
+    has not opted in cannot have its retries distinguished from two
+    genuinely separate reports of the same fault -- which do happen, and
+    must not be silently merged.
     """
     property_row = await session.get(PropertyModel, str(request.property_id))
     if property_row is None:
@@ -272,7 +295,19 @@ async def create_case_from_operator_intake(
     if tenant_row.property_id != property_row.id:
         raise ConflictError("that tenant does not live at the selected property")
 
-    comm_id = str(uuid.uuid4())
+    if idempotency_key is not None:
+        comm_id = str(uuid.uuid5(_INTAKE_IDEMPOTENCY_NAMESPACE, f"{operator}:{idempotency_key.strip()}"))
+        existing = await session.get(CommunicationModel, comm_id)
+        if existing is not None and existing.case_id is not None:
+            case_row = await services.load_case(session, existing.case_id)
+            response.status_code = 200
+            return IntakeResponse(
+                case_id=uuid.UUID(existing.case_id),
+                communication_id=uuid.UUID(comm_id),
+                result=CommandResult(status=CommandResultStatus.NOOP, case_version=case_row.version),
+            )
+    else:
+        comm_id = str(uuid.uuid4())
     session.add(
         CommunicationModel(
             id=comm_id,
@@ -648,7 +683,13 @@ async def get_upcoming_appointments(
 
 
 @router.get("/properties/{property_id}/history")
-async def get_property_history(property_id: str, session: AsyncSession = Depends(get_session)) -> PropertyHistoryResponse:
+async def get_property_history(
+    property_id: str,
+    include_archived: bool = Query(default=True),
+    session: AsyncSession = Depends(get_session),
+) -> PropertyHistoryResponse:
+    """Defaults to including archival sample cases, which is what this
+    screen has always shown. The response says which it did."""
     prop = await session.get(PropertyModel, property_id)
     if prop is None:
         raise NotFoundError(f"property {property_id} not found")
@@ -656,18 +697,26 @@ async def get_property_history(property_id: str, session: AsyncSession = Depends
     # the latter still sums WorkOrderModel.quote_pence directly and now
     # disagrees with Insights/Reports/CSV -- see analytics.py's "QUOTED
     # MONEY RECONCILIATION RULE" and docs/26 2026-09-20.
-    items = await analytics.property_history_items(session, property_id)
-    return PropertyHistoryResponse(property_id=property_id, items=items)
+    items = await analytics.property_history_items(session, property_id, include_archived=include_archived)
+    return PropertyHistoryResponse(
+        property_id=property_id, items=items,
+        includes_archived_history=include_archived,
+        archived_case_count=sum(1 for i in items if i.is_archived),
+    )
 
 
 @router.get("/properties/{property_id}/stats")
-async def get_property_stats(property_id: str, session: AsyncSession = Depends(get_session)) -> PropertyStatsResponse:
+async def get_property_stats(
+    property_id: str,
+    include_archived: bool = Query(default=True),
+    session: AsyncSession = Depends(get_session),
+) -> PropertyStatsResponse:
     prop = await session.get(PropertyModel, property_id)
     if prop is None:
         raise NotFoundError(f"property {property_id} not found")
     # analytics.property_stats, not services.load_property_stats -- see the
     # comment on get_property_history above.
-    return await analytics.property_stats(session, property_id, prop.build_year)
+    return await analytics.property_stats(session, property_id, prop.build_year, include_archived=include_archived)
 
 
 @router.get("/cases/{case_id}/messages")

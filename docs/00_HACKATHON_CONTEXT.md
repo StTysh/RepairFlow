@@ -1,5 +1,14 @@
 # 00 — Hackathon context and rule uncertainty
 
+> **Superseded (2026-09-20).** This researches the rules and provider
+> entitlements of a hackathon that ended on 19 September 2026. The event
+> is over, the demo it was researched for was delivered, and the project
+> has since been migrated into a general application; none of the
+> organizer-confirmation questions or eligibility uncertainty below are
+> still live concerns. Read `docs/APPLICATION_STATE.md` for what the
+> application actually is now. This file is kept as a record of the
+> pre-event research.
+
 Research date: 19 September 2026. Event date/location in the brief: London, 19 September 2026.
 
 ## Verified public facts

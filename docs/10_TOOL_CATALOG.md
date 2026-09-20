@@ -18,7 +18,7 @@ All fields below are required unless a default is shown. These extend, rather th
 
 | Model | Fields |
 |---|---|
-| CaseRef | `case_id` |
+| CaseRef | `case_id` (defined in schemas.py, currently unused by any registered tool or route) |
 | RecordRef | `case_id, record_id` |
 | ReadEvents | `case_id, after_seq=0, limit=50` with maximum 100 |
 | CaseSnapshot | `case, issue, work_orders, dependencies, appointments, latest_reports, communications, availability, approved_contractors, pending_actions, recent_events, policy_snapshot, snapshot_version` |
@@ -43,15 +43,45 @@ FactInput fields are limited to description, location, started_at, the six safet
 
 ## Model-visible read tools
 
+Verified 2026-09-20 against the actual `agent.tool(...)` registrations in
+`backend/app/agents/coordinator.py:57-61` and their implementations in
+`backend/app/agents/read_tools.py`. Exactly five tools are registered;
+this table lists no more and no fewer.
+
 | Name / purpose | Input → return | Side effect | Caller | Failure modes | Human approval |
 |---|---|---|---|---|---|
-| `get_case_snapshot` — current repair context | CaseRef → CaseSnapshot | None | Coordinator; API also uses service | NOT_FOUND, FORBIDDEN | No |
-| `read_report` — original contractor evidence | RecordRef → ContractorReport | None | Coordinator | Wrong case, missing report | No |
-| `read_communication` — caller words and normalized outcome | RecordRef → Communication without audio bytes/token | None | Coordinator | Wrong case, transcript pending | No |
-| `list_case_events` — bounded prior history | ReadEvents → list[CaseEvent] | None | Coordinator | Invalid cursor/scope | No |
-| `find_appointment_options` — intersect confirmed windows and connector slots | AppointmentQuery → AppointmentOptions | Connector read, trace only | Coordinator | Expired windows, provider unavailable, no intersection | No |
+| `read_report` — original contractor evidence | RecordRef → ContractorReport | None | Coordinator | Missing report, wrong case (`ModelRetry`) | No |
+| `read_communication` — caller words and normalized outcome | RecordRef → Communication with `recording.media_path` set to null (transcript and `correlation_token_hash` are returned as-is) | None | Coordinator | Missing communication, wrong case (`ModelRetry`) | No |
+| `list_case_events` — bounded prior history | ReadEvents → list[CaseEvent] | None | Coordinator | Wrong case (`ModelRetry`); `limit` over 100 rejected by schema validation before the call | No |
+| `find_appointment_options` — intersect confirmed windows and connector slots | AppointmentQuery → AppointmentOptions | Reads and, if absent, lazily materializes `MockSlotModel` rows for that contractor/trade (a real write in the tool's own session, not merely a trace) | Coordinator | Unknown work order (`ModelRetry`, self-correcting); empty result with `reason_if_empty` for no matching tenant-availability window or no intersecting slot — these are not errors | No |
+| `read_research` — completed contractor-discovery evidence | RecordRef → ContractorSearchResult | None | Coordinator | Missing research snapshot, wrong case (`ModelRetry`) | No |
 
-The initial snapshot is already supplied to the model. `get_case_snapshot` exists for API reuse but need not be registered if redundant. Tools always use `RunContext` to enforce the injected case scope. `get_tenant` and `get_property` are internal reads included in the snapshot, not additional model tools. Do not expose contact secrets or entire unrelated cases.
+Correction: an earlier revision of this table listed a `get_case_snapshot`
+tool (CaseRef → CaseSnapshot) that does not exist under that name anywhere
+in the code, and omitted `read_research`, which is registered
+(`coordinator.py:61`). The real API-reuse helper is
+`load_case_snapshot(session, case_id)` in
+`backend/app/domain/services.py:1510`; it is a plain internal async
+function, not a `CaseRef`-typed tool, and it is **not** registered on the
+agent (`construct_agent` in `coordinator.py:45-62` registers only the five
+tools above). It is called directly by `GET /cases/{case_id}` in
+`backend/app/api/cases.py:177` and by the dispatcher in
+`backend/app/orchestration/dispatcher.py:152` to build the very snapshot
+that becomes the model's prompt. The earlier claim that
+`find_appointment_options` performs only a read ("Connector read, trace
+only") was also wrong: `MockBookingConnector.list_slots` calls
+`_ensure_slots` (`backend/app/integrations/booking.py:36-63`), which
+inserts `MockSlotModel` rows the first time a contractor/trade/day
+combination is requested. That insert is committed, not just flushed:
+`find_appointment_options` reads and writes inside the same
+`session_scope()` (`backend/app/db.py:60-69`), which commits on a clean
+exit from the `async with` block. A nominally read-only, model-visible
+tool therefore does cause a persisted write — worth flagging against
+this document's own "Model-visible tools are scoped reads" rule
+(CLAUDE.md), even though the write is idempotent and internal (no
+provider or case-state effect).
+
+The initial snapshot is already supplied to the model as the run prompt; no read tool re-fetches it. Tools always use `RunContext` to enforce the injected case scope. `get_tenant` and `get_property` are internal reads included in the snapshot, not additional model tools. Do not expose contact secrets or entire unrelated cases.
 
 ## Ingress commands, outside the coordinator
 
