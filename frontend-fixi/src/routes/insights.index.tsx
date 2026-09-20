@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate, useRouterState, Link } from "@tanstack/re
 import { format, subMonths } from "date-fns";
 import { ChevronRight, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { readFlag, readParam } from "@/lib/search-params";
 import { AppShell, Card, PageContainer } from "@/components/fixi/AppShell";
 import { StatusBadge } from "@/components/fixi/Badge";
 import {
@@ -96,11 +97,11 @@ function InsightsPage() {
   const params = useMemo(() => new URLSearchParams(searchStr), [searchStr]);
   const filters: InsightsFilters = useMemo(
     () => ({
-      date_from: params.get("date_from") || monthsAgoStr(DEFAULT_MONTHS),
-      date_to: params.get("date_to") || todayStr(),
-      property_id: params.get("property_id") || undefined,
-      category: (params.get("category") as Trade | null) || undefined,
-      include_archived: params.get("include_archived") === "true",
+      date_from: readParam(params, "date_from") ?? monthsAgoStr(DEFAULT_MONTHS),
+      date_to: readParam(params, "date_to") ?? todayStr(),
+      property_id: readParam(params, "property_id"),
+      category: readParam(params, "category") as Trade | undefined,
+      include_archived: readFlag(params, "include_archived"),
     }),
     [params],
   );
@@ -201,8 +202,8 @@ function InsightsPage() {
       filters: { ...filters },
       bucket: {
         label: bucket.bucket,
-        minHours: bucket.min_hours ?? null,
-        maxHours: bucket.max_hours ?? null,
+        minHours: bucket.min_hours,
+        maxHours: bucket.max_hours,
       },
     });
   }
@@ -413,11 +414,14 @@ function DrilldownPanel({ drilldown, onClose }: { drilldown: Drilldown; onClose:
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">{drilldown.label}</h2>
+          {/* The API serves each bucket's real hour bounds, so this narrows
+           * to the bucket exactly. The fallback below still exists for a
+           * bucket whose bounds are somehow absent -- and says so, rather
+           * than quietly showing a wider set than the heading claims. */}
           {drilldown.bucket && !bucketKnown && (
             <p className="mt-0.5 text-[10.5px] text-muted-foreground">
-              The API doesn't yet report hour bounds for this bucket, so this shows every case in
-              the current filters rather than only this bucket (see
-              routes/NEEDS_FROM_ROOT_analytics.md).
+              Hour bounds are missing for this bucket, so this shows every case in the current
+              filters rather than only this bucket.
             </p>
           )}
         </div>

@@ -650,6 +650,14 @@ _RESOLUTION_BUCKETS: list[tuple[str, float, float | None]] = [
 ]
 
 
+def resolution_bucket_bounds() -> list[tuple[str, float, float | None]]:
+    """The bucket edges, in hours, so a caller can express "cases in this
+    bucket" as a real filter instead of re-deriving the boundaries from
+    the labels. Returning them beats publishing only labels and letting
+    the UI keep a second copy of this table that silently goes stale."""
+    return list(_RESOLUTION_BUCKETS)
+
+
 def _median(values: list[float]) -> float | None:
     if not values:
         return None

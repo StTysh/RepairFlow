@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { toast } from "sonner";
 import { request, type OperatorCredentials } from "@/api/client";
 import { useAuthedCreds } from "@/lib/auth-context";
+import { readFlag, readParam } from "@/lib/search-params";
 
 // This app's house pattern keeps wire types in src/api/types.ts and
 // fetchers in src/api/endpoints.ts -- but that file's `Message`/
@@ -126,9 +127,9 @@ export function useThreadListFilters(): [
     if (!searchStr) return EMPTY_FILTERS;
     const params = new URLSearchParams(searchStr);
     return {
-      q: params.get("q") ?? "",
-      unreadOnly: params.get("unread") === "1",
-      includeArchived: params.get("archived") === "1",
+      q: readParam(params, "q") ?? "",
+      unreadOnly: readFlag(params, "unread"),
+      includeArchived: readFlag(params, "archived"),
     };
   }, [searchStr]);
 

@@ -16,6 +16,7 @@ import {
   type Trade,
 } from "@/hooks/use-directory";
 import { titleCase } from "@/lib/format";
+import { readParam } from "@/lib/search-params";
 
 // No zod `validateSearch` here -- see properties.$propertyId.history.tsx for
 // why: it reproducibly froze the renderer against this app's SPA-fallback
@@ -39,10 +40,10 @@ function ContractorsPage() {
   const navigate = Route.useNavigate();
   const urlParams = useMemo(() => new URLSearchParams(searchStr), [searchStr]);
 
-  const qParam = urlParams.get("q") ?? "";
-  const tradeParam = (urlParams.get("trade") as Trade | null) ?? "ALL";
+  const qParam = readParam(urlParams, "q") ?? "";
+  const tradeParam = (readParam(urlParams, "trade") as Trade | undefined) ?? "ALL";
   const approvalParam =
-    (urlParams.get("approval_status") as ContractorApprovalStatus | null) ?? "ALL";
+    (readParam(urlParams, "approval_status") as ContractorApprovalStatus | undefined) ?? "ALL";
 
   const [searchInput, setSearchInput] = useState(qParam);
   const debouncedSearch = useDebouncedValue(searchInput, 300);

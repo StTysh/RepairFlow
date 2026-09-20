@@ -251,7 +251,14 @@ function AddCostForm({ caseId, workOrders }: { caseId: string; workOrders: WorkO
         kind: form.kind,
         amount_pence: parsedPence,
         description: form.description.trim(),
-        incurred_at: new Date(`${form.incurredAt}T12:00:00`).toISOString(),
+        // `T00:00:00` (local midnight), not local noon: `new Date(...)`
+        // parses that string in the browser's local timezone, and local
+        // noon on "today" is already in the future in UTC for any
+        // timezone ahead of UTC (e.g. BST) -- the server's
+        // `_validate_incurred_at` (backend/app/api/costs.py) would then
+        // reject a same-day entry recorded before lunch. Local midnight is
+        // never in the future for a date that itself isn't.
+        incurred_at: new Date(`${form.incurredAt}T00:00:00`).toISOString(),
         work_order_id: form.workOrderId || null,
       });
       setOpen(false);
@@ -318,9 +325,20 @@ function CostRow({
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<CostFormValue>(() => costToForm(cost));
   const [touched, setTouched] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const update = useUpdateCost(caseId);
   const del = useDeleteCost(caseId);
   const { parsedPence, errors, valid } = useCostFormErrors(form);
+
+  async function handleDelete() {
+    try {
+      await del.mutateAsync(cost.id);
+      setConfirmOpen(false);
+    } catch {
+      // toasted by the hook; keep the confirmation open so the operator
+      // can retry.
+    }
+  }
 
   // Re-seeds once per edit session (not on every background refetch of the
   // costs list) so an in-flight edit never gets silently overwritten.
@@ -343,7 +361,7 @@ function CostRow({
           kind: form.kind,
           amount_pence: parsedPence,
           description: form.description.trim(),
-          incurred_at: new Date(`${form.incurredAt}T12:00:00`).toISOString(),
+          incurred_at: new Date(`${form.incurredAt}T00:00:00`).toISOString(),
           work_order_id: form.workOrderId || null,
         },
       });
@@ -419,7 +437,7 @@ function CostRow({
             >
               <Pencil className="h-3 w-3" />
             </button>
-            <AlertDialog.Root>
+            <AlertDialog.Root open={confirmOpen} onOpenChange={setConfirmOpen}>
               <AlertDialog.Trigger asChild>
                 <button
                   type="button"
@@ -441,20 +459,21 @@ function CostRow({
                   </AlertDialog.Description>
                   <div className="mt-4 flex justify-end gap-2">
                     <AlertDialog.Cancel asChild>
-                      <Button variant="ghost" size="sm">
+                      <Button variant="ghost" size="sm" disabled={del.isPending}>
                         Cancel
                       </Button>
                     </AlertDialog.Cancel>
-                    <AlertDialog.Action asChild>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        disabled={del.isPending}
-                        onClick={() => del.mutate(cost.id)}
-                      >
-                        {del.isPending ? "Deleting…" : "Delete"}
-                      </Button>
-                    </AlertDialog.Action>
+                    {/* Plain Button, not AlertDialog.Action -- see the
+                     * matching comment in DocumentsPanel.tsx's delete
+                     * confirmation for why. */}
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={del.isPending}
+                      onClick={() => void handleDelete()}
+                    >
+                      {del.isPending ? "Deleting…" : "Delete"}
+                    </Button>
                   </div>
                 </AlertDialog.Content>
               </AlertDialog.Portal>

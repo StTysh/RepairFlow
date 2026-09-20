@@ -159,7 +159,18 @@ function DocumentRow({ doc, caseId }: { doc: DocumentRecord; caseId: string }) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const canPreview = isPreviewable(doc.content_type);
+
+  async function handleDelete() {
+    try {
+      await del.mutateAsync(doc.id);
+      setConfirmOpen(false);
+    } catch {
+      // toasted by the hook; keep the confirmation open so the operator
+      // can see the pending state clear and retry.
+    }
+  }
 
   useEffect(() => {
     return () => {
@@ -234,7 +245,7 @@ function DocumentRow({ doc, caseId }: { doc: DocumentRecord; caseId: string }) {
           >
             <Download className="h-3.5 w-3.5" />
           </button>
-          <AlertDialog.Root>
+          <AlertDialog.Root open={confirmOpen} onOpenChange={setConfirmOpen}>
             <AlertDialog.Trigger asChild>
               <button
                 type="button"
@@ -255,20 +266,24 @@ function DocumentRow({ doc, caseId }: { doc: DocumentRecord; caseId: string }) {
                 </AlertDialog.Description>
                 <div className="mt-4 flex justify-end gap-2">
                   <AlertDialog.Cancel asChild>
-                    <Button variant="ghost" size="sm">
+                    <Button variant="ghost" size="sm" disabled={del.isPending}>
                       Cancel
                     </Button>
                   </AlertDialog.Cancel>
-                  <AlertDialog.Action asChild>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      disabled={del.isPending}
-                      onClick={() => del.mutate(doc.id)}
-                    >
-                      {del.isPending ? "Deleting…" : "Delete"}
-                    </Button>
-                  </AlertDialog.Action>
+                  {/* A plain Button, not AlertDialog.Action -- Radix closes
+                   * the dialog on Action's click by default, which would
+                   * unmount this before `del.isPending` ever had a chance
+                   * to render "Deleting...". The dialog stays open,
+                   * controlled by `confirmOpen`, until the mutation
+                   * actually settles. */}
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={del.isPending}
+                    onClick={() => void handleDelete()}
+                  >
+                    {del.isPending ? "Deleting…" : "Delete"}
+                  </Button>
                 </div>
               </AlertDialog.Content>
             </AlertDialog.Portal>
@@ -325,7 +340,11 @@ export function DocumentsPanel({
   function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
     for (const file of Array.from(files)) {
-      void upload.mutateAsync({ file });
+      // .mutate, not .mutateAsync -- there's no result here to await, and
+      // an unhandled rejection would otherwise hit the console on every
+      // failed upload (413, network error, ...) even though onError
+      // already toasts it.
+      upload.mutate({ file });
     }
   }
 

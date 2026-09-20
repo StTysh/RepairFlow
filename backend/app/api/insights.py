@@ -62,6 +62,10 @@ class YearSpendResponse(BaseModel):
 class ResolutionBucketResponse(BaseModel):
     label: str
     count: int
+    # The bucket's real edges in hours, so a drill-down can filter
+    # precisely rather than guessing from the label text.
+    min_hours: float
+    max_hours: float | None
 
 
 class ResolutionDistributionResponse(BaseModel):
@@ -154,7 +158,14 @@ async def get_insights(
         category_breakdown=[CategoryBreakdownResponse(**dataclasses.asdict(c)) for c in categories],
         spend_by_year=[YearSpendResponse(**dataclasses.asdict(s)) for s in spend],
         resolution=ResolutionDistributionResponse(
-            buckets=[ResolutionBucketResponse(label=label, count=count) for label, count in resolution.buckets],
+            buckets=[
+                ResolutionBucketResponse(
+                    label=label, count=count, min_hours=lo, max_hours=hi
+                )
+                for (label, count), (_bucket_label, lo, hi) in zip(
+                    resolution.buckets, analytics.resolution_bucket_bounds(), strict=True
+                )
+            ],
             average_hours=resolution.average_hours, median_hours=resolution.median_hours,
             sample_count=resolution.sample_count, skipped_count=resolution.skipped_count,
         ),

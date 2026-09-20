@@ -554,27 +554,6 @@ function NextAppointmentRow({ caseId, appointment }: { caseId: string; appointme
   );
 }
 
-function OutlineButton({
-  children,
-  onClick,
-  disabled,
-}: {
-  children: React.ReactNode;
-  onClick?: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="h-8 rounded-lg border border-border bg-card px-3 text-xs font-medium shadow-card hover:bg-accent disabled:opacity-50"
-    >
-      {children}
-    </button>
-  );
-}
-
 /** Navigates to an internal profile/history page. Plain `<a>` rather than a
  * typed `<Link>` for `/tenants/$tenantId` and `/contractors/$contractorId`:
  * neither route exists in this checkout yet (other agents are adding them

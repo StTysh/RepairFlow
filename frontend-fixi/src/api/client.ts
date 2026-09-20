@@ -55,7 +55,32 @@ export function authHeader(creds: OperatorCredentials): string {
   return `Basic ${btoa(`${creds.username}:${creds.password}`)}`;
 }
 
-export const BASE_URL = import.meta.env["VITE_API_BASE_URL"] ?? "http://localhost:8000";
+/** Where the API lives, relative to wherever this bundle is running.
+ *
+ * Three cases, in order:
+ *
+ *  1. `VITE_API_BASE_URL` set at build time -- always wins.
+ *  2. The production build served by FastAPI itself (any port). The API is
+ *     same-origin, so an empty base is correct and, importantly, portable:
+ *     hardcoding `http://localhost:8000` here meant a build served on any
+ *     other port silently called a *different* backend, which is exactly
+ *     how a page can show a login form while its own server has auth
+ *     disabled.
+ *  3. `vite dev` on 5173/5174 -- the API is a separate origin, so point at
+ *     the conventional backend port and let CORS handle it.
+ */
+const VITE_DEV_PORTS = new Set(["5173", "5174", "5175"]);
+
+function resolveBaseUrl(): string {
+  const configured = import.meta.env["VITE_API_BASE_URL"];
+  if (configured) return configured;
+  // The prerender pass runs in Node with no window; nothing fetches there,
+  // but the module still evaluates, so this must not throw.
+  if (typeof window === "undefined") return "http://localhost:8000";
+  return VITE_DEV_PORTS.has(window.location.port) ? "http://localhost:8000" : "";
+}
+
+export const BASE_URL = resolveBaseUrl();
 
 /** Verifies credentials against a cheap, always-available route. */
 export async function verifyCredentials(creds: OperatorCredentials): Promise<boolean> {
@@ -131,7 +156,13 @@ export async function requestOrNotModified<T>(
   path: string,
   knownVersion: number | undefined,
 ): Promise<{ status: 304 } | { status: 200; body: T }> {
-  const url = new URL(`${BASE_URL}${path}`);
+  // `new URL` needs an absolute input, and BASE_URL is empty when the API
+  // is same-origin -- so supply the current origin as the base rather than
+  // throwing on a relative path.
+  const url = new URL(
+    `${BASE_URL}${path}`,
+    typeof window === "undefined" ? "http://localhost:8000" : window.location.origin,
+  );
   if (knownVersion !== undefined) url.searchParams.set("known_version", String(knownVersion));
   const res = await fetch(url, { headers: { Authorization: authHeader(creds) } });
   if (res.status === 304) return { status: 304 };

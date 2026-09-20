@@ -236,6 +236,12 @@ export function CategoryBreakdownDonut({
                     type="button"
                     onClick={() => onSelectTrade(d.trade)}
                     aria-pressed={active}
+                    // The visible row is three separate spans (dot, name,
+                    // percentage, count); an explicit label reads as one
+                    // sentence rather than four fragments.
+                    aria-label={`${titleCase(d.trade)}: ${d.count} case${
+                      d.count === 1 ? "" : "s"
+                    }, ${displayPercentages[index]}% of the total. View cases.`}
                     className={cn(
                       "flex w-full items-center rounded-md px-1.5 py-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
                       active ? "bg-accent" : "hover:bg-accent/60",

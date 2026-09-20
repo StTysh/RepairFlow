@@ -14,6 +14,7 @@ import type { PropertyHistoryItem, Trade } from "@/api/types";
 import { CASE_STATUSES, statusTone, type CaseStatus } from "@/lib/fixi-data";
 import { formatDate, formatPence, titleCase } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { readParam } from "@/lib/search-params";
 
 // `address`/`postcode` search params + the "no validateSearch" rule below
 // are unchanged from the previous version of this file -- see that
@@ -57,10 +58,10 @@ function readTableStateFromUrl(): TableUrlState {
   const fallback: TableUrlState = { sort: { field: "date", dir: "desc" }, trade: null, year: null };
   if (typeof window === "undefined") return fallback;
   const params = new URLSearchParams(window.location.search);
-  const field = params.get("sort");
-  const dir = params.get("dir");
-  const trade = params.get("trade");
-  const yearRaw = params.get("year");
+  const field = readParam(params, "sort");
+  const dir = readParam(params, "dir");
+  const trade = readParam(params, "trade");
+  const yearRaw = readParam(params, "year");
   const year = yearRaw ? Number.parseInt(yearRaw, 10) : null;
   return {
     sort: {
@@ -101,8 +102,8 @@ function HistoryPage() {
   const { propertyId } = Route.useParams();
   const searchParams =
     typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-  const address = searchParams?.get("address") ?? undefined;
-  const postcode = searchParams?.get("postcode") ?? undefined;
+  const address = readParam(searchParams, "address");
+  const postcode = readParam(searchParams, "postcode");
 
   const history = usePropertyHistory(propertyId);
   const items = history.data?.items ?? [];

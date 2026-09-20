@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useDirectoryProperties, useTenants } from "@/hooks/use-directory";
 import { titleCase } from "@/lib/format";
+import { readParam } from "@/lib/search-params";
 
 // Same URL-as-state approach as contractors.index.tsx: read the reactive
 // search string off the router (useRouterState), no zod `validateSearch`
@@ -28,8 +29,8 @@ function TenantsPage() {
   const navigate = Route.useNavigate();
   const urlParams = useMemo(() => new URLSearchParams(searchStr), [searchStr]);
 
-  const qParam = urlParams.get("q") ?? "";
-  const propertyParam = urlParams.get("property_id") ?? "ALL";
+  const qParam = readParam(urlParams, "q") ?? "";
+  const propertyParam = readParam(urlParams, "property_id") ?? "ALL";
 
   const [searchInput, setSearchInput] = useState(qParam);
   const debouncedSearch = useDebouncedValue(searchInput, 300);

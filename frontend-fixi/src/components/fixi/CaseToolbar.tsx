@@ -142,6 +142,14 @@ function EditCaseDialog({ snapshot }: { snapshot: CaseSnapshot }) {
   const [accessNotes, setAccessNotes] = useState("");
   const [touched, setTouched] = useState(false);
   const [staleVersion, setStaleVersion] = useState(false);
+  // Captured alongside the seeded values, not read fresh from `c.version`
+  // at submit time: the case snapshot polls every 2s (use-case-detail.ts),
+  // so by the time the operator clicks Save, `c` may already be a later
+  // render than the one the form was seeded from. Submitting the *current*
+  // version instead of the *seeded* one would defeat the whole point of
+  // sending expected_version -- the 409 this dialog exists to catch would
+  // never fire, and a stale edit could silently overwrite a newer one.
+  const [seededVersion, setSeededVersion] = useState(c.version);
   const editCase = useEditCase(c.id);
   const queryClient = useQueryClient();
 
@@ -151,6 +159,7 @@ function EditCaseDialog({ snapshot }: { snapshot: CaseSnapshot }) {
     setLocation(issue.location);
     setDescription(issue.description);
     setAccessNotes(property.access_notes ?? "");
+    setSeededVersion(c.version);
     setTouched(false);
     setStaleVersion(false);
   }
@@ -177,7 +186,7 @@ function EditCaseDialog({ snapshot }: { snapshot: CaseSnapshot }) {
     if (!canSubmit) return;
     try {
       await editCase.mutateAsync({
-        expected_version: c.version,
+        expected_version: seededVersion,
         title: title.trim(),
         location: location.trim(),
         description: description.trim(),

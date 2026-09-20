@@ -16,6 +16,7 @@ import {
   type CreatePropertyRequest,
 } from "@/hooks/use-property";
 import { titleCase } from "@/lib/format";
+import { readFlag, readInt, readParam } from "@/lib/search-params";
 import { cn } from "@/lib/utils";
 
 // No zod `validateSearch` here -- same reasoning as
@@ -50,11 +51,11 @@ interface FilterState {
 function readFiltersFromUrl(): FilterState {
   if (typeof window === "undefined") return { q: "", includeArchived: false, offset: 0 };
   const params = new URLSearchParams(window.location.search);
-  const offset = Number.parseInt(params.get("offset") ?? "0", 10);
+  const offset = readInt(params, "offset", 0);
   return {
-    q: params.get("q") ?? "",
-    includeArchived: params.get("archived") === "1",
-    offset: Number.isFinite(offset) && offset > 0 ? offset : 0,
+    q: readParam(params, "q") ?? "",
+    includeArchived: readFlag(params, "archived"),
+    offset: offset > 0 ? offset : 0,
   };
 }
 
