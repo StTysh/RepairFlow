@@ -11,7 +11,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { UtilityBar } from "@/components/fixi/UtilityBar";
 import { useAgentStatus } from "@/hooks/use-agent-status";
 import { useGlobalUnreadCount } from "@/hooks/use-unread-count";
@@ -180,6 +180,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // that replacement: same eight links, same status panel, same account
   // row, opened from the menu button UtilityBar renders at that width.
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // Radix's modal Dialog locks <body> scroll while open regardless of which
+  // breakpoint its content is visible at -- lg:hidden only hides the
+  // overlay/content visually. Without this, rotating a tablet (or resizing
+  // a window) past 1024px with the drawer open would leave the app
+  // scroll-locked behind an invisible overlay, recoverable only via
+  // Escape.
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 1024px)");
+    function closeIfDesktop(e: MediaQueryListEvent | MediaQueryList) {
+      if (e.matches) setMobileNavOpen(false);
+    }
+    closeIfDesktop(query);
+    query.addEventListener("change", closeIfDesktop);
+    return () => query.removeEventListener("change", closeIfDesktop);
+  }, []);
 
   return (
     <div className="flex min-h-screen w-full bg-background font-sans text-foreground antialiased">

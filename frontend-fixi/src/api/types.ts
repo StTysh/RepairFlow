@@ -28,6 +28,15 @@ export interface CaseListItem {
   property_address: string;
   urgency: Urgency;
   assigned_contractor_name: string | null;
+  /** The case's single normalised classification, assigned at intake.
+   * Null until triage has run, or on a case raised before the column
+   * existed -- the UI shows those as "Uncategorised" rather than
+   * guessing. */
+  category: Trade | null;
+  /** True when this row is synthetic archival history. The list excludes
+   * these by default; anything that can show one must label it, so a
+   * sample case is never mistaken for work to do. */
+  is_archived: boolean;
 }
 
 export interface CaseListResponse {

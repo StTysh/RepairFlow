@@ -20,6 +20,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
 from app import analytics
+from app.api import costs as costs_api
 from app.api import insights, overview, reports, search
 from app.api.errors import register_error_handlers
 from app.db import session_scope
@@ -29,9 +30,11 @@ from app.models import (
     CostEntryModel,
     PropertyModel,
     RepairCaseModel,
+    RepairIssueModel,
     TenantModel,
+    WorkOrderModel,
 )
-from app.schemas import CaseStatus, CostKind, Trade
+from app.schemas import CaseStatus, CostKind, Trade, WorkOrderKind, WorkOrderStatus
 
 AUTH = ("operator", "repairflow-demo")
 
@@ -518,3 +521,157 @@ async def test_insights_case_volume_comparison_new_when_previous_window_empty(ap
         assert comparison["change_pct"] is None
     else:
         assert comparison["change_pct"] == 0.0
+
+
+# --------------------------------------------------------------------------
+# Quoted-money reconciliation (docs/audit/06 Finding 1, docs/audit/11
+# Finding 3, docs/26 2026-09-20): WorkOrderModel.quote_pence and
+# CostEntryModel(kind=QUOTE) used to be two unreconciled sources for the
+# same figure. app.analytics.reconciled_quotes is now the one place that
+# decides which wins, and every screen below is proved to agree.
+# --------------------------------------------------------------------------
+
+
+def _make_work_order(
+    *, case_id, issue_id, trade=Trade.ROOFING, status=WorkOrderStatus.COMPLETED, quote_pence,
+) -> WorkOrderModel:
+    return WorkOrderModel(
+        id=uid(), case_id=case_id, issue_id=issue_id, kind=WorkOrderKind.REPAIR, trade=trade,
+        scope="Repair work", status=status, quote_pence=quote_pence,
+    )
+
+
+async def _costs_client() -> AsyncClient:
+    app = FastAPI()
+    register_error_handlers(app)
+    app.include_router(costs_api.router)
+    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+
+
+@pytest.mark.asyncio
+async def test_quoted_money_reconciles_across_screens_with_no_cost_entries(app_db):
+    """The exact scenario docs/audit/06 Finding 1 measured: a case with
+    work orders but zero logged cost entries used to show a real total on
+    Property Stats/History and 0p on Insights/Reports/CSV and the Costs
+    tab. Two non-cancelled work orders, 12,345p + 6,789p = 19,134p, no
+    CostEntryModel rows at all -- proves the chart (property_stats), the
+    detail table (property_history_items), the row (case_detail_rows), the
+    year total (spend_by_year) and the Costs tab total all agree on
+    19,134p for the same case/scope.
+    """
+    async with session_scope() as session:
+        property_id, tenant_id = await _seed_property_tenant(session)
+        case = _make_case(
+            property_id=property_id, tenant_id=tenant_id, category=Trade.ROOFING, status=CaseStatus.RESOLVED,
+        )
+        session.add(case)
+        await session.flush()
+        issue_id = uid()
+        session.add(RepairIssueModel(id=issue_id, case_id=case.id, description="Roof leak", location="Loft"))
+        await session.flush()
+        session.add_all([
+            _make_work_order(case_id=case.id, issue_id=issue_id, quote_pence=12_345),
+            _make_work_order(case_id=case.id, issue_id=issue_id, quote_pence=6_789),
+        ])
+        case_id = case.id
+
+    EXPECTED = 19_134
+
+    async with session_scope() as session:
+        stats = await analytics.property_stats(session, property_id, build_year=None)
+        history = await analytics.property_history_items(session, property_id)
+        rows = await analytics.case_detail_rows(session, include_archived=True)
+        spend = await analytics.spend_by_year(session, include_archived=True)
+
+    assert sum(t.quoted_pence for t in stats.quoted_by_trade) == EXPECTED
+    assert sum(y.quoted_pence for y in stats.quoted_by_year) == EXPECTED
+
+    # PropertyHistoryItem.case_id is a pydantic UUID field, not a plain
+    # str, so compare via str() rather than == against the raw id.
+    [history_row] = [i for i in history if str(i.case_id) == case_id]
+    assert history_row.quoted_pence == EXPECTED
+
+    [detail_row] = [r for r in rows if r.case_id == case_id]
+    assert detail_row.quoted_pence == EXPECTED
+
+    assert sum(y.quoted_pence for y in spend) == EXPECTED
+
+    async with await _costs_client() as client:
+        resp = await client.get(f"/api/v1/cases/{case_id}/costs", auth=AUTH)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+
+    assert body["items"] == []  # zero real ledger rows -- this is the fallback path
+    assert body["totals"]["quoted_pence"] == EXPECTED
+    assert body["totals"]["committed_pence"] == EXPECTED
+
+
+@pytest.mark.asyncio
+async def test_quoted_money_cost_entry_supersedes_quote_pence_no_double_count(app_db):
+    """Once a QUOTE CostEntryModel row exists for a work order, it wins
+    over that work order's own quote_pence -- never both summed (CLAUDE.md:
+    no double counting). 50,000p on the work order, a 35,471p ledger
+    entry: the reconciled figure is 35,471p everywhere, not 85,471p and
+    not 50,000p.
+    """
+    async with session_scope() as session:
+        property_id, tenant_id = await _seed_property_tenant(session)
+        case = _make_case(property_id=property_id, tenant_id=tenant_id, category=Trade.ELECTRICAL)
+        session.add(case)
+        await session.flush()
+        issue_id = uid()
+        session.add(RepairIssueModel(id=issue_id, case_id=case.id, description="Socket", location="Kitchen"))
+        await session.flush()
+        wo = _make_work_order(case_id=case.id, issue_id=issue_id, trade=Trade.ELECTRICAL, quote_pence=50_000)
+        session.add(wo)
+        await session.flush()
+        session.add(
+            CostEntryModel(
+                id=uid(), case_id=case.id, work_order_id=wo.id, kind=CostKind.QUOTE, amount_pence=35_471,
+                description="Revised quote after survey", incurred_at=utcnow(), recorded_by="operator",
+            )
+        )
+        case_id = case.id
+
+    async with session_scope() as session:
+        contributions = await analytics.reconciled_quotes(session, [case_id])
+        rows = await analytics.case_detail_rows(session, include_archived=True)
+
+    assert [c.quoted_pence for c in contributions] == [35_471]
+    assert contributions[0].from_cost_entry is True
+
+    [detail_row] = [r for r in rows if r.case_id == case_id]
+    assert detail_row.quoted_pence == 35_471
+
+    async with await _costs_client() as client:
+        resp = await client.get(f"/api/v1/cases/{case_id}/costs", auth=AUTH)
+        body = resp.json()
+    assert body["totals"]["quoted_pence"] == 35_471
+
+
+@pytest.mark.asyncio
+async def test_reconciled_quotes_excludes_cancelled_work_order(app_db):
+    """A CANCELLED work order's quote is money that will never be spent --
+    it must not contribute even when it has no cost entry to be
+    "superseded" by (matches services._pick_primary_trade's identical
+    exclusion rule, applied here for the money side)."""
+    async with session_scope() as session:
+        property_id, tenant_id = await _seed_property_tenant(session)
+        case = _make_case(property_id=property_id, tenant_id=tenant_id, category=Trade.SCAFFOLDING)
+        session.add(case)
+        await session.flush()
+        issue_id = uid()
+        session.add(RepairIssueModel(id=issue_id, case_id=case.id, description="Access", location="Rear"))
+        await session.flush()
+        session.add(
+            _make_work_order(
+                case_id=case.id, issue_id=issue_id, trade=Trade.SCAFFOLDING,
+                status=WorkOrderStatus.CANCELLED, quote_pence=4_444,
+            )
+        )
+        case_id = case.id
+
+    async with session_scope() as session:
+        contributions = await analytics.reconciled_quotes(session, [case_id])
+
+    assert contributions == []

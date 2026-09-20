@@ -1315,10 +1315,13 @@ class PropertyHistoryItem(StrictModel):
     # CaseSnapshot.assigned_contractor (services._pick_assigned_work_order):
     # null until some work order on the case actually has a contractor.
     contractor_name: str | None = None
-    # Sum of WorkOrder.quote_pence across every work order on this case.
+    # This case's reconciled quoted total (app.analytics.reconciled_quotes):
+    # per non-cancelled work order, its own QUOTE CostEntryModel row(s) if
+    # any exist, else its own quote_pence -- never both (see analytics.py's
+    # "QUOTED MONEY RECONCILIATION RULE" docstring, docs/26 2026-09-20).
     # Named "quoted", not "cost"/"spend": no field in this schema represents
     # money actually paid (CLAUDE.md honesty rule; see WorkOrder.quote_pence
-    # vs approved_limit_pence). Null when the case has no work orders yet.
+    # vs approved_limit_pence). Null when the case has no priced work order.
     quoted_pence: int | None = None
     # The case's "primary" trade, for property-history grouping/filtering.
     # Judgment call (no product spec for this): prefer the work order
@@ -1356,8 +1359,9 @@ class RecurringIssue(StrictModel):
 class PropertyStatsResponse(StrictModel):
     """Property-level aggregation for the "breakdown by trade" / "annual
     quoted total" / "recurring issues" charts. See
-    services.load_property_stats for the exact (documented, judgment-call)
-    computation of each derived field."""
+    app.analytics.property_stats (not domain.services.load_property_stats,
+    which is unused dead code as of docs/26 2026-09-20) for the exact
+    (documented, judgment-call) computation of each derived field."""
 
     property_id: UUID
     # Count of cases currently in CaseStatus.ACTIVE for this property -- the

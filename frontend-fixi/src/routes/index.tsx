@@ -60,6 +60,28 @@ const NEEDS_ATTENTION_LABEL: Record<NeedsAttentionItem["reason"], string> = {
   OVERDUE_FOLLOW_UP: "Overdue follow-up",
 };
 
+// overview.py's AttentionItemResponse.reason is a plain `str`, not a
+// Pydantic Literal/Enum -- analytics.needs_attention() only ever emits the
+// 3 values above today, but the response model doesn't guarantee that will
+// stay true. Indexing the three Records above directly on an unrecognised
+// value is exactly the crash this page was fixed for (item.kind was
+// undefined for the same reason); these fall back to a generic
+// presentation instead of `undefined` reaching <Icon>, the same way
+// tenants.$tenantId.tsx's CaseStatusPill already guards an unrecognised
+// status rather than crashing StatusBadge.
+function attentionIcon(reason: string): LucideIcon {
+  return NEEDS_ATTENTION_ICON[reason as NeedsAttentionItem["reason"]] ?? AlertTriangle;
+}
+function attentionTone(reason: string): string {
+  return (
+    NEEDS_ATTENTION_TONE_CLASS[reason as NeedsAttentionItem["reason"]] ??
+    "bg-muted text-muted-foreground"
+  );
+}
+function attentionLabel(reason: string): string {
+  return NEEDS_ATTENTION_LABEL[reason as NeedsAttentionItem["reason"]] ?? titleCase(reason);
+}
+
 function OverviewPage() {
   const overview = useOverview();
   const data = overview.data;
@@ -166,9 +188,15 @@ function OverviewPage() {
                   ) : (
                     <ul className="divide-y divide-border">
                       {needsAttention.map((item) => {
-                        const Icon = NEEDS_ATTENTION_ICON[item.reason];
+                        const Icon = attentionIcon(item.reason);
                         return (
-                          <li key={`${item.case_id}-${item.reason}`}>
+                          // Not just case_id+reason: an AWAITING_APPROVAL row
+                          // is one ActionRecord, and a case can have more than
+                          // one action pending at once, so those two fields
+                          // alone can collide. occurred_at (action.updated_at
+                          // for this branch) is real, already-fetched data,
+                          // not a fabricated key.
+                          <li key={`${item.case_id}-${item.reason}-${item.occurred_at}`}>
                             <Link
                               to="/maintenance/tickets/$ticketId/{-$section}"
                               params={{ ticketId: item.case_id, section: undefined }}
@@ -177,7 +205,7 @@ function OverviewPage() {
                               <span
                                 className={cn(
                                   "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
-                                  NEEDS_ATTENTION_TONE_CLASS[item.reason],
+                                  attentionTone(item.reason),
                                 )}
                               >
                                 <Icon className="h-4 w-4" />
@@ -188,7 +216,7 @@ function OverviewPage() {
                                     #{item.case_number} · {item.case_title}
                                   </span>
                                   <span className="shrink-0 text-[10px] font-medium text-muted-foreground">
-                                    {NEEDS_ATTENTION_LABEL[item.reason]}
+                                    {attentionLabel(item.reason)}
                                   </span>
                                 </div>
                                 <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">

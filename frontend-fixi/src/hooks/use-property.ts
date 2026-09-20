@@ -90,6 +90,13 @@ export interface PropertyTenant {
   id: string;
   display_name: string;
   contact_allowed: boolean;
+  // The nested summary carries these now. It did not before, which is
+  // why this card used to assert "No contact on file" for tenants who
+  // had a phone number on the very next endpoint -- claiming an absence
+  // it could not see.
+  phone_e164: string | null;
+  email: string | null;
+  preferred_channel: string;
 }
 
 /** GET /properties/{id}: record + tenants[] + counts, per the task brief's

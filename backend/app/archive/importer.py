@@ -670,21 +670,28 @@ async def validate(session: AsyncSession, *, label: str = DEFAULT_LABEL, seed: i
         # ledger were silently incomplete. This checks the actual
         # cross-table invariant docs/audit/06/11 flagged: for each case,
         # sum(WorkOrderModel.quote_pence, status != CANCELLED) must equal
-        # sum(CostEntryModel.amount_pence, kind='QUOTE'). Before dataset.py
-        # started ledgering every work order (not just work_orders[0]),
-        # this failed for ~48% of resolved cases; it is checked here, not
-        # just relied on via app.analytics.reconciled_quotes' read-time
-        # fallback, so a future regression in the generator fails the
-        # import's own validation instead of only being masked at read
-        # time.
+        # sum(CostEntryModel.amount_pence, kind='QUOTE') *for QUOTE rows
+        # tied to a non-CANCELLED work order* -- app.analytics.
+        # reconciled_quotes never counts a QUOTE entry against a CANCELLED
+        # work order either (a called-off job's quote is not "quoted"
+        # money, even if the importer logged an estimate for it before it
+        # was cancelled -- see _fill_cancelled_case), so this mirrors that
+        # rule rather than naively summing every QUOTE row. Before
+        # dataset.py started ledgering every RESOLVED-case work order (not
+        # just work_orders[0]), this failed for ~48% of resolved cases; it
+        # is checked here, not just relied on via reconciled_quotes' own
+        # read-time fallback, so a future regression in the generator
+        # fails the import's own validation instead of only being masked
+        # at read time.
+        cancelled_wo_ids = {wo.id for wo in work_orders if wo.status == WorkOrderStatus.CANCELLED}
         wo_quote_by_case: dict[str, int] = {}
         for wo in work_orders:
-            if wo.status == WorkOrderStatus.CANCELLED or wo.quote_pence is None:
+            if wo.id in cancelled_wo_ids or wo.quote_pence is None:
                 continue
             wo_quote_by_case[wo.case_id] = wo_quote_by_case.get(wo.case_id, 0) + wo.quote_pence
         cost_quote_by_case: dict[str, int] = {}
         for cost in costs:
-            if cost.kind.value == "QUOTE":
+            if cost.kind.value == "QUOTE" and cost.work_order_id not in cancelled_wo_ids:
                 cost_quote_by_case[cost.case_id] = cost_quote_by_case.get(cost.case_id, 0) + cost.amount_pence
         mismatches = [
             case_id for case_id in set(wo_quote_by_case) | set(cost_quote_by_case)

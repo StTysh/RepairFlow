@@ -215,7 +215,13 @@ function TenantProfilePage() {
                         {cs.title}
                       </div>
                       <div className="mt-0.5 text-[11px] text-muted-foreground">
+                        {/* Both, because they answer different questions:
+                         * when the tenant raised it, and whether anything
+                         * has happened since. */}
                         Reported {formatRelative(cs.created_at)}
+                        {cs.updated_at && cs.updated_at !== cs.created_at
+                          ? ` · updated ${formatRelative(cs.updated_at)}`
+                          : ""}
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">

@@ -355,9 +355,11 @@ export interface TenantCaseItem {
   case_number: number | null;
   title: string;
   status: string;
-  /** TenantCaseSummary (tenants.py) has no per-case updated_at -- created_at
-   * is the honest field here. */
   created_at: string | null;
+  /** When the case last moved. Distinct from created_at, which is when
+   * the tenant reported it -- both are shown, because "raised three
+   * weeks ago" and "nothing has happened since" are different facts. */
+  updated_at: string | null;
 }
 
 export interface TenantProfile extends TenantListItem {
@@ -404,6 +406,7 @@ function normalizeTenantProfile(raw: unknown): TenantProfile {
         title: asString(cr["title"]) ?? asString(cr["case_title"]) ?? "Untitled case",
         status: asString(cr["status"]) ?? "UNKNOWN",
         created_at: asString(cr["created_at"]),
+        updated_at: asString(cr["updated_at"]),
       };
     }),
   };

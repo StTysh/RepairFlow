@@ -219,3 +219,74 @@ entries are material corrections to canonical contracts, per CLAUDE.md.
     transport raises rather than dialling, and that fail-closed property
     has its own test. The docs/11 live voice gate remains UNMET, now
     deliberately.
+
+### 2026-09-20 — Quoted-money reconciliation (`app/analytics.py`)
+
+31. **The two sources of "quoted" money (docs/audit/06 Finding 1,
+    docs/audit/11 Finding 3) are reconciled, not merged into one table.**
+    `WorkOrderModel.quote_pence` and `CostEntryModel(kind=QUOTE)` disagreed
+    on screen: every operational case (policy sets `quote_pence` at
+    work-order creation; nothing ever wrote a matching `CostEntryModel`
+    row) showed a real total on Property Stats/History and 0p on
+    Insights/Reports/CSV; ~48% of archival cases disagreed by up to 3.4x
+    because the archive importer only ever ledgered `case.work_orders[0]`.
+
+    Considered and rejected: (A) backfill `CostEntryModel` once and read
+    only that table — rejected because nothing in this task's scope could
+    wire a `CostEntryModel` write into work-order creation
+    (`app/domain/policy.py` was explicitly out of scope, owned by another
+    agent this session), so every *new* operational work order would
+    immediately regress to the pre-fix 0p-on-Insights bug the day after a
+    one-time backfill ran; a backfill also freezes a snapshot that goes
+    stale if `quote_pence` is ever edited later, where a live read never
+    does. (B) two separate, never-summed homes for "quoted" vs "actual" —
+    rejected because `CostEntryModel(kind=QUOTE)` already exists and is
+    already the auditable ledger `docs/16`/`docs/17`-style spend reporting
+    is built on; declaring it "not quoted money" contradicts its own
+    `kind` field and would orphan every QUOTE row a human has already
+    logged through the Costs tab.
+
+    Chosen: **(C) a derived reconciliation layer**, implemented once as
+    `app.analytics.reconciled_quotes(session, case_ids)` and reused by
+    every caller (`app.analytics.case_detail_rows`, `spend_by_year`,
+    `app.api.costs._compute_totals`, and two new functions,
+    `app.analytics.property_history_items`/`property_stats`, that
+    `app.api.cases`'s `/properties/{id}/history` and `/stats` now call
+    instead of `app.domain.services.load_property_history`/
+    `load_property_stats` — the latter two still exist, still read
+    `quote_pence` directly, and are now dead code; `app/domain/` was out
+    of scope for this change, so they could not be deleted or repointed
+    from inside it). Per **work order**, never globally (CLAUDE.md: no
+    double counting): its own QUOTE `CostEntryModel` row(s) if any exist,
+    else its own `quote_pence` (computed live, so it can never go stale
+    and needs no migration for the many cases that will never get a
+    logged cost entry); a CANCELLED work order never contributes, in
+    either case. A case-level QUOTE entry (`work_order_id IS NULL`) is
+    always included verbatim in Insights/Reports/CSV; Property
+    Stats/History exclude it (no trade to bucket it by, and including it
+    there would break that page's own chart/table self-consistency) — a
+    documented, currently-inert edge case, since neither `seed.py` nor
+    the archive generator ever produces one.
+
+    Also fixed the archival root cause directly, not just its read-time
+    symptom: `app/archive/dataset.py`'s `_fill_resolved_case` now writes a
+    QUOTE `CostEntryModel` row for every non-cancelled work order (was:
+    `work_orders[0]` only), and `app/archive/importer.py`'s `validate()`
+    gained `quoted_totals_reconcile_with_work_orders`, which checks the
+    actual cross-table invariant (`cost_totals_reconcile` only ever
+    self-checked `CostEntryModel` against itself). No backfill command was
+    needed for already-imported archives or existing operational data: the
+    read-time fallback in `reconciled_quotes` makes both cases correct
+    without one.
+
+    Proved with real numbers (`backend/tests/test_analytics_api.py`,
+    `test_reconciled_quotes_...`): a case with two non-cancelled work
+    orders (quote_pence 12,345p / 6,789p) and zero cost entries reconciles
+    to 19,134p on `property_stats.quoted_by_trade`,
+    `property_history_items[...].quoted_pence`, `case_detail_rows[...].
+    quoted_pence`, `spend_by_year`'s summed `quoted_pence`, and
+    `GET /cases/{id}/costs`'s `totals.quoted_pence` — all five, same
+    figure, same scope. A second case with one work order carrying both a
+    quote_pence *and* a QUOTE cost entry of a different amount reconciles
+    to the cost-entry figure everywhere (ledger wins once one exists), not
+    the sum of both (proving no double counting).

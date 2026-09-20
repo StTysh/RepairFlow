@@ -49,6 +49,7 @@ from app.schemas import (
     Provenance,
     RepairIssue,
     RoofResponsibility,
+    WorkOrderStatus,
 )
 
 
@@ -189,8 +190,65 @@ async def test_validate_passes_every_check(archive_env: Path) -> None:
         "archival_contacts_not_dialable",
         "recurrence_grouping",
         "cost_totals_reconcile",
+        "quoted_totals_reconcile_with_work_orders",
         "import_is_idempotent",
     } <= check_names
+
+
+@pytest.mark.asyncio
+async def test_quoted_totals_reconcile_with_work_orders_per_case(archive_env: Path) -> None:
+    """The archival instance of docs/audit/06 Finding 1 / docs/audit/11
+    Finding 3: before app/archive/dataset.py ledgered every work order (not
+    just work_orders[0]), ~48% of resolved archival cases had
+    sum(WorkOrderModel.quote_pence, non-cancelled) != sum(CostEntryModel,
+    kind=QUOTE) for the same case, by up to 3.4x. Proves, against a real
+    import (not a hand-built fixture), that every case now reconciles
+    exactly, including cases with 2 or 3 work orders -- the exact shape the
+    pre-fix bug needed to reproduce.
+    """
+    await import_archive(db_module.session_scope, label=LABEL)
+
+    async with db_module.session_scope() as session:
+        batch = (
+            await session.execute(sa.select(ArchiveBatchModel).where(ArchiveBatchModel.label == LABEL))
+        ).scalar_one()
+        cases = (
+            await session.execute(sa.select(RepairCaseModel).where(RepairCaseModel.archive_batch_id == batch.id))
+        ).scalars().all()
+        case_ids = [c.id for c in cases]
+        work_orders = (
+            await session.execute(sa.select(WorkOrderModel).where(WorkOrderModel.case_id.in_(case_ids)))
+        ).scalars().all()
+        costs = (
+            await session.execute(sa.select(CostEntryModel).where(CostEntryModel.archive_batch_id == batch.id))
+        ).scalars().all()
+
+    # Mirrors app.analytics.reconciled_quotes: a QUOTE entry tied to a
+    # CANCELLED work order (the cancelled-case generator logs one, "work
+    # never carried out") is not "quoted" money either, same as the work
+    # order's own quote_pence isn't -- both sides of the comparison must
+    # exclude it, not just the WorkOrderModel side.
+    cancelled_wo_ids = {wo.id for wo in work_orders if wo.status == WorkOrderStatus.CANCELLED}
+    wo_quote_by_case: dict[str, int] = {}
+    for wo in work_orders:
+        if wo.id in cancelled_wo_ids or wo.quote_pence is None:
+            continue
+        wo_quote_by_case[wo.case_id] = wo_quote_by_case.get(wo.case_id, 0) + wo.quote_pence
+    cost_quote_by_case: dict[str, int] = {}
+    for cost in costs:
+        if cost.kind.value == "QUOTE" and cost.work_order_id not in cancelled_wo_ids:
+            cost_quote_by_case[cost.case_id] = cost_quote_by_case.get(cost.case_id, 0) + cost.amount_pence
+
+    assert wo_quote_by_case == cost_quote_by_case
+
+    # Not vacuous: at least one case has 2+ non-cancelled work orders, the
+    # exact shape that used to disagree (work_orders[1]/[2] had no ledger
+    # row at all).
+    multi_wo_cases = {
+        case_id for case_id in wo_quote_by_case
+        if sum(1 for wo in work_orders if wo.case_id == case_id and wo.status != WorkOrderStatus.CANCELLED) >= 2
+    }
+    assert multi_wo_cases, "expected at least one case with 2+ work orders in the generated dataset"
 
 
 async def _insert_control_rows(session) -> dict[str, str]:

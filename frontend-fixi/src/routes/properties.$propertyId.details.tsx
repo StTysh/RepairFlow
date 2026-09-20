@@ -124,23 +124,19 @@ function DetailsPage() {
                         >
                           {t.display_name}
                         </Link>
-                        {/* This projection (properties.py's TenantSummary) never
-                         * carries phone/email -- only whether contact is
-                         * permitted. Showing a fabricated "No contact on file"
-                         * here was wrong for every tenant who does have a
-                         * phone/email on record; the real numbers are one
-                         * click away on the tenant's own profile. */}
-                        <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                        {/* TenantSummary now carries the contact fields, so
+                         * this shows what is actually on record. It used to
+                         * read "No contact on file" for every tenant --
+                         * asserting an absence from a projection that simply
+                         * did not include the fields. Only say it when both
+                         * are genuinely null. */}
+                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           <Pill tone={t.contact_allowed ? "green" : "red"}>
                             {t.contact_allowed ? "Contact allowed" : "Contact not allowed"}
                           </Pill>
-                          <Link
-                            to="/tenants/$tenantId"
-                            params={{ tenantId: t.id }}
-                            className="hover:underline"
-                          >
-                            View phone/email
-                          </Link>
+                          {t.phone_e164 && <span>{t.phone_e164}</span>}
+                          {t.email && <span>{t.email}</span>}
+                          {!t.phone_e164 && !t.email && <span>No contact details on record</span>}
                         </div>
                       </li>
                     ))}
