@@ -9,7 +9,7 @@ Status: `TODO` · `IN PROGRESS` · `DONE`
 
 ---
 
-## 1. Category donut renders a meaningless 100% wedge — `TODO`
+## 1. Category donut renders a meaningless 100% wedge — `DONE` (2026-09-20)
 
 **Symptom.** On `backend/data/repairflow.db` (14 real cases, none
 categorised) the Insights category donut shows a single unlabelled
@@ -50,7 +50,7 @@ percentages still sum to exactly 100.
 
 ---
 
-## 2. Backfill `repair_cases.category` from work-order trade — `TODO`
+## 2. Backfill `repair_cases.category` from work-order trade — `DONE` (2026-09-20)
 
 **Why.** `category` is a new column and is NULL on all 14 existing cases,
 which is what empties the donut and the recurrence grouping. Every one of
@@ -86,6 +86,44 @@ original — see the handoff): `--dry-run` reports the intended change per
 case; after `--apply`, the Insights donut shows real trade segments, the
 recurrence grouping produces at least one group, and re-running reports
 zero changes.
+
+---
+
+## 3. The Research drawer has never been built — `TODO`
+
+`docs/18_FRONTEND_UX.md` lists it as a **required region** of the case
+workspace: *"Actual Tavily query/time/request ID/sources; unverified
+candidates separate from approved suppliers."*
+
+Nothing renders it. `GET /api/v1/research/{research_id}` exists and has
+**zero callers** in the frontend — no `fetchResearch`, no Research tab,
+no drawer. Worse, `ResearchSnapshot` and its `candidates` are not on
+`CaseSnapshot` either, so even with a drawer there is no id to reach it
+with: you would have to know the research UUID and curl it.
+
+**Why it matters beyond the missing screen.** CLAUDE.md: *"A candidate
+from the web is not an approved contractor."* The Contractors directory
+enforces that distinction globally, but per-case research candidates —
+the actual output of a `DISCOVER_CONTRACTORS` action — are invisible. An
+operator cannot see what the agent found, what it searched for, or which
+of those suppliers are unverified.
+
+**Backend first.** `CaseSnapshot` needs the latest research snapshot's
+id (and ideally its candidate count) so the UI has something to link.
+Follow how `latest_reports` is already exposed. Do not inline the whole
+snapshot — it can be large, and the drawer fetches it on open.
+
+**Then the drawer.** A tenth tab on the ticket page, or a drawer off the
+Work tab. It must show: the literal query sent to Tavily, when, the
+request id, each source with its URL, and the candidate list —
+**visually separated from approved contractors**, with each candidate
+marked unverified and offering no assignment action. Provenance badge as
+elsewhere.
+
+**Verify.** Drive a case to a `DISCOVER_CONTRACTORS` action with the
+fixture research adapter, then confirm the drawer shows the real query
+and sources, and that no candidate can be assigned to a work order from
+it.
 
 ---
 
