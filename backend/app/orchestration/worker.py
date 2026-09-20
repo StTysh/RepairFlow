@@ -6,10 +6,11 @@ are all separate bounded runs woken by rows in `jobs`.
 from __future__ import annotations
 
 import asyncio
+import logging
 import traceback
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import session_scope
@@ -19,6 +20,8 @@ from app.models import CommunicationModel, JobModel
 from app.orchestration import dispatcher, executor
 from app.orchestration.dispatcher import Coordinator
 from app.schemas import CaseStatus
+
+logger = logging.getLogger(__name__)
 
 # >= coordinator.RUN_TIMEOUT_SECONDS (120s) so a COORDINATE job's lease
 # can't expire while its run is still legitimately in progress. Only one
@@ -145,16 +148,31 @@ async def process_one_job(
         return True
 
 
+# How many reconciliation attempts one communication gets before the
+# sweep gives up on it. At a 5s sweep interval this is a few minutes of
+# trying, which is generous for a provider lookup that is either going
+# to work or isn't.
+RECONCILE_MAX_ATTEMPTS = 40
+
+
 async def sweep_stale_live_calls() -> None:
     """Finds real calls (provenance=LIVE, a bound provider_conversation_id)
     still sitting at state ACTIVE/REQUESTED after a minimum age, and
-    enqueues FETCH_RECORDING for each. fetch_recording itself now checks
-    the remote call status and no-ops if it isn't actually over yet, so
-    this is safe to call on the same rows repeatedly. Bucketing the
-    dedupe_key by sweep interval (not a fixed key) lets retries happen on
-    the next sweep instead of being permanently blocked by enqueue_job's
-    dedupe-forever-by-key behavior, while still not spamming a new job
-    every worker tick."""
+    enqueues FETCH_RECORDING for each. fetch_recording checks the remote
+    call status and no-ops if the call isn't over yet, so this is safe to
+    call on the same rows repeatedly. Bucketing the dedupe_key by sweep
+    interval lets a retry happen on the next sweep instead of being
+    blocked forever by enqueue_job's dedupe-by-key behaviour.
+
+    **Bounded.** Repeating forever is what this used to do: the real
+    database accumulated 5,601 FETCH_RECORDING rows from two calls whose
+    provider lookup failed with a DNS error, retried every sweep for
+    hours. Each attempt "succeeded" as a job, so the storm was invisible
+    to every failure metric. A reconciliation that has not worked after
+    RECONCILE_MAX_ATTEMPTS is not going to start working; the call is
+    marked FAILED with the reason so it leaves the sweep's WHERE clause
+    and shows up in the UI as what it is.
+    """
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=RECONCILE_MIN_CALL_AGE_SECONDS)
     bucket = int(datetime.now(timezone.utc).timestamp() // RECONCILE_SWEEP_INTERVAL_SECONDS)
     async with session_scope() as session:
@@ -169,6 +187,38 @@ async def sweep_stale_live_calls() -> None:
             )
         ).scalars().all()
         for comm in stale:
+            attempts = (
+                await session.execute(
+                    select(func.count())
+                    .select_from(JobModel)
+                    .where(
+                        JobModel.kind == "FETCH_RECORDING",
+                        JobModel.dedupe_key.like(f"recording:sweep:{comm.id}:%"),
+                    )
+                )
+            ).scalar_one()
+            if attempts >= RECONCILE_MAX_ATTEMPTS:
+                # Give up, visibly. Leaving it ACTIVE would keep it in
+                # this query forever; marking it FAILED records that we
+                # tried, how many times, and stops the storm.
+                comm.state = "FAILED"
+                recording = dict(comm.recording or {})
+                recording.setdefault("status", "FAILED")
+                recording["error_code"] = (
+                    f"reconciliation_abandoned_after_{attempts}_attempts"
+                )
+                comm.recording = recording
+                await services.append_event(
+                    session, case_id=comm.case_id, event_type="RECORDING_FAILED",
+                    payload={
+                        "communication_id": comm.id,
+                        "reason": "reconciliation abandoned",
+                        "attempts": attempts,
+                    },
+                    actor=ActorContext("SYSTEM", "reconcile-sweep", comm.id),
+                    source_event_key=f"recording-abandoned:{comm.id}",
+                )
+                continue
             await services.enqueue_job(
                 session, case_id=comm.case_id, kind="FETCH_RECORDING",
                 dedupe_key=f"recording:sweep:{comm.id}:{bucket}",
@@ -199,13 +249,39 @@ async def run_worker_loop(
     research_adapter=None, poll_interval: float = 0.75,
 ) -> None:
     last_sweep = 0.0
+    consecutive_failures = 0
     while not stop_event.is_set():
-        processed = await process_one_job(coordinator, elevenlabs_configured=elevenlabs_configured, research_adapter=research_adapter)
+        # Everything below is inside the guard on purpose. `process_one_job`
+        # protects the *job body*, but the claim query that precedes its
+        # try block, and `sweep_stale_live_calls` here, were both outside
+        # any handler -- so a SQLite lock contention or an IntegrityError
+        # from a dedupe race killed this task outright. It is spawned with
+        # `asyncio.create_task` and nothing supervises it, so the failure
+        # was silent and total: every job kind simply stopped, with no
+        # restart and nothing visible on any case.
+        try:
+            processed = await process_one_job(
+                coordinator,
+                elevenlabs_configured=elevenlabs_configured,
+                research_adapter=research_adapter,
+            )
 
-        loop_time = asyncio.get_event_loop().time()
-        if elevenlabs_configured and loop_time - last_sweep >= RECONCILE_SWEEP_INTERVAL_SECONDS:
-            await sweep_stale_live_calls()
-            last_sweep = loop_time
+            loop_time = asyncio.get_event_loop().time()
+            if elevenlabs_configured and loop_time - last_sweep >= RECONCILE_SWEEP_INTERVAL_SECONDS:
+                await sweep_stale_live_calls()
+                last_sweep = loop_time
+            consecutive_failures = 0
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - the loop must outlive any one tick
+            consecutive_failures += 1
+            logger.exception(
+                "worker loop tick failed (%s consecutive); continuing", consecutive_failures
+            )
+            # Back off rather than spinning on a persistent failure, but
+            # never stop: the queue is durable and the condition may clear.
+            await asyncio.sleep(min(poll_interval * consecutive_failures, 30.0))
+            continue
 
         if not processed:
             try:

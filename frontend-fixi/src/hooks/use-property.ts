@@ -82,11 +82,14 @@ export interface PropertyListResponse {
   has_more: boolean;
 }
 
+/** Matches properties.py's TenantSummary exactly -- this projection never
+ * carries phone_e164/email (docs/audit/07 Finding 2); full contact detail
+ * lives on the tenant's own profile (GET /tenants/{id}), linked from the
+ * card that renders this. */
 export interface PropertyTenant {
   id: string;
   display_name: string;
-  phone_e164: string | null;
-  email: string | null;
+  contact_allowed: boolean;
 }
 
 /** GET /properties/{id}: record + tenants[] + counts, per the task brief's

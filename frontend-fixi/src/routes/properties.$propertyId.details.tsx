@@ -1,5 +1,4 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Mail, Phone } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell, Card } from "@/components/fixi/AppShell";
 import { Pill } from "@/components/fixi/Badge";
@@ -125,18 +124,23 @@ function DetailsPage() {
                         >
                           {t.display_name}
                         </Link>
-                        <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground">
-                          {t.phone_e164 && (
-                            <span className="flex items-center gap-1">
-                              <Phone className="h-3 w-3" /> {t.phone_e164}
-                            </span>
-                          )}
-                          {t.email && (
-                            <span className="flex items-center gap-1">
-                              <Mail className="h-3 w-3" /> {t.email}
-                            </span>
-                          )}
-                          {!t.phone_e164 && !t.email && "No contact on file"}
+                        {/* This projection (properties.py's TenantSummary) never
+                         * carries phone/email -- only whether contact is
+                         * permitted. Showing a fabricated "No contact on file"
+                         * here was wrong for every tenant who does have a
+                         * phone/email on record; the real numbers are one
+                         * click away on the tenant's own profile. */}
+                        <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                          <Pill tone={t.contact_allowed ? "green" : "red"}>
+                            {t.contact_allowed ? "Contact allowed" : "Contact not allowed"}
+                          </Pill>
+                          <Link
+                            to="/tenants/$tenantId"
+                            params={{ tenantId: t.id }}
+                            className="hover:underline"
+                          >
+                            View phone/email
+                          </Link>
                         </div>
                       </li>
                     ))}

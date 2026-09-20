@@ -20,7 +20,7 @@ import {
   type OverviewActivityItem,
   type OverviewAppointmentItem,
 } from "@/hooks/use-analytics";
-import { formatDateRange, formatRelative } from "@/lib/format";
+import { formatDateRange, formatRelative, titleCase } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 // Replaces the old `beforeLoad: redirect to /maintenance` stub -- "/" is
@@ -42,19 +42,19 @@ export const Route = createFileRoute("/")({
   component: OverviewPage,
 });
 
-const NEEDS_ATTENTION_ICON: Record<NeedsAttentionItem["kind"], LucideIcon> = {
+const NEEDS_ATTENTION_ICON: Record<NeedsAttentionItem["reason"], LucideIcon> = {
   AWAITING_APPROVAL: MessageCircle,
   ESCALATED: AlertTriangle,
   OVERDUE_FOLLOW_UP: Clock3,
 };
 
-const NEEDS_ATTENTION_TONE_CLASS: Record<NeedsAttentionItem["kind"], string> = {
+const NEEDS_ATTENTION_TONE_CLASS: Record<NeedsAttentionItem["reason"], string> = {
   AWAITING_APPROVAL: "bg-status-amber text-status-amber-foreground",
   ESCALATED: "bg-status-red text-status-red-foreground",
   OVERDUE_FOLLOW_UP: "bg-status-orange text-status-orange-foreground",
 };
 
-const NEEDS_ATTENTION_LABEL: Record<NeedsAttentionItem["kind"], string> = {
+const NEEDS_ATTENTION_LABEL: Record<NeedsAttentionItem["reason"], string> = {
   AWAITING_APPROVAL: "Awaiting approval",
   ESCALATED: "Escalated",
   OVERDUE_FOLLOW_UP: "Overdue follow-up",
@@ -72,18 +72,16 @@ function OverviewPage() {
   const upcoming = data?.upcoming_appointments ?? [];
   const activity = data?.recent_activity ?? [];
 
-  // "Open cases" isn't guaranteed as its own field on the contract -- if the
-  // backend sends one directly, use it; otherwise derive it from the
-  // per-status breakdown (the 3 non-terminal CaseStatus values), and only
-  // fall back to "--" if neither is present at all. Never a client-side
-  // guess beyond summing real counts the backend actually returned.
-  const openCases =
-    data?.open_case_count ??
-    (data?.case_counts_by_status
-      ? (data.case_counts_by_status.ACTIVE ?? 0) +
-        (data.case_counts_by_status.AWAITING_CONFIRMATION ?? 0) +
-        (data.case_counts_by_status.ESCALATED ?? 0)
-      : undefined);
+  // There is no single "open cases" field on the wire -- status_counts
+  // breaks cases down by all 5 CaseStatus values. "Open" is the 3
+  // non-terminal ones (ACTIVE, AWAITING_CONFIRMATION, ESCALATED); RESOLVED
+  // and CANCELLED are terminal and excluded, matching
+  // analytics.case_is_open's definition on the backend.
+  const openCases = data
+    ? data.status_counts.active +
+      data.status_counts.awaiting_confirmation +
+      data.status_counts.escalated
+    : undefined;
 
   return (
     <AppShell>
@@ -168,9 +166,9 @@ function OverviewPage() {
                   ) : (
                     <ul className="divide-y divide-border">
                       {needsAttention.map((item) => {
-                        const Icon = NEEDS_ATTENTION_ICON[item.kind];
+                        const Icon = NEEDS_ATTENTION_ICON[item.reason];
                         return (
-                          <li key={item.id}>
+                          <li key={`${item.case_id}-${item.reason}`}>
                             <Link
                               to="/maintenance/tickets/$ticketId/{-$section}"
                               params={{ ticketId: item.case_id, section: undefined }}
@@ -179,7 +177,7 @@ function OverviewPage() {
                               <span
                                 className={cn(
                                   "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
-                                  NEEDS_ATTENTION_TONE_CLASS[item.kind],
+                                  NEEDS_ATTENTION_TONE_CLASS[item.reason],
                                 )}
                               >
                                 <Icon className="h-4 w-4" />
@@ -190,11 +188,11 @@ function OverviewPage() {
                                     #{item.case_number} · {item.case_title}
                                   </span>
                                   <span className="shrink-0 text-[10px] font-medium text-muted-foreground">
-                                    {NEEDS_ATTENTION_LABEL[item.kind]}
+                                    {NEEDS_ATTENTION_LABEL[item.reason]}
                                   </span>
                                 </div>
                                 <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
-                                  {item.message}
+                                  {item.detail}
                                 </p>
                               </div>
                               <span className="shrink-0 text-[10px] text-muted-foreground">
@@ -272,7 +270,7 @@ function OverviewPage() {
                   ) : (
                     <ul className="divide-y divide-border">
                       {activity.map((event) => (
-                        <ActivityRow key={event.id} event={event} />
+                        <ActivityRow key={event.event_id} event={event} />
                       ))}
                     </ul>
                   )}
@@ -363,7 +361,9 @@ function ActivityRow({ event }: { event: OverviewActivityItem }) {
           <div className="truncate text-xs font-semibold">
             #{event.case_number} · {event.case_title}
           </div>
-          <div className="truncate text-[11px] text-muted-foreground">{event.display_title}</div>
+          <div className="truncate text-[11px] text-muted-foreground">
+            {titleCase(event.event_type)}
+          </div>
         </div>
         <span className="shrink-0 text-[10px] text-muted-foreground">
           {formatRelative(event.occurred_at)}

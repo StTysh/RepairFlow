@@ -188,11 +188,11 @@ function ContractorProfilePage() {
                 )}
                 {c.work_history.map((w) => (
                   <tr
-                    key={w.work_order_id}
+                    key={w.id}
                     className="border-b border-border last:border-0 transition-colors hover:bg-muted/60"
                   >
                     <td className="max-w-[220px] px-4 py-2.5">
-                      {w.is_archived ? (
+                      {w.case_is_archived ? (
                         <div>
                           <div className="truncate font-medium" title={w.case_title}>
                             {w.case_title}

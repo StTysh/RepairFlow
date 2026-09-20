@@ -28,6 +28,55 @@ live case/cost/note/document.
   that include archival rows must also report `archived_case_count`
   (see `archived_case_count` below) so the UI can label the scope honestly
   rather than silently blending real and synthetic numbers.
+
+--------------------------------------------------------------------------
+THE "QUOTED MONEY" RECONCILIATION RULE (docs/audit/06 Finding 1,
+docs/audit/11 Finding 3, docs/26 2026-09-20)
+--------------------------------------------------------------------------
+There are two homes for a work order's quoted price: the
+`WorkOrderModel.quote_pence` column (set automatically the moment policy
+creates a work order; every operational case in this database has one and
+NEVER gets a CostEntryModel row unless an operator opens the Costs tab) and
+`CostEntryModel(kind=QUOTE)` rows (the append-only, editable, auditable
+ledger the rest of the money model -- invoices, adjustments -- already
+lives in exclusively). Nothing kept them in sync; Property Stats/History
+read one, Insights/Reports/CSV read the other, and they disagreed on
+screen (0p vs non-zero for every never-costed operational case; up to 3.4x
+for archival cases whose importer only ever ledgered `work_orders[0]`).
+
+`reconciled_quotes()` is the one function that decides, per work order,
+which figure wins -- and it is now the ONLY place `WorkOrderModel.
+quote_pence` is read for a "quoted" total anywhere in this codebase:
+
+  * a work order with >=1 QUOTE CostEntryModel row of its own: use the sum
+    of those rows (the ledger is authoritative once someone has logged a
+    real number against this work order -- e.g. a requote).
+  * a work order with none: fall back to its own `quote_pence` (this is
+    what makes every existing operational case -- which has never been
+    through the Costs tab -- show a correct, non-zero figure instead of a
+    silent 0, with no migration/backfill required: it is computed live, so
+    it can never go stale if quote_pence is edited later).
+  * a CANCELLED work order never contributes, in either case (a called-off
+    job's quote is money that will never be spent -- the same rule
+    services._pick_primary_trade already applies for the identical
+    reason).
+  * a case-level QUOTE entry (CostEntryModel.work_order_id IS NULL, e.g. a
+    site-visit estimate not tied to one trade) is always included verbatim
+    -- there is no work order to reconcile it against.
+
+Every screen that shows a "quoted" figure -- Property Stats/History
+(app.api.cases's /history and /stats, computed here as
+property_history_items/property_stats since domain/services.py is out of
+scope for this change), the Costs tab (app.api.costs), and Insights/
+Reports/CSV (case_detail_rows/spend_by_year below) -- now calls this one
+function, which is what makes them reconcile instead of merely agreeing by
+coincidence on today's data. One documented exception: property_stats/
+property_history_items exclude case-level (work-order-less) QUOTE entries,
+since neither has a trade to bucket them by and including them would break
+that page's OWN chart/table self-consistency; Insights/Reports/CSV include
+them (unchanged, pre-existing behaviour). No case in the current seed or
+archive generator ever produces a case-level QUOTE entry, so this is a
+documented, currently-inert edge case, not an active discrepancy.
 """
 from __future__ import annotations
 
@@ -47,8 +96,9 @@ from app.models import (
     PropertyModel,
     RepairCaseModel,
     TenantModel,
+    WorkOrderModel,
 )
-from app.schemas import CaseStatus, Trade
+from app.schemas import CaseStatus, CostKind, Trade, WorkOrderStatus
 
 
 def utcnow() -> datetime:
@@ -463,6 +513,83 @@ def resolution_hours(case: ResolutionInputs) -> float | None:
 
 
 @dataclasses.dataclass(frozen=True)
+class ReconciledQuote:
+    """One quoted-money contribution after reconciling CostEntryModel
+    against WorkOrderModel.quote_pence -- see this module's docstring,
+    "THE QUOTED MONEY RECONCILIATION RULE". `occurred_at` is the cost
+    entry's own `incurred_at` when `from_cost_entry` is True, else the
+    work order's `created_at` (the best available proxy for "when this
+    figure came into being" when there is no ledger row to date it by)."""
+
+    case_id: str
+    work_order_id: str | None
+    trade: Trade | None
+    occurred_at: datetime
+    quoted_pence: int
+    from_cost_entry: bool
+
+
+async def reconciled_quotes(session: AsyncSession, case_ids: list[str]) -> list[ReconciledQuote]:
+    """THE quoted-money reconciliation rule, batched over a set of cases.
+    Per live (non-CANCELLED) work order: its own QUOTE CostEntryModel
+    row(s) if any exist, else its own `quote_pence` (never both -- this is
+    what prevents double counting). Case-level QUOTE entries
+    (work_order_id IS NULL) are always included on top, verbatim. See the
+    module docstring for the full rationale; every "quoted" figure in this
+    codebase should be built from this function's output, not from
+    WorkOrderModel.quote_pence or CostEntryModel directly.
+    """
+    if not case_ids:
+        return []
+    work_orders = (
+        await session.execute(select(WorkOrderModel).where(WorkOrderModel.case_id.in_(case_ids)))
+    ).scalars().all()
+    live_by_id = {wo.id: wo for wo in work_orders if wo.status != WorkOrderStatus.CANCELLED}
+
+    cost_rows = (
+        await session.execute(
+            select(CostEntryModel).where(
+                CostEntryModel.case_id.in_(case_ids), CostEntryModel.kind == CostKind.QUOTE,
+            )
+        )
+    ).scalars().all()
+    by_work_order: dict[str, list[CostEntryModel]] = defaultdict(list)
+    case_level: list[CostEntryModel] = []
+    for entry in cost_rows:
+        if entry.work_order_id is not None:
+            by_work_order[entry.work_order_id].append(entry)
+        else:
+            case_level.append(entry)
+
+    result: list[ReconciledQuote] = []
+    for wo_id, wo in live_by_id.items():
+        entries = by_work_order.get(wo_id)
+        if entries:
+            for entry in entries:
+                result.append(
+                    ReconciledQuote(
+                        case_id=wo.case_id, work_order_id=wo_id, trade=wo.trade,
+                        occurred_at=entry.incurred_at, quoted_pence=entry.amount_pence, from_cost_entry=True,
+                    )
+                )
+        elif wo.quote_pence is not None:
+            result.append(
+                ReconciledQuote(
+                    case_id=wo.case_id, work_order_id=wo_id, trade=wo.trade,
+                    occurred_at=wo.created_at, quoted_pence=wo.quote_pence, from_cost_entry=False,
+                )
+            )
+    for entry in case_level:
+        result.append(
+            ReconciledQuote(
+                case_id=entry.case_id, work_order_id=None, trade=None,
+                occurred_at=entry.incurred_at, quoted_pence=entry.amount_pence, from_cost_entry=True,
+            )
+        )
+    return result
+
+
+@dataclasses.dataclass(frozen=True)
 class YearSpend:
     year: int
     quoted_pence: int
@@ -473,52 +600,64 @@ async def spend_by_year(
     session: AsyncSession, *, property_id: str | None = None, category: Trade | None = None,
     date_from: datetime | None = None, date_to: datetime | None = None, include_archived: bool = True,
 ) -> list[YearSpend]:
-    """CostEntryModel grouped by the calendar year of `incurred_at`
-    (integer pence throughout -- see CostEntryModel's docstring on why no
-    float ever touches money here). Returns `quoted_pence` and
-    `actual_pence` as two separate figures per year -- never summed into
-    one "spend" number, since a quote and an invoice answer different
-    questions.
+    """Money grouped by calendar year (integer pence throughout -- see
+    CostEntryModel's docstring on why no float ever touches money here).
+    Returns `quoted_pence` and `actual_pence` as two separate figures per
+    year -- never summed into one "spend" number, since a quote and an
+    invoice answer different questions.
 
-    `quoted_pence` sums CostKind.QUOTE rows only. `actual_pence` sums
-    CostKind.INVOICE rows plus CostKind.ADJUSTMENT rows. Judgment call (no
+    `quoted_pence` comes from `reconciled_quotes()` (see this module's
+    docstring), bucketed by each contribution's `occurred_at` year.
+    `actual_pence` sums CostKind.INVOICE rows plus CostKind.ADJUSTMENT
+    rows, unchanged -- there is no WorkOrderModel equivalent for "actual"
+    money, so there is nothing to reconcile on that side. Judgment call (no
     field distinguishes an adjustment to a quote from one to an invoice):
     an ADJUSTMENT is treated as a correction to real billed money, which
     keeps `quoted_pence` an honest read of original estimates only.
 
-    Filtered on CostEntryModel.incurred_at (the date the cost was actually
-    incurred), not the case's created_at -- spend has its own timeline.
-    property_id/category filters join to RepairCaseModel since a cost
-    entry doesn't carry either directly. include_archived filters
-    CostEntryModel.archive_batch_id, the same historical-inclusion rule as
-    every other function here.
+    Case selection (property_id/category/include_archived) matches
+    `_apply_case_filters` minus the date window -- `date_from`/`date_to`
+    are applied to each contribution's own `occurred_at`, not the case's
+    `created_at`, because spend has its own timeline (unchanged from this
+    function's pre-reconciliation behaviour).
     """
-    query = select(CostEntryModel.incurred_at, CostEntryModel.kind, CostEntryModel.amount_pence)
+    case_query = select(RepairCaseModel.id)
+    case_query = _apply_case_filters(
+        case_query, property_id=property_id, date_from=None, date_to=None,
+        include_archived=include_archived, category=category,
+    )
+    case_ids = list((await session.execute(case_query)).scalars().all())
+
+    quoted: dict[int, int] = defaultdict(int)
+    for contribution in await reconciled_quotes(session, case_ids):
+        if date_from is not None and contribution.occurred_at < date_from:
+            continue
+        if date_to is not None and contribution.occurred_at >= date_to:
+            continue
+        quoted[contribution.occurred_at.year] += contribution.quoted_pence
+
+    actual_query = select(CostEntryModel.incurred_at, CostEntryModel.amount_pence).where(
+        CostEntryModel.kind.in_([CostKind.INVOICE, CostKind.ADJUSTMENT])
+    )
     if property_id is not None or category is not None:
-        query = query.select_from(CostEntryModel).join(
+        actual_query = actual_query.select_from(CostEntryModel).join(
             RepairCaseModel, RepairCaseModel.id == CostEntryModel.case_id
         )
         if property_id is not None:
-            query = query.where(RepairCaseModel.property_id == property_id)
+            actual_query = actual_query.where(RepairCaseModel.property_id == property_id)
         if category is not None:
-            query = query.where(RepairCaseModel.category == category)
+            actual_query = actual_query.where(RepairCaseModel.category == category)
     if not include_archived:
-        query = query.where(CostEntryModel.archive_batch_id.is_(None))
+        actual_query = actual_query.where(CostEntryModel.archive_batch_id.is_(None))
     if date_from is not None:
-        query = query.where(CostEntryModel.incurred_at >= date_from)
+        actual_query = actual_query.where(CostEntryModel.incurred_at >= date_from)
     if date_to is not None:
-        query = query.where(CostEntryModel.incurred_at < date_to)
+        actual_query = actual_query.where(CostEntryModel.incurred_at < date_to)
 
-    rows = (await session.execute(query)).all()
-    quoted: dict[int, int] = defaultdict(int)
     actual: dict[int, int] = defaultdict(int)
-    for incurred_at, kind, amount in rows:
-        kind_value = kind.value if hasattr(kind, "value") else kind
-        year = incurred_at.year
-        if kind_value == "QUOTE":
-            quoted[year] += amount
-        elif kind_value in ("INVOICE", "ADJUSTMENT"):
-            actual[year] += amount
+    for incurred_at, amount in (await session.execute(actual_query)).all():
+        actual[incurred_at.year] += amount
+
     years = sorted(set(quoted) | set(actual))
     return [YearSpend(year=y, quoted_pence=quoted.get(y, 0), actual_pence=actual.get(y, 0)) for y in years]
 
@@ -794,13 +933,15 @@ async def case_detail_rows(
     include_archived: bool = True, limit: int | None = None,
 ) -> list[CaseDetailRow]:
     """Row-level case data backing every drill-down/detail table/export.
-    `quoted_pence`/`invoiced_pence` are this case's own CostEntryModel
-    totals (QUOTE, and INVOICE+ADJUSTMENT respectively -- same split as
-    spend_by_year); `resolution_hours`/`closed_at` are populated only for a
-    case that is currently RESOLVED or is archival (case_is_resolved(status)
-    or is_archived), matching resolution_time_distribution's inclusion
-    rule -- a reopened case that was once RESOLVED shows neither, since it
-    is not closed right now.
+    `quoted_pence` is this case's total from `reconciled_quotes()` (see
+    this module's docstring); `invoiced_pence` is this case's own
+    CostEntryModel INVOICE+ADJUSTMENT total, unchanged (same split as
+    spend_by_year -- there is no WorkOrderModel equivalent for "actual"
+    money to reconcile). `resolution_hours`/`closed_at` are populated only
+    for a case that is currently RESOLVED or is archival
+    (case_is_resolved(status) or is_archived), matching
+    resolution_time_distribution's inclusion rule -- a reopened case that
+    was once RESOLVED shows neither, since it is not closed right now.
     """
     query = (
         select(RepairCaseModel, PropertyModel.address_line)
@@ -825,19 +966,21 @@ async def case_detail_rows(
     quoted_by_case: dict[str, int] = defaultdict(int)
     invoiced_by_case: dict[str, int] = defaultdict(int)
     if case_ids:
-        cost_rows = (
+        for contribution in await reconciled_quotes(session, case_ids):
+            quoted_by_case[contribution.case_id] += contribution.quoted_pence
+
+        invoice_rows = (
             await session.execute(
-                select(CostEntryModel.case_id, CostEntryModel.kind, func.sum(CostEntryModel.amount_pence))
-                .where(CostEntryModel.case_id.in_(case_ids))
-                .group_by(CostEntryModel.case_id, CostEntryModel.kind)
+                select(CostEntryModel.case_id, func.sum(CostEntryModel.amount_pence))
+                .where(
+                    CostEntryModel.case_id.in_(case_ids),
+                    CostEntryModel.kind.in_([CostKind.INVOICE, CostKind.ADJUSTMENT]),
+                )
+                .group_by(CostEntryModel.case_id)
             )
         ).all()
-        for case_id, kind, total in cost_rows:
-            kind_value = kind.value if hasattr(kind, "value") else kind
-            if kind_value == "QUOTE":
-                quoted_by_case[case_id] += total or 0
-            elif kind_value in ("INVOICE", "ADJUSTMENT"):
-                invoiced_by_case[case_id] += total or 0
+        for case_id, total in invoice_rows:
+            invoiced_by_case[case_id] += total or 0
 
     contractors_by_case = await services.assigned_contractors_for_cases(session, case_ids) if case_ids else {}
 
@@ -872,6 +1015,173 @@ async def case_detail_rows(
             )
         )
     return result
+
+
+# --------------------------------------------------------------------------
+# Property History / Stats (app.api.cases's GET /properties/{id}/history
+# and /stats). These live here rather than in app/domain/services.py --
+# where their original, quote_pence-only implementations still exist as
+# dead code, since that directory was out of scope for this change (see
+# docs/26 2026-09-20) -- specifically so their "quoted" figures share
+# reconciled_quotes() with everything else in this module instead of
+# re-deriving money from WorkOrderModel.quote_pence a third way.
+# --------------------------------------------------------------------------
+
+
+async def property_history_items(session: AsyncSession, property_id: str) -> list["PropertyHistoryItem"]:
+    """Property History screen: past (and current) cases for a property,
+    each with an honest `outcome` when one is grounded in real data --
+    never a fabricated summary. `contractor_name`/`trade` reuse the exact
+    same selection rules the case-list endpoint uses
+    (services.assigned_contractors_for_cases/services._pick_primary_trade)
+    so this view can't disagree with those about "which trade"/"which
+    contractor". `quoted_pence` is this module's reconciled figure
+    (reconciled_quotes), restricted to work-order-backed contributions --
+    see this module's docstring for why a case-level, work-order-less
+    QUOTE entry is excluded here (keeps this page's own chart/table
+    mutually consistent; not currently reachable with real data).
+    """
+    from app.models import ContractorReportModel
+    from app.schemas import PropertyHistoryItem
+
+    cases = (
+        await session.execute(
+            select(RepairCaseModel).where(RepairCaseModel.property_id == property_id)
+            .order_by(RepairCaseModel.created_at.desc())
+        )
+    ).scalars().all()
+    case_ids = [c.id for c in cases]
+    contractors_by_case = await services.assigned_contractors_for_cases(session, case_ids)
+    work_orders_by_case = await services._work_orders_by_case_id(session, case_ids)
+
+    quoted_by_case: dict[str, int] = defaultdict(int)
+    priced_case_ids: set[str] = set()
+    for contribution in await reconciled_quotes(session, case_ids):
+        if contribution.trade is None:  # case-level entry -- see docstring
+            continue
+        quoted_by_case[contribution.case_id] += contribution.quoted_pence
+        priced_case_ids.add(contribution.case_id)
+
+    items: list[PropertyHistoryItem] = []
+    for case in cases:
+        resolved_at = None
+        outcome = None
+        if case.status == CaseStatus.RESOLVED:
+            resolved_event = (
+                await session.execute(
+                    select(CaseEventModel).where(
+                        CaseEventModel.case_id == case.id, CaseEventModel.type == "CASE_RESOLVED",
+                    ).order_by(CaseEventModel.occurred_at.desc()).limit(1)
+                )
+            ).scalars().first()
+            if resolved_event is not None:
+                resolved_at = resolved_event.occurred_at
+
+        latest_completion_report = (
+            await session.execute(
+                select(ContractorReportModel)
+                .join(WorkOrderModel, WorkOrderModel.id == ContractorReportModel.work_order_id)
+                .where(
+                    ContractorReportModel.case_id == case.id,
+                    WorkOrderModel.status == WorkOrderStatus.COMPLETED,
+                    WorkOrderModel.completion_report_id == ContractorReportModel.id,
+                )
+                .order_by(ContractorReportModel.received_at.desc())
+                .limit(1)
+            )
+        ).scalars().first()
+        if latest_completion_report is not None:
+            outcome = latest_completion_report.text
+
+        contractor = contractors_by_case.get(case.id)
+        items.append(
+            PropertyHistoryItem(
+                case_id=case.id, case_number=case.case_number, title=case.title, status=case.status,
+                created_at=case.created_at, resolved_at=resolved_at, outcome=outcome,
+                contractor_name=contractor.display_name if contractor else None,
+                quoted_pence=quoted_by_case.get(case.id) if case.id in priced_case_ids else None,
+                trade=services._pick_primary_trade(work_orders_by_case.get(case.id, [])),
+            )
+        )
+    return items
+
+
+async def property_stats(
+    session: AsyncSession, property_id: str, build_year: int | None
+) -> "PropertyStatsResponse":
+    """Property Stats screen: "breakdown by trade" / "annual quoted total"
+    / "recurring issues". `quoted_by_trade`/`quoted_by_year` both come from
+    `reconciled_quotes()` (see this module's docstring), restricted to
+    work-order-backed contributions for the same reason
+    property_history_items excludes case-level entries -- this keeps the
+    trade breakdown and the year breakdown summing to the same grand total,
+    which is what "the chart and the total must reconcile" means on this
+    one page. `quoted_by_year` buckets by the case's `created_at` year (not
+    the contribution's own `occurred_at`), matching this function's
+    pre-reconciliation behaviour -- unlike spend_by_year, property "annual
+    quoted total" has always meant "the year the issue was reported", not
+    "the year the money was incurred/quoted"; that distinction predates
+    this change and is left as-is.
+
+    recurring_issues heuristic (a judgment call -- there is no documented
+    product spec for this): group the property's cases by
+    services._pick_primary_trade, and report any trade with 2+ cases,
+    most-recently-occurring first. "Occurred" is a case's created_at (when
+    the issue was first reported), not its resolution date.
+    """
+    from app.schemas import PropertyStatsResponse, RecurringIssue, TradeQuoteBreakdown, YearlyQuoteTotal
+
+    cases = (
+        await session.execute(select(RepairCaseModel).where(RepairCaseModel.property_id == property_id))
+    ).scalars().all()
+    case_ids = [c.id for c in cases]
+    cases_by_id = {c.id: c for c in cases}
+    active_count = sum(1 for c in cases if c.status == CaseStatus.ACTIVE)
+    total_count = len(cases)
+
+    work_orders_by_case = await services._work_orders_by_case_id(session, case_ids)
+
+    trade_totals: dict[Trade, int] = defaultdict(int)
+    year_totals: dict[int, int] = defaultdict(int)
+    for contribution in await reconciled_quotes(session, case_ids):
+        if contribution.trade is None:  # case-level entry -- see docstring
+            continue
+        trade_totals[contribution.trade] += contribution.quoted_pence
+        case = cases_by_id.get(contribution.case_id)
+        if case is not None:
+            year_totals[case.created_at.year] += contribution.quoted_pence
+
+    trade_occurrences: dict[Trade, list[datetime]] = {}
+    for case in cases:
+        primary_trade = services._pick_primary_trade(work_orders_by_case.get(case.id, []))
+        if primary_trade is not None:
+            trade_occurrences.setdefault(primary_trade, []).append(case.created_at)
+
+    grand_total = sum(trade_totals.values())
+    quoted_by_trade = [
+        TradeQuoteBreakdown(
+            trade=trade, quoted_pence=amount,
+            percentage=round(amount / grand_total * 100, 1) if grand_total else 0.0,
+        )
+        for trade, amount in sorted(trade_totals.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+    quoted_by_year = [
+        YearlyQuoteTotal(year=year, quoted_pence=amount) for year, amount in sorted(year_totals.items())
+    ]
+    recurring_issues = sorted(
+        (
+            RecurringIssue(trade=trade, occurrence_count=len(occurrences), last_occurred_at=max(occurrences))
+            for trade, occurrences in trade_occurrences.items()
+            if len(occurrences) >= 2
+        ),
+        key=lambda item: item.last_occurred_at, reverse=True,
+    )
+
+    return PropertyStatsResponse(
+        property_id=property_id, active_count=active_count, total_count=total_count,
+        quoted_by_trade=quoted_by_trade, quoted_by_year=quoted_by_year,
+        recurring_issues=recurring_issues, build_year=build_year,
+    )
 
 
 # --------------------------------------------------------------------------

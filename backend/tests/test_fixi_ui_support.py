@@ -1242,3 +1242,73 @@ async def test_category_backfill_derives_from_work_order_trade(app_db):
     again, _skipped, already = await plan()
     assert again == []
     assert already >= 2
+
+
+@pytest.mark.asyncio
+async def test_category_backfill_ignores_cancelled_work_orders(app_db):
+    """A case misdiagnosed as electrical, cancelled, then actually fixed by
+    a plumber is a plumbing case. An earlier version of the backfill had
+    its own copy of the trade rule that never filtered on status and
+    categorised it ELECTRICAL -- disagreeing with the property-history
+    screen, which has always excluded cancelled work. The backfill now
+    delegates to the same `_pick_primary_trade`, so the two cannot drift
+    apart again."""
+    from app.backfill_category import plan
+    from app.models import (
+        PropertyModel,
+        RepairCaseModel,
+        RepairIssueModel,
+        TenantModel,
+        WorkOrderModel,
+    )
+    from app.schemas import WorkOrderKind, WorkOrderStatus
+
+    property_id, tenant_id, case_id, issue_id = uid(), uid(), uid(), uid()
+    async with session_scope() as session:
+        session.add(
+            PropertyModel(
+                id=property_id, address_line="3 Cancelled Way", postcode="BS1 2AA",
+                landlord_reference="LL-CX", roof_responsibility="LANDLORD",
+            )
+        )
+        session.add(
+            TenantModel(
+                id=tenant_id, property_id=property_id, display_name="CX Tenant",
+                preferred_channel="EMAIL",
+            )
+        )
+        await session.flush()
+        session.add(
+            RepairCaseModel(
+                id=case_id, case_number=7300, property_id=property_id, tenant_id=tenant_id,
+                status="ACTIVE", title="Water under the floor", risk={},
+            )
+        )
+        await session.flush()
+        session.add(
+            RepairIssueModel(id=issue_id, case_id=case_id, description="Damp", location="Hall")
+        )
+        await session.flush()
+        base = datetime.now(timezone.utc) - timedelta(days=5)
+        # Raised first, required, and then called off as a misdiagnosis.
+        session.add(
+            WorkOrderModel(
+                id=uid(), case_id=case_id, issue_id=issue_id, kind=WorkOrderKind.REPAIR,
+                trade=Trade.ELECTRICAL, scope="Check wiring", status=WorkOrderStatus.CANCELLED,
+                required_for_resolution=True, created_at=base,
+            )
+        )
+        # The work that actually happened.
+        session.add(
+            WorkOrderModel(
+                id=uid(), case_id=case_id, issue_id=issue_id, kind=WorkOrderKind.REPAIR,
+                trade=Trade.PLUMBING, scope="Fix leaking pipe", status=WorkOrderStatus.COMPLETED,
+                required_for_resolution=True, created_at=base + timedelta(hours=6),
+            )
+        )
+
+    changes, _skipped, _already = await plan()
+    derived = {case_id_: trade for case_id_, _n, trade, _r in changes}
+    assert derived[case_id] == "PLUMBING", (
+        "the cancelled electrical work order must not decide the category"
+    )

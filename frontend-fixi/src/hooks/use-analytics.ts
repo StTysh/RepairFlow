@@ -4,11 +4,16 @@
 // /api/v1/insights/cases, /api/v1/properties) are being built by another
 // agent in parallel -- this file is written against the contract in
 // NEEDS_FROM_ROOT_analytics.md's originating task, not a verified
-// openapi.json. Every response field is therefore optional here and every
-// read in the consuming components goes through a fallback ("--" / 0 /
-// empty list), never a value invented client-side. See
-// frontend-fixi/src/routes/NEEDS_FROM_ROOT_analytics.md for the exact
-// assumptions and any mismatch discovered while building this.
+// openapi.json. See frontend-fixi/src/routes/NEEDS_FROM_ROOT_analytics.md
+// for the exact assumptions and any mismatch discovered while building
+// this.
+//
+// Overview's types are the exception: they are read directly off
+// backend/app/api/overview.py's OverviewResponse/AttentionItemResponse/
+// ActivityItemResponse Pydantic models (verified 2026-09-20, docs/audit/07),
+// not guessed -- every field FastAPI declares there is required, so nothing
+// here is optional and no consumer should add a fallback that would hide a
+// future field rename as legitimate empty data.
 //
 // Deliberately does NOT add to src/api/endpoints.ts or src/api/types.ts --
 // both are owned/being edited by other agents in this same session. Fetch
@@ -28,13 +33,16 @@ const OVERVIEW_POLL_MS = 15000;
 
 export type NeedsAttentionKind = "AWAITING_APPROVAL" | "ESCALATED" | "OVERDUE_FOLLOW_UP";
 
+/** Matches overview.py's AttentionItemResponse exactly. No `id` field
+ * exists on the wire -- the same case_id can legitimately appear more than
+ * once (e.g. escalated *and* overdue), so callers needing a React key must
+ * combine case_id with reason, not use either alone. */
 export interface NeedsAttentionItem {
-  id: string;
-  kind: NeedsAttentionKind;
   case_id: string;
   case_number: number;
   case_title: string;
-  message: string;
+  reason: NeedsAttentionKind;
+  detail: string;
   occurred_at: string;
 }
 
@@ -42,40 +50,55 @@ export interface OverviewAppointmentItem {
   appointment_id: string;
   case_id: string;
   case_number: number;
-  case_title?: string | null;
+  case_title: string;
+  property_address: string;
+  contractor_id: string;
+  contractor_name: string;
   start_at: string;
   end_at: string;
-  property_address: string;
-  contractor_name: string;
 }
 
+/** Matches overview.py's ActivityItemResponse exactly -- there is no
+ * display_title/display_description on this endpoint (that pair belongs to
+ * the separate CaseEvent shape returned by GET /case-events). `event_type`
+ * is the raw CaseEvent.type enum string; render it with titleCase() the
+ * same way every other enum-shaped field in this app is displayed. */
 export interface OverviewActivityItem {
-  id: string;
+  event_id: string;
   case_id: string;
   case_number: number;
   case_title: string;
-  type?: string;
-  display_title: string;
-  display_description?: string | null;
+  event_type: string;
   occurred_at: string;
 }
 
-/** Every field optional/absent-tolerant: this is built against a contract
- * description, not a verified schema (see file header). Consumers must
- * treat every field as possibly missing. */
+export interface OverviewStatusCounts {
+  active: number;
+  awaiting_confirmation: number;
+  resolved: number;
+  escalated: number;
+  cancelled: number;
+  total: number;
+}
+
+export interface OverviewOpenAgeBucket {
+  label: string;
+  count: number;
+}
+
+/** overview.py's OverviewResponse: every field is required on the wire
+ * (FastAPI validates the Pydantic model server-side), so nothing here is
+ * optional. `overview.data` itself is still `| undefined` while the query
+ * is loading -- that's TanStack Query, not a gap in this contract. */
 export interface OverviewResponse {
-  property_count?: number;
-  tenant_count?: number;
-  approved_contractor_count?: number;
-  /** Assumed shape: counts keyed by the 5 real CaseStatus values. A
-   * top-level `open_case_count` is read first if the backend provides one
-   * directly; this is the fallback used to derive it otherwise (see
-   * routes/index.tsx). */
-  case_counts_by_status?: Partial<Record<CaseStatus, number>>;
-  open_case_count?: number;
-  needs_attention?: NeedsAttentionItem[];
-  upcoming_appointments?: OverviewAppointmentItem[];
-  recent_activity?: OverviewActivityItem[];
+  property_count: number;
+  tenant_count: number;
+  approved_contractor_count: number;
+  status_counts: OverviewStatusCounts;
+  open_age_buckets: OverviewOpenAgeBucket[];
+  needs_attention: NeedsAttentionItem[];
+  upcoming_appointments: OverviewAppointmentItem[];
+  recent_activity: OverviewActivityItem[];
 }
 
 export function useOverview() {

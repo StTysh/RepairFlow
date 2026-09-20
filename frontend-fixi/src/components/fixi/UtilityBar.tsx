@@ -1,6 +1,6 @@
 import * as Popover from "@radix-ui/react-popover";
 import { Link } from "@tanstack/react-router";
-import { Bell, Search } from "lucide-react";
+import { Bell, Menu, Search } from "lucide-react";
 import { NewTicketDialog } from "@/components/fixi/NewTicketDialog";
 import { useNotifications } from "@/hooks/use-notifications";
 import { useCaseSearch } from "@/lib/case-search-context";
@@ -10,11 +10,24 @@ import { formatRelative } from "@/lib/format";
  * renders once above every page instead of being duplicated per-route (see
  * AppShell.tsx). Search writes into the shared CaseSearchContext; only the
  * Maintenance list currently reads it back out to filter its case list --
- * on any other page the box still works, it just has nothing to filter yet. */
-export function UtilityBar() {
+ * on any other page the box still works, it just has nothing to filter yet.
+ *
+ * Below 1024px this is also the app's only persistent header, so it carries
+ * the menu button that opens AppShell's navigation drawer (see HIGH-1,
+ * docs/audit/08) -- hidden at lg and up, where the real sidebar is visible
+ * instead. */
+export function UtilityBar({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { search, setSearch } = useCaseSearch();
   return (
     <div className="flex items-center justify-end gap-2.5 py-2">
+      <button
+        type="button"
+        onClick={onOpenMenu}
+        aria-label="Open navigation menu"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-foreground shadow-card transition-colors hover:bg-accent lg:hidden"
+      >
+        <Menu className="h-4 w-4" />
+      </button>
       <label className="flex h-9 w-[340px] max-w-[42vw] items-center gap-2 rounded-xl border border-border bg-card px-3 text-muted-foreground shadow-card">
         <Search className="h-4 w-4 shrink-0" />
         <input

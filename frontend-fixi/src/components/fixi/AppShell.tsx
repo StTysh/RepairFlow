@@ -1,3 +1,4 @@
+import * as Dialog from "@radix-ui/react-dialog";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   BarChart3,
@@ -8,7 +9,9 @@ import {
   MessageSquare,
   Users,
   Wrench,
+  X,
 } from "lucide-react";
+import { useState } from "react";
 import { UtilityBar } from "@/components/fixi/UtilityBar";
 import { useAgentStatus } from "@/hooks/use-agent-status";
 import { useGlobalUnreadCount } from "@/hooks/use-unread-count";
@@ -53,6 +56,73 @@ export function FixiLogo() {
       <div className="leading-tight">
         <div className="text-[17px] font-bold tracking-tight text-foreground">Fixi</div>
         <div className="text-[10.5px] text-muted-foreground">Properties, solved.</div>
+      </div>
+    </div>
+  );
+}
+
+/** The eight primary destinations, shared verbatim between the desktop
+ * sidebar and the sub-1024px drawer (AppShell below) so the two can never
+ * drift into different navigation sets. `onNavigate` closes the drawer on
+ * the mobile side; the desktop `<aside>` never passes it, since there is
+ * nothing to close. */
+function SidebarNav({
+  pathname,
+  unreadCount,
+  onNavigate,
+}: {
+  pathname: string;
+  unreadCount: number;
+  onNavigate?: () => void;
+}) {
+  return (
+    <nav className="mt-7 flex flex-col gap-1" aria-label="Main">
+      {nav.map((item) => {
+        const isActive = item.exact
+          ? pathname === item.to
+          : pathname === item.to || pathname.startsWith(`${item.to}/`);
+        return (
+          <Link
+            key={item.label}
+            to={item.to}
+            onClick={onNavigate}
+            aria-current={isActive ? "page" : undefined}
+            className={cn(
+              "flex h-10 items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition-colors",
+              isActive
+                ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                : "text-sidebar-foreground hover:bg-sidebar-accent",
+            )}
+          >
+            <item.icon className="h-4 w-4" strokeWidth={1.9} />
+            {item.label}
+            {/* The reference shows a hardcoded "3" here. This is the
+             * real unread count and disappears at zero rather than
+             * advertising unread mail that does not exist. */}
+            {item.label === "Messages" && unreadCount > 0 && (
+              <span className="ml-auto rounded-full bg-status-green px-2 py-0.5 text-[10px] font-semibold text-status-green-foreground">
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            )}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+/** The operator-identity row at the foot of the sidebar/drawer -- see
+ * AgentStatusPanel's comment below: this shows the one identity actually
+ * known (the signed-in operator credential), never an invented user. */
+function AccountRow({ username }: { username: string }) {
+  return (
+    <div className="flex items-center gap-2.5 px-1">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-status-purple text-[11px] font-semibold text-status-purple-foreground">
+        {initials(username)}
+      </div>
+      <div className="min-w-0 leading-tight">
+        <div className="truncate text-xs font-semibold">{username}</div>
+        <div className="text-[11px] text-muted-foreground">Signed in</div>
       </div>
     </div>
   );
@@ -104,6 +174,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const unread = useGlobalUnreadCount();
   const unreadCount = unread.data?.unread_count ?? 0;
+  // Below 1024px the <aside> is hidden with nothing replacing it -- every
+  // destination except whichever page you're already on was unreachable
+  // without hand-editing the URL (docs/audit/08 HIGH-1). This drawer is
+  // that replacement: same eight links, same status panel, same account
+  // row, opened from the menu button UtilityBar renders at that width.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   return (
     <div className="flex min-h-screen w-full bg-background font-sans text-foreground antialiased">
@@ -113,61 +189,61 @@ export function AppShell({ children }: { children: React.ReactNode }) {
        * distance that breaks the next time the shell changes. */}
       <aside className="sticky top-0 hidden h-screen w-[218px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-3.5 py-4 print:hidden lg:flex">
         <FixiLogo />
-        <nav className="mt-7 flex flex-col gap-1" aria-label="Main">
-          {nav.map((item) => {
-            const isActive = item.exact
-              ? pathname === item.to
-              : pathname === item.to || pathname.startsWith(`${item.to}/`);
-            return (
-              <Link
-                key={item.label}
-                to={item.to}
-                aria-current={isActive ? "page" : undefined}
-                className={cn(
-                  "flex h-10 items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition-colors",
-                  isActive
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent",
-                )}
-              >
-                <item.icon className="h-4 w-4" strokeWidth={1.9} />
-                {item.label}
-                {/* The reference shows a hardcoded "3" here. This is the
-                 * real unread count and disappears at zero rather than
-                 * advertising unread mail that does not exist. */}
-                {item.label === "Messages" && unreadCount > 0 && (
-                  <span className="ml-auto rounded-full bg-status-green px-2 py-0.5 text-[10px] font-semibold text-status-green-foreground">
-                    {unreadCount > 99 ? "99+" : unreadCount}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-        </nav>
+        <SidebarNav pathname={pathname} unreadCount={unreadCount} />
         <div className="mt-auto space-y-3">
           <AgentStatusPanel />
           {/* The reference shows a fixed "Vlad Shuliar / Roche Properties".
            * There is no user or organisation model in this API, so this
            * shows the one thing that is actually known: the operator
            * credential this session signed in with. */}
-          <div className="flex items-center gap-2.5 px-1">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-status-purple text-[11px] font-semibold text-status-purple-foreground">
-              {initials(creds.username)}
-            </div>
-            <div className="min-w-0 leading-tight">
-              <div className="truncate text-xs font-semibold">{creds.username}</div>
-              <div className="text-[11px] text-muted-foreground">Signed in</div>
-            </div>
-          </div>
+          <AccountRow username={creds.username} />
         </div>
       </aside>
+
+      {/* Radix Dialog gives this focus-trapping, Escape-to-close and
+       * focus-return for free -- lg:hidden on both the overlay and content
+       * means the trigger (UtilityBar) never renders above 1024px either,
+       * so this can never be opened where the real sidebar is visible. */}
+      <Dialog.Root open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-foreground/25 backdrop-blur-[1px] lg:hidden" />
+          <Dialog.Content className="fixed inset-y-0 left-0 z-50 flex h-screen w-[248px] max-w-[82vw] flex-col overflow-y-auto border-r border-sidebar-border bg-sidebar px-3.5 py-4 shadow-panel lg:hidden">
+            <Dialog.Title className="sr-only">Navigation</Dialog.Title>
+            <Dialog.Description className="sr-only">
+              Jump to another part of Fixi, or check the AI agent&apos;s status and your account.
+            </Dialog.Description>
+            <div className="flex items-center justify-between">
+              <FixiLogo />
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  aria-label="Close menu"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </Dialog.Close>
+            </div>
+            <SidebarNav
+              pathname={pathname}
+              unreadCount={unreadCount}
+              onNavigate={() => setMobileNavOpen(false)}
+            />
+            <div className="mt-auto space-y-3">
+              <AgentStatusPanel />
+              <AccountRow username={creds.username} />
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
       <main className="min-w-0 flex-1">
         {/* Hoisted above every page so it is consistent and never
          * duplicated; matches the max-w-[1510px]/px-6 container the page
          * content uses so the bar's right edge lines up with the content
          * below it on a wide screen. */}
         <div className="mx-auto w-full max-w-[1510px] px-6 pt-4 print:hidden xl:px-7">
-          <UtilityBar />
+          <UtilityBar onOpenMenu={() => setMobileNavOpen(true)} />
         </div>
         {children}
       </main>

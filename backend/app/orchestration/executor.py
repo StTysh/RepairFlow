@@ -18,6 +18,8 @@ from typing import Protocol
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import update as sa_update
+
 from app.db import session_scope
 from app.domain import policy
 from app.domain import services
@@ -199,6 +201,36 @@ async def decide_approval(session: AsyncSession, decision: ApprovalDecision, act
         raise ConflictError("approval targets a proposal payload that no longer matches the recorded action")
     if case.version != decision.expected_case_version:
         raise StaleVersionError("approval view is stale; refresh before deciding", current_version=case.version)
+
+    # Claim the decision atomically before acting on it.
+    #
+    # The read-then-check above is not enough on its own: two concurrent
+    # approvals of the same action both saw AWAITING_APPROVAL and both
+    # proceeded. Only an incidental UNIQUE constraint on
+    # case_events(case_id, source_event_key) stopped the second from
+    # double-executing, and it surfaced as an unhandled 500 rather than a
+    # clean conflict -- which is luck, not design, and would not hold for
+    # an action whose event key differed.
+    #
+    # A conditional UPDATE guarded on the current state is the claim: the
+    # first writer moves the row out of AWAITING_APPROVAL, the second
+    # matches zero rows and is told plainly that someone got there first.
+    claimed_state = (
+        ActionState.REJECTED.value if not decision.approve else ActionState.PENDING.value
+    )
+    claim = await session.execute(
+        sa_update(ActionRecordModel)
+        .where(
+            ActionRecordModel.id == action_record.id,
+            ActionRecordModel.state == ActionState.AWAITING_APPROVAL.value,
+        )
+        .values(state=claimed_state, updated_at=utcnow())
+    )
+    if claim.rowcount != 1:
+        raise ConflictError(
+            f"action {action_record.id} was already decided by another request"
+        )
+    await session.refresh(action_record)
 
     if not decision.approve:
         action_record.state = ActionState.REJECTED.value

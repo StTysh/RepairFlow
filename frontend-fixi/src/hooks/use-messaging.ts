@@ -33,7 +33,7 @@ export interface ThreadListItem {
   tenant_name: string;
   last_message_preview: string | null;
   last_message_at: string | null;
-  last_sender: string | null;
+  last_message_sender_type: string | null;
   unread_count: number;
   total_count: number;
   is_archived: boolean;
@@ -44,12 +44,14 @@ interface ThreadsListResponseRaw {
   threads?: ThreadListItem[];
 }
 
-/** Raw attachment shape isn't specified beyond "attachments[]" -- accept
- * either a bare document-id string or an object carrying one, and
- * normalize with `normalizeAttachment` below rather than guessing one
- * shape and breaking on the other. */
-export type MessageAttachment =
-  string | { id: string; name?: string | null; filename?: string | null };
+/** Matches messaging.py's compose handler exactly: each attachment is
+ * written as {document_id, display_name, content_type} (messaging.py:259-261),
+ * not {id, name}. */
+export type MessageAttachment = {
+  document_id: string;
+  display_name: string;
+  content_type: string;
+};
 
 export interface ThreadMessage {
   id: string;
@@ -82,9 +84,7 @@ export interface ThreadDetail {
 }
 
 export function normalizeAttachment(a: MessageAttachment): { id: string; label: string } {
-  if (typeof a === "string") return { id: a, label: a };
-  const label = a.name ?? a.filename ?? a.id;
-  return { id: a.id, label };
+  return { id: a.document_id, label: a.display_name };
 }
 
 // --- Thread list filters, persisted in the URL query string -----------------

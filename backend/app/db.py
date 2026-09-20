@@ -1,8 +1,10 @@
 """Async SQLAlchemy engine/session with SQLite WAL durability settings."""
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import asyncio
+from collections.abc import AsyncIterator, Coroutine
 from contextlib import asynccontextmanager
+from typing import Any, TypeVar
 
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
@@ -96,12 +98,35 @@ def _add_missing_columns(conn) -> list[str]:
         for column in table.columns:
             if column.name in present:
                 continue
-            if not column.nullable and column.default is None and column.server_default is None:
-                # Adding a NOT NULL column with no default to a populated
-                # table cannot succeed; surface it instead of half-applying.
+            if not column.nullable and column.default is None:
+                # Refuses BOTH the "no default at all" case AND the
+                # "nullable=False with only a server_default" case.
+                # SQLite's ALTER TABLE ADD COLUMN only accepts NOT NULL
+                # when it can pre-fill every existing row with a constant
+                # DEFAULT; `column.server_default` is an arbitrary SQL
+                # expression (whatever was passed to
+                # `sa.Column(server_default=...)`, e.g. `sa.text(...)`)
+                # that this function has no general, safe way to prove is
+                # a compile-time constant. An earlier version of this
+                # guard only fired when *no* default existed at all,
+                # which let a `nullable=False, server_default=...` column
+                # sail through: the ALTER TABLE that followed rendered
+                # only the column's type, so SQLite created it nullable
+                # and default-less -- silently contradicting both
+                # `nullable=False` and the intended server_default (see
+                # docs/audit/04_schema_migrations.md, Finding 3a).
+                # Refusing loudly is deliberately preferred over emitting
+                # the DEFAULT clause here: write a reviewed Alembic
+                # revision instead, which can inspect the expression by
+                # hand and issue
+                # `ALTER TABLE ... ADD COLUMN ... DEFAULT <expr> NOT NULL`
+                # directly once a human has confirmed it is safe for
+                # every existing row.
                 raise RuntimeError(
                     f"cannot auto-add non-nullable column {table.name}.{column.name} "
-                    "without a default -- write an Alembic revision for it"
+                    "without a Python-side `default=` (a `server_default`-only "
+                    "nullable=False column is refused too) -- write an Alembic "
+                    "revision for it"
                 )
             ddl_type = column.type.compile(dialect=conn.dialect)
             conn.exec_driver_sql(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {ddl_type}')
@@ -173,3 +198,37 @@ async def dispose_engine() -> None:
         await _engine.dispose()
     _engine = None
     _session_factory = None
+
+
+_T = TypeVar("_T")
+
+
+def run_cli(coro: Coroutine[Any, Any, _T]) -> _T:
+    """Entry point for every standalone `python -m app.xxx` script.
+
+    `main.py`'s FastAPI lifespan is the only caller of `create_all()` in
+    the running application; every other entry point
+    (`app.seed`, `app.legacy_demo_purge`, `app.backfill_category`,
+    `app.archive`) is invoked directly, so without this it queries
+    whatever schema the database file happens to already be at. Against
+    a real, already-deployed database that predates a later model
+    change, that schema is missing tables/columns entirely --
+    reproduced empirically in docs/audit/04_schema_migrations.md
+    (Finding 2): `python -m app.legacy_demo_purge --dry-run` against a
+    copy of the real database died with
+    `OperationalError: no such table: cost_entries`.
+
+    One shared helper instead of a `await create_all()` pasted at the
+    top of each script's coroutine, so there is exactly one place that
+    decides *how* a CLI bootstraps. `create_all()` is idempotent
+    (`checkfirst=True` table creation, diff-based column/index backfill),
+    so it is always safe to call once per process -- including a script
+    like `backfill_category` whose `main()` calls this twice (`plan()`
+    then `apply_changes()`).
+    """
+
+    async def _bootstrap_then_run() -> _T:
+        await create_all()
+        return await coro
+
+    return asyncio.run(_bootstrap_then_run())

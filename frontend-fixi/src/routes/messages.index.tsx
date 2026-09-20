@@ -272,7 +272,7 @@ function ThreadRow({
             unread ? "text-foreground" : "text-muted-foreground",
           )}
         >
-          {item.last_sender ? `${item.last_sender}: ` : ""}
+          {item.last_message_sender_type ? `${item.last_message_sender_type}: ` : ""}
           {item.last_message_preview ?? "No messages yet."}
         </p>
         {item.is_archived && (

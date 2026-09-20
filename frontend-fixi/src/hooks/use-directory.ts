@@ -107,8 +107,13 @@ export interface ContractorListItem {
   is_archived: boolean;
 }
 
+/** Matches contractors.py's ContractorWorkHistoryItem exactly: the work
+ * order's id is `id` (not `work_order_id`), and archival status is
+ * `case_is_archived` (not `is_archived`) -- both renamed here rather than
+ * read from the wrong wire key, since the old names silently shipped
+ * `""`/`false` for every row (docs/audit/07 Finding 4). */
 export interface ContractorWorkHistoryItem {
-  work_order_id: string;
+  id: string;
   case_id: string;
   case_number: number | null;
   case_title: string;
@@ -117,7 +122,7 @@ export interface ContractorWorkHistoryItem {
   scope: string;
   quote_pence: number | null;
   created_at: string | null;
-  is_archived: boolean;
+  case_is_archived: boolean;
 }
 
 export interface ContractorProfile extends ContractorListItem {
@@ -146,7 +151,7 @@ function normalizeContractorListItem(raw: unknown): ContractorListItem {
 function normalizeWorkHistoryItem(raw: unknown): ContractorWorkHistoryItem {
   const r = (raw ?? {}) as Record<string, unknown>;
   return {
-    work_order_id: asString(r["work_order_id"]) ?? "",
+    id: asString(r["id"]) ?? "",
     case_id: asString(r["case_id"]) ?? "",
     case_number: typeof r["case_number"] === "number" ? r["case_number"] : null,
     case_title: asString(r["case_title"]) ?? "Untitled case",
@@ -155,7 +160,7 @@ function normalizeWorkHistoryItem(raw: unknown): ContractorWorkHistoryItem {
     scope: asString(r["scope"]) ?? "",
     quote_pence: typeof r["quote_pence"] === "number" ? r["quote_pence"] : null,
     created_at: asString(r["created_at"]),
-    is_archived: Boolean(r["is_archived"]),
+    case_is_archived: Boolean(r["case_is_archived"]),
   };
 }
 
@@ -350,7 +355,9 @@ export interface TenantCaseItem {
   case_number: number | null;
   title: string;
   status: string;
-  updated_at: string | null;
+  /** TenantCaseSummary (tenants.py) has no per-case updated_at -- created_at
+   * is the honest field here. */
+  created_at: string | null;
 }
 
 export interface TenantProfile extends TenantListItem {
@@ -396,7 +403,7 @@ function normalizeTenantProfile(raw: unknown): TenantProfile {
         case_number: typeof cr["case_number"] === "number" ? cr["case_number"] : null,
         title: asString(cr["title"]) ?? asString(cr["case_title"]) ?? "Untitled case",
         status: asString(cr["status"]) ?? "UNKNOWN",
-        updated_at: asString(cr["updated_at"]),
+        created_at: asString(cr["created_at"]),
       };
     }),
   };

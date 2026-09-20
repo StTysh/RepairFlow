@@ -106,8 +106,30 @@ async def run_coordinate(*, case_id: str, trigger_event_id: str, coordinator: Co
     async with session_scope() as session:
         case = await services.load_case(session, case_id)
 
+        # A case that is escalated or cancelled is, by definition, not
+        # being handled automatically any more: ESCALATED means a human
+        # was asked to take it, CANCELLED means it is closed. Waking the
+        # coordinator on either one would let the model propose — and the
+        # executor then perform — work on a case nobody is expecting
+        # movement on, including an outbound call. A stale COORDINATE job
+        # left in the durable queue is enough to trigger it on the next
+        # boot, with no fresh operator action anywhere in the chain.
+        #
+        # This sits above the hazard gate deliberately: escalating an
+        # already-escalated case would append a second CASE_ESCALATED
+        # event for the same standing reason.
+        if case.status in ("ESCALATED", "CANCELLED"):
+            return None
+
         risk = RiskAssessment.model_validate(case.risk)
-        if policy.is_hazard(risk) and case.status not in ("ESCALATED", "CANCELLED", "RESOLVED"):
+        # RESOLVED is NOT excluded. A hazard reported after a repair was
+        # signed off is exactly the case that most needs escalating —
+        # someone is telling you the property is unsafe *now*. Excluding
+        # it here was the whole of the "RESOLVED -> ESCALATED is broken"
+        # bug: the transition graph has always permitted that edge and
+        # escalate_to_human has always been able to make it; this gate
+        # simply never called it.
+        if policy.is_hazard(risk):
             from app.schemas import Escalate
 
             await services.escalate_to_human(

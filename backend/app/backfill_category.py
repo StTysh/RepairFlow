@@ -8,20 +8,29 @@ Those cases do already carry the information, one hop away: their work
 orders each have a real `Trade`. This derives the case's category from
 them, once, explicitly.
 
-The derivation, and why:
+The derivation is **not reimplemented here**. It delegates to
+`services._pick_primary_trade`, the same rule the property-history and
+property-stats views already use to answer "what kind of work is this
+case about":
 
-* **Exactly one distinct work-order trade** → that trade. Unambiguous.
-* **Several distinct trades** → the trade of the work order marked
-  `required_for_resolution`, falling back to the earliest by
-  `created_at`. A case's category is meant to describe what the *issue*
-  is, not every trade it eventually touched; a roof leak that needed
-  scaffolding is still a roofing case. The first-raised required work
-  order is the closest honest proxy for the original diagnosis.
-* **No work orders at all** → left NULL. There is nothing to derive it
-  from. Guessing would push a fabricated classification into every count,
-  donut segment and recurrence group that reads this column, which is
-  exactly the failure this whole exercise is meant to avoid. The UI
-  labels these "Uncategorised", which is true.
+* CANCELLED work orders are excluded first — work that was called off is
+  not what the case is about any more. An earlier version of this file
+  missed that and categorised a case ELECTRICAL when the electrical work
+  order had been cancelled as a misdiagnosis and a plumber did the
+  actual repair.
+* Among what remains, the work order marked `required_for_resolution`
+  wins (the primary repair, not a scaffold or access prerequisite
+  discovered later); ties and absences fall back to the earliest by
+  `created_at`.
+* **No work orders, or every one cancelled** → left NULL. There is
+  nothing to derive it from, and guessing would push a fabricated
+  classification into every count, donut segment and recurrence group
+  that reads this column. The UI labels these "Uncategorised", which is
+  true.
+
+Sharing the rule is the point: a category derived here that disagreed
+with the trade shown on the property-history screen would be worse than
+no backfill at all.
 
 Never overwrites a category that is already set, and never touches an
 archival case — the archive assigns its own categories deliberately and
@@ -44,10 +53,11 @@ from app.db import session_scope
 
 
 async def plan() -> tuple[list[tuple[str, int, str, str]], int, int]:
-    """Returns (changes, skipped_no_work_orders, already_set).
+    """Returns (changes, skipped, already_set).
 
     Each change is (case_id, case_number, trade, reason).
     """
+    from app.domain.services import _pick_primary_trade
     from app.models import RepairCaseModel, WorkOrderModel
 
     async with session_scope() as session:
@@ -78,41 +88,33 @@ async def plan() -> tuple[list[tuple[str, int, str, str]], int, int]:
         case_ids = [c.id for c in cases]
         work_orders = (
             await session.execute(
-                sa.select(
-                    WorkOrderModel.case_id,
-                    WorkOrderModel.trade,
-                    WorkOrderModel.required_for_resolution,
-                    WorkOrderModel.created_at,
-                )
+                sa.select(WorkOrderModel)
                 .where(WorkOrderModel.case_id.in_(case_ids))
                 .order_by(WorkOrderModel.created_at)
             )
-        ).all()
+        ).scalars().all()
 
     by_case: dict[str, list] = defaultdict(list)
-    for row in work_orders:
-        by_case[row.case_id].append(row)
+    for wo in work_orders:
+        by_case[wo.case_id].append(wo)
 
     changes: list[tuple[str, int, str, str]] = []
     skipped = 0
     for case in cases:
         rows = by_case.get(case.id, [])
-        if not rows:
+        trade = _pick_primary_trade(rows)
+        if trade is None:
             skipped += 1
             continue
-        trades = {r.trade for r in rows}
-        if len(trades) == 1:
-            trade = next(iter(trades))
-            reason = "single work-order trade"
+        live = [wo for wo in rows if wo.status != "CANCELLED"]
+        cancelled = len(rows) - len(live)
+        distinct = {wo.trade for wo in live}
+        if len(distinct) == 1:
+            reason = "single live work-order trade"
         else:
-            required = [r for r in rows if r.required_for_resolution]
-            chosen = (required or rows)[0]  # rows are already created_at-ordered
-            trade = chosen.trade
-            reason = (
-                f"{len(trades)} trades; took the earliest required work order"
-                if required
-                else f"{len(trades)} trades; none required, took the earliest"
-            )
+            reason = f"{len(distinct)} live trades; primary-repair rule"
+        if cancelled:
+            reason += f" ({cancelled} cancelled excluded)"
         changes.append((case.id, case.case_number, getattr(trade, "value", trade), reason))
 
     return changes, skipped, already_set
@@ -161,8 +163,9 @@ def main() -> None:
 
     if skipped:
         print(
-            f"{skipped} case(s) left uncategorised: no work orders to derive a category from. "
-            "They will show as \"Uncategorised\", which is accurate."
+            f"{skipped} case(s) left uncategorised: no live work order to derive a category "
+            "from (none at all, or every one cancelled). They will show as "
+            "\"Uncategorised\", which is accurate."
         )
     if already_set:
         print(f"{already_set} case(s) already had a category and were not touched.")

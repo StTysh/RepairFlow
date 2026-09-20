@@ -551,7 +551,13 @@ async def apply_triage(session: AsyncSession, *, case_id: str, action: ApplyTria
         resource_ids["work_order_id"] = wo.id
         event_type = "WORK_ORDER_CREATED"
     elif existing_wo.trade != action.suggested_trade and existing_wo.status != WorkOrderStatus.READY:
-        case.resume_status = case.status
+        # Only record where to resume *to* if we are not already there.
+        # Escalating an already-ESCALATED case used to set
+        # resume_status = ESCALATED, so a later resume "succeeded" and
+        # put the case straight back into escalation -- stranded, with a
+        # success message. Keep the original pre-escalation status.
+        if case.status != CaseStatus.ESCALATED:
+            case.resume_status = case.status
         assert_case_transition(case.status, CaseStatus.ESCALATED)
         case.status = CaseStatus.ESCALATED
         case.escalation_reason = "Trade changed after dispatch; needs human review."
@@ -1377,6 +1383,10 @@ async def load_upcoming_appointments(session: AsyncSession, limit: int = 100) ->
     from app.schemas import AppointmentStatus as AppointmentStatus_
     from app.schemas import UpcomingAppointmentItem
 
+    # Operational only. An archival case is closed history; a future
+    # appointment on one would be a fabricated commitment sitting in the
+    # operator's "upcoming visits" list. Every sibling aggregate filters
+    # this way and these two did not.
     now = utcnow()
     rows = (
         await session.execute(
@@ -1388,7 +1398,11 @@ async def load_upcoming_appointments(session: AsyncSession, limit: int = 100) ->
             .join(RepairCaseModel, RepairCaseModel.id == AppointmentModel.case_id)
             .join(PropertyModel, PropertyModel.id == RepairCaseModel.property_id)
             .join(ContractorModel, ContractorModel.id == AppointmentModel.contractor_id)
-            .where(AppointmentModel.status == AppointmentStatus_.CONFIRMED, AppointmentModel.start_at >= now)
+            .where(
+                AppointmentModel.status == AppointmentStatus_.CONFIRMED,
+                AppointmentModel.start_at >= now,
+                RepairCaseModel.archive_batch_id.is_(None),
+            )
             .order_by(AppointmentModel.start_at.asc())
             .limit(limit)
         )
@@ -1443,7 +1457,13 @@ async def load_notifications(session: AsyncSession, limit: int = 50) -> list["No
         await session.execute(
             select(ActionRecordModel, RepairCaseModel.case_number, RepairCaseModel.title)
             .join(RepairCaseModel, RepairCaseModel.id == ActionRecordModel.case_id)
-            .where(ActionRecordModel.state == "AWAITING_APPROVAL")
+            # Operational only: an archival case can never need a
+            # decision, and one appearing in the bell would be a
+            # fabricated task.
+            .where(
+                ActionRecordModel.state == "AWAITING_APPROVAL",
+                RepairCaseModel.archive_batch_id.is_(None),
+            )
             .order_by(ActionRecordModel.updated_at.desc())
             .limit(limit)
         )
@@ -1452,7 +1472,10 @@ async def load_notifications(session: AsyncSession, limit: int = 50) -> list["No
         await session.execute(
             select(CaseEventModel, RepairCaseModel.case_number, RepairCaseModel.title, RepairCaseModel.status)
             .join(RepairCaseModel, RepairCaseModel.id == CaseEventModel.case_id)
-            .where(CaseEventModel.type == "CASE_ESCALATED")
+            .where(
+                CaseEventModel.type == "CASE_ESCALATED",
+                RepairCaseModel.archive_batch_id.is_(None),
+            )
             .order_by(CaseEventModel.occurred_at.desc())
             .limit(limit)
         )

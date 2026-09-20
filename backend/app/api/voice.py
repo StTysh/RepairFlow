@@ -108,7 +108,24 @@ async def create_voice_session(request: VoiceSessionRequest) -> VoiceSessionResp
             agent_id=settings.elevenlabs_agent_id, api_key=settings.elevenlabs_api_key,
         )
     except httpx.HTTPError as exc:
-        raise ExternalResultUnknownError(f"failed to obtain a signed ElevenLabs session: {exc}") from exc
+        # Not an unknown outcome: no signed URL came back, so no session
+        # exists and the browser has nothing to connect to. This used to
+        # raise ExternalResultUnknownError, which the error handler maps
+        # to **202 Accepted** -- the client was told its request had been
+        # accepted for a session that had definitively failed to be
+        # created. A failure to obtain a credential is a provider
+        # failure; say so.
+        #
+        # The Communication row committed in Phase A above stays, marked
+        # FAILED: it is the durable record that an attempt was made, and
+        # deleting it would lose that.
+        async with session_scope() as failure_session:
+            failed = await failure_session.get(CommunicationModel, comm_id)
+            if failed is not None:
+                failed.state = "FAILED"
+        raise ProviderUnavailableError(
+            f"failed to obtain a signed ElevenLabs session: {exc}"
+        ) from exc
 
     return VoiceSessionResponse(
         communication_id=comm_id, session_credential=signed_url, connection_type="websocket",

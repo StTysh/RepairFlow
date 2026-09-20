@@ -67,7 +67,15 @@ These were deferred, not fixed. The new assignment explicitly does not erase the
 
 ### Safety state found at start
 - `backend/.env` has `OUTBOUND_CALLS_ENABLED=true` and
-  `OUTBOUND_CALL_ALLOWLIST=["+44785XXXXXXX"]` (the user's real phone).
+  `OUTBOUND_CALL_ALLOWLIST` containing a single real mobile number (the
+  owner's). The number itself is deliberately not repeated here — it is
+  personal data and this file is tracked. Read it from `backend/.env`,
+  which is gitignored and has never been committed.
+
+  > **It was written here in full in three earlier commits** (`2adb8da`, `4b839ba`, `f0b6c83`). Redacting the file does not remove
+  > it from git history. If this repository is ever published or shared,
+  > that history needs rewriting (`git filter-repo`) or the number
+  > treated as disclosed.
 - `main.py` lifespan unconditionally starts `run_worker_loop`, which drains the
   durable `jobs` table. A pending `PLACE_CALL` job would dial on boot.
 - Verified at start: **zero open jobs** (`COORDINATE` 8, `EXECUTE_ACTION` 6,

@@ -215,7 +215,7 @@ function TenantProfilePage() {
                         {cs.title}
                       </div>
                       <div className="mt-0.5 text-[11px] text-muted-foreground">
-                        Updated {formatRelative(cs.updated_at)}
+                        Reported {formatRelative(cs.created_at)}
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">

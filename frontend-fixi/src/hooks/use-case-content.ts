@@ -319,7 +319,10 @@ function useInvalidateCosts(caseId: string) {
     void queryClient.invalidateQueries({ queryKey: caseDetailQueryKey(caseId) });
     void queryClient.invalidateQueries({ queryKey: ["property-stats"] });
     void queryClient.invalidateQueries({ queryKey: ["insights"] });
-    void queryClient.invalidateQueries({ queryKey: ["reports"] });
+    // Real key is ["reports-summary", filters] (use-reports.ts) -- ["reports"]
+    // matched nothing, so the Reports screen never refreshed after a cost
+    // was recorded (docs/audit/07, invalidation audit).
+    void queryClient.invalidateQueries({ queryKey: ["reports-summary"] });
   };
 }
 

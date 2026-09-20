@@ -48,8 +48,32 @@ async def verify_subject_exists(session: AsyncSession, subject_type: RecordSubje
 
 _SAFE_EXT_RE = re.compile(r"^[A-Za-z0-9]{1,10}$")
 
-# Content types the browser can render inline instead of downloading.
-_INLINE_CONTENT_TYPES = {"application/pdf"}
+# Content types the browser may render inline. This is an allowlist, not
+# a prefix match, and it is deliberately short.
+#
+# `content_type.startswith("image/")` used to decide this, taken straight
+# from the client's multipart header. `image/svg+xml` passes that test,
+# and an SVG is a document that can execute script — so an uploaded file
+# came back inline from this application's own origin with its
+# `<script>` intact. Same-origin means it could read the operator's
+# session. Raster formats cannot execute; SVG is excluded on purpose and
+# downloads instead.
+_INLINE_CONTENT_TYPES = frozenset(
+    {
+        "application/pdf",
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+        "image/bmp",
+        "image/avif",
+    }
+)
+
+# Served instead of the client's declared type for anything not on the
+# allowlist above, so a mislabelled or hostile file is never handed back
+# with a type that makes a browser interpret it.
+_FALLBACK_CONTENT_TYPE = "application/octet-stream"
 
 _UPLOAD_CHUNK_BYTES = 1024 * 1024
 
@@ -186,11 +210,28 @@ async def get_document_content(
     if not path.exists():
         raise NotFoundError(f"document {document_id} metadata exists but its file is missing from disk")
 
-    is_previewable = doc.content_type.startswith("image/") or doc.content_type in _INLINE_CONTENT_TYPES
-    disposition = "attachment" if (download or not is_previewable) else "inline"
-    safe_name = doc.display_name.replace('"', "")
-    headers = {"Content-Disposition": f'{disposition}; filename="{safe_name}"'}
-    return Response(content=path.read_bytes(), media_type=doc.content_type, headers=headers)
+    inline_ok = doc.content_type in _INLINE_CONTENT_TYPES
+    disposition = "inline" if inline_ok and not download else "attachment"
+    # Only a type on the allowlist is echoed back. Anything else is served
+    # as an opaque download whatever the uploader claimed it was.
+    media_type = doc.content_type if inline_ok else _FALLBACK_CONTENT_TYPE
+
+    # The filename reaches a response header, so it cannot carry a quote,
+    # a newline or a carriage return -- a CR/LF there is header injection,
+    # not a cosmetic problem.
+    safe_name = "".join(
+        ch for ch in doc.display_name if ch not in '"\\\r\n' and ch.isprintable()
+    )[:120] or "document"
+    headers = {
+        "Content-Disposition": f'{disposition}; filename="{safe_name}"',
+        # Belt and braces: stops a browser second-guessing the declared
+        # type and executing something we deliberately downgraded.
+        "X-Content-Type-Options": "nosniff",
+        # An inline document is still untrusted content. Even for the
+        # allowlisted types, forbid scripting outright.
+        "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox",
+    }
+    return Response(content=path.read_bytes(), media_type=media_type, headers=headers)
 
 
 @router.delete("/documents/{document_id}", status_code=204)

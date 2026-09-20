@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import analytics
 from app.api.deps import get_session, require_operator
 from app.domain import services
 from app.domain.errors import ConflictError, DomainError, NotFoundError, PolicyRejectedError
@@ -98,7 +99,7 @@ async def list_cases(
         .order_by(RepairCaseModel.updated_at.desc())
         .limit(limit + 1)
     )
-    if not include_archived and False:
+    if not include_archived:
         # Synthetic archival history is excluded from the operational list
         # by default: it exists to populate charts, not to be worked on.
         query = query.where(RepairCaseModel.archive_batch_id.is_(None))
@@ -402,6 +403,12 @@ async def edit_case(
 
 @router.post("/cases/{case_id}/reports", status_code=202)
 async def submit_report(case_id: str, submission: ReportSubmission, session: AsyncSession = Depends(get_session)) -> ReportSubmitResponse:
+    # `record_contractor_report` derives the case from the work order, not
+    # from this URL, so without this check a report posted to case A with
+    # case B's work_order_id silently landed on case B and returned 202.
+    # `load_work_order` raises NotFoundError unless the work order really
+    # belongs to the case in the path.
+    await services.load_work_order(session, case_id, str(submission.work_order_id))
     report_id, result = await services.record_contractor_report(
         session, submission=submission,
         source_ref=EvidenceRef(source_type=SourceType.OPERATOR, source_id=str(uuid.uuid4()), observed_at=datetime.now(timezone.utc), provenance=Provenance.SIMULATED),
@@ -413,6 +420,10 @@ async def submit_report(case_id: str, submission: ReportSubmission, session: Asy
 @router.post("/cases/{case_id}/resume", status_code=202)
 async def resume_case(case_id: str, request: ResumeCaseRequest, session: AsyncSession = Depends(get_session)) -> CaseVersionResponse:
     case = await services.load_case(session, case_id)
+    if case.archive_batch_id is not None:
+        raise ConflictError(
+            "this is an archival sample case; archival records are read-only"
+        )
     if case.version != request.version:
         from app.domain.errors import StaleVersionError
 
@@ -442,6 +453,10 @@ async def resume_case(case_id: str, request: ResumeCaseRequest, session: AsyncSe
 @router.post("/cases/{case_id}/reopen", status_code=202)
 async def reopen_case(case_id: str, request: ReopenCaseRequest, session: AsyncSession = Depends(get_session)) -> CaseVersionResponse:
     case = await services.load_case(session, case_id)
+    if case.archive_batch_id is not None:
+        raise ConflictError(
+            "this is an archival sample case; archival records are read-only"
+        )
     if case.version != request.version:
         from app.domain.errors import StaleVersionError
 
@@ -463,6 +478,10 @@ async def reopen_case(case_id: str, request: ReopenCaseRequest, session: AsyncSe
 @router.post("/cases/{case_id}/cancel", status_code=202)
 async def cancel_case(case_id: str, request: CancelCaseRequest, session: AsyncSession = Depends(get_session)) -> CaseVersionResponse:
     case = await services.load_case(session, case_id)
+    if case.archive_batch_id is not None:
+        raise ConflictError(
+            "this is an archival sample case; archival records are read-only"
+        )
     if case.version != request.version:
         from app.domain.errors import StaleVersionError
 
