@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException
 
 from app.api import (
     approvals,
@@ -133,11 +134,37 @@ class SpaStaticFiles(StaticFiles):
     silently returning HTML.
     """
 
+    # Paths that must keep reporting themselves as missing. A genuine
+    # 404 from the API turning into a 200 with an HTML body is far worse
+    # than a broken deep link: the client sees success and parses markup
+    # as JSON.
+    _PASSTHROUGH_PREFIXES = ("api/", "webhooks/", "integrations/", "assets/")
+
+    def _is_app_route(self, path: str) -> bool:
+        # Starlette hands this path through `os.path.normpath`, which on
+        # Windows returns backslashes -- "/api/v1/nope" arrives as
+        # "api\v1\nope". A startswith("api/") test therefore matched
+        # nothing on Windows, and every unknown API path was answered with
+        # the SPA shell at **200**: a client would parse HTML as JSON and
+        # see success. Normalise before comparing.
+        return not path.replace("\\", "/").lstrip("/").startswith(self._PASSTHROUGH_PREFIXES)
+
     async def get_response(self, path: str, scope):
-        response = await super().get_response(path, scope)
-        if response.status_code == 404 and not path.startswith(
-            ("api/", "webhooks/", "integrations/", "assets/")
-        ):
+        # Starlette signals a miss two different ways depending on whether
+        # `404.html` happens to exist in the directory: with `html=True`
+        # it *returns* that file's contents when present, and *raises*
+        # HTTPException(404) when not. Only the first is catchable by a
+        # status check, so handling just that made this fallback quietly
+        # dependent on the 404.html copy `flatten-dist.mjs` writes --
+        # whose own comment says it is redundant now. Delete that copy and
+        # every deep-linked reload would 404 again. Handle both.
+        try:
+            response = await super().get_response(path, scope)
+        except HTTPException as exc:
+            if exc.status_code != 404 or not self._is_app_route(path):
+                raise
+            return await super().get_response("index.html", scope)
+        if response.status_code == 404 and self._is_app_route(path):
             return await super().get_response("index.html", scope)
         return response
 

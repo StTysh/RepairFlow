@@ -945,3 +945,89 @@ async def test_case_list_excludes_archival_by_default(app_db):
     assert archived_case_id in by_id, "include_archived=true must still surface the archival case"
     assert by_id[archived_case_id]["is_archived"] is True
     assert by_id[operational_case_id]["is_archived"] is False
+
+
+# --------------------------------------------------------------------------
+# 16. The SPA deep-link fallback stands alone, and never swallows a 404
+#     from the API (app/main.py)
+# --------------------------------------------------------------------------
+
+
+def _spa_app(tmp_path):
+    """A minimal app mounting SpaStaticFiles over a dist dir that has
+    index.html and NO 404.html -- the shape `npm run build` produces
+    before flatten-dist.mjs copies the extra file."""
+    from fastapi import FastAPI
+
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html><title>shell</title>", encoding="utf-8")
+    (dist / "assets" / "real.js").write_text("export const x = 1;\n", encoding="utf-8")
+
+    probe = FastAPI()
+
+    @probe.get("/api/v1/real")
+    async def _real() -> dict:
+        return {"ok": True}
+
+    probe.mount("/", main_module.SpaStaticFiles(directory=str(dist), html=True), name="frontend")
+    return probe
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path",
+    ["/maintenance", "/insights", "/properties/abc/history", "/tenants/xyz", "/deep/link/never/built"],
+)
+async def test_deep_link_falls_back_without_a_404_html_on_disk(tmp_path, path):
+    """The fallback used to depend on dist/404.html existing without
+    saying so. Starlette's html=True *returns* 404.html when present but
+    *raises* HTTPException(404) when absent, and only the returned form
+    was handled -- so deleting the copy flatten-dist.mjs makes (whose own
+    comment called it redundant) would 404 every deep-linked reload."""
+    transport = ASGITransport(app=_spa_app(tmp_path))
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.get(path)
+    assert r.status_code == 200, f"{path} must serve the SPA shell with no 404.html on disk"
+    assert "<title>shell</title>" in r.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path",
+    ["/api/v1/nope", "/api/v1/cases/not-a-case/bogus", "/webhooks/nope", "/integrations/nope", "/assets/missing.js"],
+)
+async def test_missing_api_path_is_404_not_the_spa_shell(tmp_path, path):
+    """Far worse than a broken deep link: a genuine 404 answered 200 with
+    an HTML body, so a client parses markup as JSON and sees success.
+    That is exactly what happened on Windows, because Starlette hands
+    get_response a path already through os.path.normpath -- backslash-
+    separated on Windows, which no startswith("api/") test matches."""
+    transport = ASGITransport(app=_spa_app(tmp_path))
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.get(path)
+    assert r.status_code == 404, f"{path} must report itself missing, not return the SPA shell"
+    assert "<title>shell</title>" not in r.text
+
+
+def test_passthrough_prefixes_survive_windows_path_separators(tmp_path):
+    """Platform-independent guard for the separator bug above: on POSIX
+    the end-to-end test cannot reproduce it, because normpath leaves the
+    forward slashes alone. Assert the classifier directly."""
+    spa = main_module.SpaStaticFiles(directory=str(tmp_path), html=True)
+    windows_normalised = ("api\\v1\\nope", "webhooks\\x", "integrations\\x", "assets\\missing.js")
+    for path in windows_normalised + ("api/v1/nope", "/api/v1/nope"):
+        assert spa._is_app_route(path) is False, f"{path!r} must be left to report its own 404"
+    for path in ("maintenance", "properties\\abc\\history", "/insights", "apixel", "assetsy/thing"):
+        assert spa._is_app_route(path) is True, f"{path!r} must fall back to the SPA shell"
+
+
+@pytest.mark.asyncio
+async def test_real_routes_still_win_over_the_fallback(tmp_path):
+    """The fallback must not shadow anything that genuinely exists."""
+    transport = ASGITransport(app=_spa_app(tmp_path))
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        api = await client.get("/api/v1/real")
+        asset = await client.get("/assets/real.js")
+    assert api.status_code == 200 and api.json() == {"ok": True}
+    assert asset.status_code == 200 and "export const x" in asset.text

@@ -31,17 +31,24 @@ if (existsSync(clientDir)) {
 }
 
 // This app has client-side routes beyond "/" (/maintenance,
-// /maintenance/tickets/$id/{-$section}, /properties/...), but FastAPI's
-// current mount -- app.mount("/", StaticFiles(directory=..., html=True)) in
-// backend/app/main.py -- does NOT catch-all unmatched paths to index.html;
-// Starlette's html=True mode only serves 404.html on a miss (else a plain
-// 404). Without this, refreshing or deep-linking to any route other than
-// "/" 404s instead of reaching the SPA shell. Shipping the shell as
-// dist/404.html too (the same trick GitHub Pages/Netlify use) makes that
-// existing mount serve it -- with a 404 status, which the browser still
-// renders and hydrates normally -- for every unmatched path, no backend
-// change required. If a future phase changes the mount to a real catch-all
-// route, this file becomes redundant but harmless.
+// /maintenance/tickets/$id/{-$section}, /properties/...), so deep-linking
+// or refreshing any of them has to reach the SPA shell. That is now the
+// backend's job: SpaStaticFiles in backend/app/main.py is a real
+// catch-all, falling back to index.html for any unmatched path that is
+// not under /api, /webhooks, /integrations or /assets.
+//
+// This copy is therefore genuinely redundant *for the FastAPI mount* --
+// but it is not dead, and it is not only a comment away from being
+// deleted. It is what makes the same dist/ directory work unchanged on a
+// static host (GitHub Pages, Netlify, `npx serve`), none of which run the
+// backend. It also costs one 3 KB file. Keep it.
+//
+// It used to be load-bearing in a way nothing recorded: Starlette's
+// html=True mode *returns* 404.html on a miss when the file exists and
+// *raises* HTTPException(404) when it does not, and main.py only handled
+// the returned form. Deleting this copy would have 404'd every deep link.
+// main.py now handles both, and tests/test_audit_regressions.py section 16
+// holds it to that with no 404.html on disk.
 const indexHtml = join(distDir, "index.html");
 if (existsSync(indexHtml)) {
   copyFileSync(indexHtml, join(distDir, "404.html"));

@@ -290,3 +290,48 @@ entries are material corrections to canonical contracts, per CLAUDE.md.
     quote_pence *and* a QUOTE cost entry of a different amount reconciles
     to the cost-entry figure everywhere (ledger wins once one exists), not
     the sum of both (proving no double counting).
+
+### 2026-09-20 — SPA deep-link fallback made self-contained (`app/main.py`)
+
+The static mount's fallback to `index.html` had two defects, both of
+which made it *appear* to work while failing in a specific, silent way.
+
+1.  **It depended on a file whose own comment called it redundant.**
+    Starlette's `html=True` mode signals a miss two different ways:
+    it *returns* `404.html` when that file exists in the directory, and
+    *raises* `HTTPException(404)` when it does not. `get_response` only
+    inspected the returned status, so the fallback quietly relied on the
+    `dist/404.html` copy that `frontend-fixi/scripts/flatten-dist.mjs`
+    writes — while that script's comment said the copy "becomes redundant
+    but harmless" once the backend does a real catch-all. Acting on that
+    comment would have 404'd every deep-linked reload. `get_response` now
+    handles the raised form too, and the script's comment has been
+    corrected to say what the copy is actually still for (static hosting
+    without the backend).
+
+2.  **On Windows it answered missing API paths with HTML at status 200.**
+    Starlette passes `get_response` a path that has already been through
+    `os.path.normpath`, which on Windows returns backslashes: `/api/v1/x`
+    arrives as `api\v1\x`. The passthrough test was
+    `path.startswith("api/")`, which therefore matched nothing, so every
+    unmatched `/api`, `/webhooks`, `/integrations` and `/assets` path fell
+    through to the SPA shell and was served **200 with an HTML body**. A
+    client would have parsed markup as JSON and seen success. This is
+    strictly worse than the broken deep link the fallback exists to fix.
+    Separators are now normalised before the prefix comparison.
+
+Pinned by `backend/tests/test_audit_regressions.py` section 16 (12 cases),
+which mounts `SpaStaticFiles` over a temp dist directory containing
+`index.html` and deliberately **no** `404.html`. Both defects were
+confirmed to be caught: reverting the separator normalisation fails the
+six passthrough cases and nothing else; reverting the `HTTPException`
+branch fails the five deep-link cases and nothing else. One case asserts
+the fallback still does not shadow a route that genuinely exists.
+
+Also added a repository `.gitattributes` pinning the working tree to LF.
+Without it, `core.autocrlf=true` on a Windows clone checks every source
+file out with CRLF, and `npx eslint .` in `frontend-fixi` then reports a
+`prettier/prettier` error on every line of every file — 55 of them were
+already present on `scripts/flatten-dist.mjs` alone, from an earlier patch
+script that rewrote the file with CRLF. The index was already LF, so this
+introduces no renormalisation churn.

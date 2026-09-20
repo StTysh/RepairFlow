@@ -1,0 +1,21 @@
+# Without this, core.autocrlf=true on a Windows clone hands every source
+# file CRLF endings, and `npx eslint .` in frontend-fixi then reports a
+# prettier/prettier error on literally every line of every file. Pin the
+# working tree to LF so the checkout matches what prettier and the index
+# both already use.
+* text=auto eol=lf
+
+# Let git detect these rather than guess; a mangled binary is silent.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
+*.mp3 binary
+*.wav binary
+*.pdf binary

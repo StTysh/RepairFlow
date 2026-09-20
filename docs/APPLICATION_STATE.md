@@ -218,6 +218,14 @@ Found by audit, fixed, and covered by new regression tests:
   was recorded.
 - **There was no navigation at all below 1024px** — on a tablet every
   destination but the current one was unreachable.
+- **Every unmatched `/api` path returned 200 with an HTML body** on
+  Windows: Starlette hands the static mount a path already through
+  `os.path.normpath`, so `/api/v1/x` arrived as `api\v1\x` and the
+  `startswith("api/")` passthrough test matched nothing. A client would
+  have parsed markup as JSON and seen success. Separators are normalised
+  now, and the SPA deep-link fallback no longer silently depends on the
+  `dist/404.html` copy either — both pinned by
+  `tests/test_audit_regressions.py` section 16; see `docs/26`.
 
 ### Known broken or incomplete
 
