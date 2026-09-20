@@ -99,9 +99,7 @@ export function RecordFieldUpdateDialog({
           // Defaults to now, but an operator writing up a call from
           // earlier can say when it actually happened -- the timeline is
           // only useful if it reflects the real sequence of events.
-          observed_at: observedAt
-            ? new Date(observedAt).toISOString()
-            : new Date().toISOString(),
+          observed_at: observedAt ? new Date(observedAt).toISOString() : new Date().toISOString(),
           reported_by: reportedBy.trim(),
         });
       } else if (kind === "TENANT_UPDATE") {
@@ -152,9 +150,8 @@ export function RecordFieldUpdateDialog({
                 Record an update
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Write up what a contractor or tenant told you. It is recorded
-                against the case in your name, attributed to whoever reported
-                it. Nobody is contacted.
+                Write up what a contractor or tenant told you. It is recorded against the case in
+                your name, attributed to whoever reported it. Nobody is contacted.
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
@@ -191,9 +188,8 @@ export function RecordFieldUpdateDialog({
             </div>
             {!hasAppointments && (
               <p className="mt-2 text-xs text-muted-foreground">
-                No booked visit on this case yet, so there is nothing to attach a
-                contractor report or a missed-window note to. A tenant update
-                needs no appointment.
+                No booked visit on this case yet, so there is nothing to attach a contractor report
+                or a missed-window note to. A tenant update needs no appointment.
               </p>
             )}
 
@@ -330,8 +326,8 @@ export function RecordFieldUpdateDialog({
 
             {kind === "ATTENDANCE_WINDOW_ENDED" && (
               <p className="mt-3 text-xs text-muted-foreground">
-                Records that the booked window passed without a report arriving.
-                No further detail needed.
+                Records that the booked window passed without a report arriving. No further detail
+                needed.
               </p>
             )}
 

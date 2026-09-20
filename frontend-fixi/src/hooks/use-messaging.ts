@@ -20,13 +20,7 @@ import { useAuthedCreds } from "@/lib/auth-context";
 // trimmed to just the hooks.
 
 export type DeliveryState =
-  | "DRAFT"
-  | "INTERNAL_NOTE"
-  | "QUEUED"
-  | "SENT"
-  | "DELIVERED"
-  | "FAILED"
-  | "RECEIVED";
+  "DRAFT" | "INTERNAL_NOTE" | "QUEUED" | "SENT" | "DELIVERED" | "FAILED" | "RECEIVED";
 
 export type MessageChannel = "INTERNAL" | "EMAIL" | "SMS" | "VOICE";
 
@@ -53,7 +47,8 @@ interface ThreadsListResponseRaw {
  * either a bare document-id string or an object carrying one, and
  * normalize with `normalizeAttachment` below rather than guessing one
  * shape and breaking on the other. */
-export type MessageAttachment = string | { id: string; name?: string | null; filename?: string | null };
+export type MessageAttachment =
+  string | { id: string; name?: string | null; filename?: string | null };
 
 export interface ThreadMessage {
   id: string;
@@ -107,7 +102,10 @@ export interface ThreadListFilters {
 
 const EMPTY_FILTERS: ThreadListFilters = { q: "", unreadOnly: false, includeArchived: false };
 
-export function useThreadListFilters(): [ThreadListFilters, (patch: Partial<ThreadListFilters>) => void] {
+export function useThreadListFilters(): [
+  ThreadListFilters,
+  (patch: Partial<ThreadListFilters>) => void,
+] {
   const searchStr = useRouterState({ select: (s) => s.location.searchStr });
   // This hook is shared by both /messages and /messages/$caseId (deliberately
   // -- see messages.index.tsx's file comment), so it has no single static
@@ -196,7 +194,10 @@ export function useMessageThread(caseId: string | null) {
     enabled: caseId !== null,
     refetchInterval: 4000,
     queryFn: async () => {
-      const raw = await request<ThreadDetailResponseRaw>(creds, `/api/v1/messages/threads/${caseId}`);
+      const raw = await request<ThreadDetailResponseRaw>(
+        creds,
+        `/api/v1/messages/threads/${caseId}`,
+      );
       const items = raw.items ?? raw.messages ?? [];
       const detail: ThreadDetail = {
         case_id: raw.case_id ?? caseId!,

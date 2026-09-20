@@ -40,7 +40,8 @@ export const Route = createFileRoute("/insights/")({
       { title: "Insights — Fixi" },
       {
         name: "description",
-        content: "Case volume, category breakdown, spend and recurring issues across the portfolio.",
+        content:
+          "Case volume, category breakdown, spend and recurring issues across the portfolio.",
       },
       { property: "og:title", content: "Insights — Fixi" },
     ],
@@ -293,7 +294,9 @@ function InsightsPage() {
             <input
               type="checkbox"
               checked={filters.include_archived}
-              onChange={(e) => patchSearch({ include_archived: e.target.checked ? "true" : "false" })}
+              onChange={(e) =>
+                patchSearch({ include_archived: e.target.checked ? "true" : "false" })
+              }
               className="h-3.5 w-3.5 rounded border-border"
             />
             Include archival sample history
@@ -368,9 +371,7 @@ function InsightsPage() {
         )}
 
         {/* --- Drill-down panel --------------------------------------------- */}
-        {drilldown && (
-          <DrilldownPanel drilldown={drilldown} onClose={() => setDrilldown(null)} />
-        )}
+        {drilldown && <DrilldownPanel drilldown={drilldown} onClose={() => setDrilldown(null)} />}
       </PageContainer>
     </AppShell>
   );

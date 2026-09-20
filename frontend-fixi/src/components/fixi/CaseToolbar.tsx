@@ -383,7 +383,12 @@ function MoreActionsMenu({ snapshot }: { snapshot: CaseSnapshot }) {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <Button aria-label="More actions" variant="outline" size="icon" className="h-9 w-9 rounded-xl">
+        <Button
+          aria-label="More actions"
+          variant="outline"
+          size="icon"
+          className="h-9 w-9 rounded-xl"
+        >
           <MoreHorizontal />
         </Button>
       </DropdownMenu.Trigger>

@@ -8,6 +8,32 @@ import { cn } from "@/lib/utils";
 
 type PropertyTabKey = "history" | "details" | "documents" | "notes";
 
+/** photo_key -> real `<img>`, or a plain icon tile for null/unknown --
+ * shared by this header, the properties grid and the details tab's photo
+ * picker/read view, so "no photo on file" always renders identically
+ * (never a real photo of a different building standing in for it). */
+export function PropertyPhoto({
+  photoKey,
+  className,
+}: {
+  photoKey: string | null | undefined;
+  className?: string;
+}) {
+  const src = resolvePropertyPhoto(photoKey);
+  if (!src) {
+    return (
+      <div
+        className={cn("flex items-center justify-center bg-muted text-muted-foreground", className)}
+      >
+        <Building2 className="h-5 w-5" strokeWidth={1.6} />
+      </div>
+    );
+  }
+  return (
+    <img src={src} alt="" width={912} height={736} className={cn("object-cover", className)} />
+  );
+}
+
 /** Shared header (photo, address, key facts, Edit) + 4-way tab bar for every
  * `/properties/$propertyId/*` screen. Matches maintenance.tickets'
  * SectionLink pattern: the URL is the source of truth for which tab is
@@ -77,13 +103,7 @@ export function PropertyTabs({
       ) : (
         <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
           <div className="flex items-start gap-4">
-            <img
-              src={resolvePropertyPhoto(p.photo_key)}
-              alt=""
-              width={912}
-              height={736}
-              className="h-[72px] w-32 shrink-0 rounded-lg object-cover"
-            />
+            <PropertyPhoto photoKey={p.photo_key} className="h-[72px] w-32 shrink-0 rounded-lg" />
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-[28px] font-bold leading-tight">{p.address_line}</h1>
@@ -127,9 +147,7 @@ export function PropertyTabs({
             }
             className={cn(
               "flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium shadow-card transition-colors",
-              p.is_archived
-                ? "pointer-events-none opacity-50"
-                : "hover:bg-accent",
+              p.is_archived ? "pointer-events-none opacity-50" : "hover:bg-accent",
             )}
             aria-disabled={p.is_archived}
           >

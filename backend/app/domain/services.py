@@ -1277,11 +1277,23 @@ async def reconstructed_status_counts(session: AsyncSession, cutoff: datetime) -
     """Approximate ACTIVE/AWAITING_CONFIRMATION/ESCALATED case counts as of
     `cutoff`. See the module-level comment above this function for what is
     and isn't reconstructable."""
-    cases = (await session.execute(select(RepairCaseModel.id, RepairCaseModel.created_at))).all()
+    # Operational cases only. The synthetic archive is decades of closed
+    # history dated in the past, so including it here makes the "as of a
+    # week ago" baseline enormous and every comparison percentage on the
+    # dashboard collapses towards -100% the moment the archive is
+    # imported -- a number about sample data presented as a trend in the
+    # operator's real workload.
+    operational = RepairCaseModel.archive_batch_id.is_(None)
+    cases = (
+        await session.execute(
+            select(RepairCaseModel.id, RepairCaseModel.created_at).where(operational)
+        )
+    ).all()
     events = (
         await session.execute(
             select(CaseEventModel.case_id, CaseEventModel.type)
-            .where(CaseEventModel.occurred_at <= cutoff)
+            .join(RepairCaseModel, RepairCaseModel.id == CaseEventModel.case_id)
+            .where(CaseEventModel.occurred_at <= cutoff, operational)
             .order_by(CaseEventModel.occurred_at, CaseEventModel.seq)
         )
     ).all()
@@ -1321,7 +1333,15 @@ async def average_resolution_hours(session: AsyncSession, window_days: int = 30)
     resolved_rows = (
         await session.execute(
             select(CaseEventModel.case_id, func.max(CaseEventModel.occurred_at))
-            .where(CaseEventModel.type == "CASE_RESOLVED")
+            .join(RepairCaseModel, RepairCaseModel.id == CaseEventModel.case_id)
+            # Operational only, for the same reason as
+            # reconstructed_status_counts above. The archive writes no
+            # CaseEvents today, so this changes nothing now -- it is here
+            # so the invariant survives an importer that someday does.
+            .where(
+                CaseEventModel.type == "CASE_RESOLVED",
+                RepairCaseModel.archive_batch_id.is_(None),
+            )
             .group_by(CaseEventModel.case_id)
         )
     ).all()

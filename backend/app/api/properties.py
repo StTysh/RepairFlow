@@ -72,6 +72,10 @@ class PropertyListResponse(_ResponseModel):
     limit: int
     offset: int
     total: int
+    # Derived, not stored: the UI's pagination controls need to know
+    # whether a Next button should exist, and computing offset+len(items)
+    # < total in three separate screens is how they drift apart.
+    has_more: bool
 
 
 class PropertyDetail(PropertyListItem):
@@ -267,7 +271,10 @@ async def list_properties(
     )
     rows = (await session.execute(query)).all()
     items = [_list_item(prop, open_n, total_n, tenant_n) for prop, open_n, total_n, tenant_n in rows]
-    return PropertyListResponse(items=items, limit=limit, offset=offset, total=total)
+    return PropertyListResponse(
+        items=items, limit=limit, offset=offset, total=total,
+        has_more=offset + len(items) < total,
+    )
 
 
 @router.post("/properties", status_code=201)

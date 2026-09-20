@@ -76,6 +76,10 @@ class TenantListResponse(_ResponseModel):
     limit: int
     offset: int
     total: int
+    # Derived, not stored: the UI's pagination controls need to know
+    # whether a Next button should exist, and computing offset+len(items)
+    # < total in three separate screens is how they drift apart.
+    has_more: bool
 
 
 class TenantDetail(TenantListItem):
@@ -249,7 +253,10 @@ async def list_tenants(
         _list_item(tenant, address_line, prop_archive_batch_id is not None, open_n, total_n)
         for tenant, address_line, prop_archive_batch_id, open_n, total_n in rows
     ]
-    return TenantListResponse(items=items, limit=limit, offset=offset, total=total)
+    return TenantListResponse(
+        items=items, limit=limit, offset=offset, total=total,
+        has_more=offset + len(items) < total,
+    )
 
 
 @router.post("/tenants", status_code=201)

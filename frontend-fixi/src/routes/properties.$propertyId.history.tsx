@@ -129,9 +129,9 @@ function HistoryPage() {
     return [...filtered].sort((a, b) => {
       switch (tableState.sort.field) {
         case "date":
-          return dirMul * (a.created_at.localeCompare(b.created_at));
+          return dirMul * a.created_at.localeCompare(b.created_at);
         case "category":
-          return dirMul * ((a.trade ?? "").localeCompare(b.trade ?? ""));
+          return dirMul * (a.trade ?? "").localeCompare(b.trade ?? "");
         case "cost":
           return dirMul * ((a.quoted_pence ?? -1) - (b.quoted_pence ?? -1));
         case "status":
@@ -225,11 +225,19 @@ function HistoryPage() {
 
   const stats = [
     {
-      value: propertyStats.isLoading ? "…" : propertyStats.isError ? "—" : String(statsData?.active_count ?? 0),
+      value: propertyStats.isLoading
+        ? "…"
+        : propertyStats.isError
+          ? "—"
+          : String(statsData?.active_count ?? 0),
       label: "Active tickets",
     },
     {
-      value: propertyStats.isLoading ? "…" : propertyStats.isError ? "—" : String(statsData?.total_count ?? 0),
+      value: propertyStats.isLoading
+        ? "…"
+        : propertyStats.isError
+          ? "—"
+          : String(statsData?.total_count ?? 0),
       label: "Total tickets",
     },
     {
@@ -255,7 +263,12 @@ function HistoryPage() {
 
   return (
     <AppShell>
-      <PropertyTabs propertyId={propertyId} active="history" fallbackAddress={address} fallbackPostcode={postcode}>
+      <PropertyTabs
+        propertyId={propertyId}
+        active="history"
+        fallbackAddress={address}
+        fallbackPostcode={postcode}
+      >
         <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {stats.map((s) => (
             <Card key={s.label} className="px-4 py-3">
@@ -358,11 +371,26 @@ function HistoryPage() {
                 </th>
                 <SortableTh field="date" label="Date" state={tableState.sort} onSort={toggleSort} />
                 <th className="px-4 py-2.5 font-medium">Issue</th>
-                <SortableTh field="category" label="Trade" state={tableState.sort} onSort={toggleSort} />
-                <SortableTh field="status" label="Status" state={tableState.sort} onSort={toggleSort} />
+                <SortableTh
+                  field="category"
+                  label="Trade"
+                  state={tableState.sort}
+                  onSort={toggleSort}
+                />
+                <SortableTh
+                  field="status"
+                  label="Status"
+                  state={tableState.sort}
+                  onSort={toggleSort}
+                />
                 <th className="px-4 py-2.5 font-medium">Outcome</th>
                 <th className="px-4 py-2.5 font-medium">Contractor</th>
-                <SortableTh field="cost" label="Quoted" state={tableState.sort} onSort={toggleSort} />
+                <SortableTh
+                  field="cost"
+                  label="Quoted"
+                  state={tableState.sort}
+                  onSort={toggleSort}
+                />
                 <th className="w-12 px-4 py-2.5 text-center font-medium">View</th>
               </tr>
             </thead>
@@ -388,13 +416,16 @@ function HistoryPage() {
                   </td>
                 </tr>
               )}
-              {!history.isLoading && !history.isError && items.length > 0 && sorted.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-xs text-muted-foreground">
-                    No cases match the current filter.
-                  </td>
-                </tr>
-              )}
+              {!history.isLoading &&
+                !history.isError &&
+                items.length > 0 &&
+                sorted.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-8 text-center text-xs text-muted-foreground">
+                      No cases match the current filter.
+                    </td>
+                  </tr>
+                )}
               {sorted.map((h) => (
                 <HistoryRow
                   key={h.case_id}
@@ -428,10 +459,7 @@ function SortableTh({
       <button
         type="button"
         onClick={() => onSort(field)}
-        className={cn(
-          "flex items-center gap-1 hover:text-foreground",
-          active && "text-foreground",
-        )}
+        className={cn("flex items-center gap-1 hover:text-foreground", active && "text-foreground")}
       >
         {label}
         {active ? (

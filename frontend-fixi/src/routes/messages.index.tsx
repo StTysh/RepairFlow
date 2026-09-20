@@ -56,7 +56,7 @@ function MessagesIndexPage() {
         title="Messages"
         description="Every conversation thread, one per case, across tenants, contractors and operators."
       >
-        <div className="grid min-h-[560px] gap-4 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+        <div className="grid h-[75vh] min-h-[560px] gap-4 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
           <Card className="flex flex-col overflow-hidden p-0">
             <ThreadFilterBar filters={filters} setFilters={setFilters} />
             <ThreadListBody
@@ -203,7 +203,12 @@ export function ThreadListBody({
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <ul>
         {items.map((item) => (
-          <ThreadRow key={item.case_id} item={item} active={item.case_id === activeCaseId} search={search} />
+          <ThreadRow
+            key={item.case_id}
+            item={item}
+            active={item.case_id === activeCaseId}
+            search={search}
+          />
         ))}
       </ul>
       {items.length >= limit && (
@@ -246,7 +251,9 @@ function ThreadRow({
               {item.tenant_name}
               <span className="font-normal text-muted-foreground"> · #{item.case_number}</span>
             </div>
-            <div className="truncate text-[11px] text-muted-foreground">{item.property_address}</div>
+            <div className="truncate text-[11px] text-muted-foreground">
+              {item.property_address}
+            </div>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
             <span className="text-[10px] text-muted-foreground">
@@ -259,7 +266,12 @@ function ThreadRow({
             )}
           </div>
         </div>
-        <p className={cn("mt-1 line-clamp-1 text-xs", unread ? "text-foreground" : "text-muted-foreground")}>
+        <p
+          className={cn(
+            "mt-1 line-clamp-1 text-xs",
+            unread ? "text-foreground" : "text-muted-foreground",
+          )}
+        >
           {item.last_sender ? `${item.last_sender}: ` : ""}
           {item.last_message_preview ?? "No messages yet."}
         </p>

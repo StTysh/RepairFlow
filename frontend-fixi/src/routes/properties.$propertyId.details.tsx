@@ -4,14 +4,13 @@ import { useEffect, useState } from "react";
 import { AppShell, Card } from "@/components/fixi/AppShell";
 import { Pill } from "@/components/fixi/Badge";
 import { ErrorState, LoadingRows } from "@/components/fixi/EmptyState";
-import { PropertyTabs } from "@/components/fixi/PropertyTabs";
+import { PropertyPhoto, PropertyTabs } from "@/components/fixi/PropertyTabs";
 import { Button } from "@/components/ui/button";
 import { usePropertyHistory } from "@/hooks/use-property-history";
 import {
   PROPERTY_TYPE_OPTIONS,
   ROOF_RESPONSIBILITY_OPTIONS,
   SELECTABLE_PROPERTY_PHOTOS,
-  PLACEHOLDER_PROPERTY_PHOTO,
   useProperty,
   useUpdateProperty,
   type PropertyDetail,
@@ -97,8 +96,8 @@ function DetailsPage() {
               </div>
               {property.data.is_archived && (
                 <p className="mt-2 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-                  This property was created from the synthetic sample-history archive. Its
-                  records are illustrative, not a real portfolio entry, and can't be edited.
+                  This property was created from the synthetic sample-history archive. Its records
+                  are illustrative, not a real portfolio entry, and can't be edited.
                 </p>
               )}
               {editing ? (
@@ -202,20 +201,14 @@ function ReadOnlyDetails({ property: p }: { property: PropertyDetail }) {
       <DetailRow label="Bedrooms" value={p.bedrooms ?? "—"} />
       <DetailRow label="Build year" value={p.build_year ?? "Unknown"} />
       <DetailRow label="Timezone" value={p.timezone} />
-      <DetailRow label="Roof responsibility" value={roofResponsibilityLabel[p.roof_responsibility]} />
+      <DetailRow
+        label="Roof responsibility"
+        value={roofResponsibilityLabel[p.roof_responsibility]}
+      />
       <DetailRow label="Access notes" value={p.access_notes || "No access notes recorded."} />
       <DetailRow
         label="Photo"
-        value={
-          <img
-            src={
-              SELECTABLE_PROPERTY_PHOTOS.find((ph) => ph.key === p.photo_key)?.src ??
-              PLACEHOLDER_PROPERTY_PHOTO
-            }
-            alt=""
-            className="ml-auto h-10 w-16 rounded object-cover"
-          />
-        }
+        value={<PropertyPhoto photoKey={p.photo_key} className="ml-auto h-10 w-16 rounded" />}
       />
     </div>
   );
@@ -282,16 +275,25 @@ function EditPropertyForm({
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="mt-3">
       <div className="grid grid-cols-2 gap-3">
-        <LabeledInput label="Address" value={addressLine} onChange={setAddressLine} />
-        <LabeledInput label="Postcode" value={postcode} onChange={setPostcode} />
         <LabeledInput
+          id="edit-address"
+          label="Address"
+          value={addressLine}
+          onChange={setAddressLine}
+        />
+        <LabeledInput id="edit-postcode" label="Postcode" value={postcode} onChange={setPostcode} />
+        <LabeledInput
+          id="edit-landlord-ref"
           label="Landlord reference"
           value={landlordReference}
           onChange={setLandlordReference}
         />
         <div>
-          <label className="block text-xs font-medium text-muted-foreground">Type</label>
+          <label className="block text-xs font-medium text-muted-foreground" htmlFor="edit-type">
+            Type
+          </label>
           <select
+            id="edit-type"
             className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
             value={propertyType}
             onChange={(e) => setPropertyType(e.target.value)}
@@ -304,14 +306,30 @@ function EditPropertyForm({
             ))}
           </select>
         </div>
-        <LabeledInput label="Bedrooms" value={bedrooms} onChange={setBedrooms} type="number" />
-        <LabeledInput label="Build year" value={buildYear} onChange={setBuildYear} type="number" />
-        <LabeledInput label="Timezone" value={timezone} onChange={setTimezone} />
+        <LabeledInput
+          id="edit-bedrooms"
+          label="Bedrooms"
+          value={bedrooms}
+          onChange={setBedrooms}
+          type="number"
+        />
+        <LabeledInput
+          id="edit-build-year"
+          label="Build year"
+          value={buildYear}
+          onChange={setBuildYear}
+          type="number"
+        />
+        <LabeledInput id="edit-timezone" label="Timezone" value={timezone} onChange={setTimezone} />
         <div>
-          <label className="block text-xs font-medium text-muted-foreground">
+          <label
+            className="block text-xs font-medium text-muted-foreground"
+            htmlFor="edit-roof-responsibility"
+          >
             Roof responsibility
           </label>
           <select
+            id="edit-roof-responsibility"
             className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
             value={roofResponsibility}
             onChange={(e) => setRoofResponsibility(e.target.value as RoofResponsibility)}
@@ -326,8 +344,14 @@ function EditPropertyForm({
       </div>
 
       <div className="mt-3">
-        <label className="block text-xs font-medium text-muted-foreground">Access notes</label>
+        <label
+          className="block text-xs font-medium text-muted-foreground"
+          htmlFor="edit-access-notes"
+        >
+          Access notes
+        </label>
         <textarea
+          id="edit-access-notes"
           className="mt-1.5 h-16 w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
           value={accessNotes}
           onChange={(e) => setAccessNotes(e.target.value)}
@@ -346,11 +370,7 @@ function EditPropertyForm({
               photoKey === null ? "border-primary" : "border-transparent",
             )}
           >
-            <img
-              src={PLACEHOLDER_PROPERTY_PHOTO}
-              alt=""
-              className="h-12 w-full object-cover opacity-60"
-            />
+            <PropertyPhoto photoKey={null} className="h-12 w-full" />
           </button>
           {SELECTABLE_PROPERTY_PHOTOS.map((photo) => (
             <button
@@ -382,11 +402,13 @@ function EditPropertyForm({
 }
 
 function LabeledInput({
+  id,
   label,
   value,
   onChange,
   type = "text",
 }: {
+  id: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
@@ -394,8 +416,11 @@ function LabeledInput({
 }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-muted-foreground">{label}</label>
+      <label className="block text-xs font-medium text-muted-foreground" htmlFor={id}>
+        {label}
+      </label>
       <input
+        id={id}
         type={type}
         className="mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
         value={value}

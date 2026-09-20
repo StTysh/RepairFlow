@@ -54,7 +54,6 @@ function TenantsPage() {
 
   useEffect(() => {
     setSearchInput(qParam);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qParam]);
 
   useEffect(() => {

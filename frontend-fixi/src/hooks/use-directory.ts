@@ -387,8 +387,7 @@ function normalizeTenantProfile(raw: unknown): TenantProfile {
   const rawCases = Array.isArray(r["cases"]) ? r["cases"] : [];
   return {
     ...normalizeTenantListItem(r),
-    property_address:
-      asString(r["property_address"]) ?? asString(property["address_line"]) ?? "—",
+    property_address: asString(r["property_address"]) ?? asString(property["address_line"]) ?? "—",
     property_postcode: asString(property["postcode"]),
     cases: rawCases.map((c) => {
       const cr = (c ?? {}) as Record<string, unknown>;

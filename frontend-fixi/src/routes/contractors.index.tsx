@@ -41,7 +41,8 @@ function ContractorsPage() {
 
   const qParam = urlParams.get("q") ?? "";
   const tradeParam = (urlParams.get("trade") as Trade | null) ?? "ALL";
-  const approvalParam = (urlParams.get("approval_status") as ContractorApprovalStatus | null) ?? "ALL";
+  const approvalParam =
+    (urlParams.get("approval_status") as ContractorApprovalStatus | null) ?? "ALL";
 
   const [searchInput, setSearchInput] = useState(qParam);
   const debouncedSearch = useDebouncedValue(searchInput, 300);
@@ -68,7 +69,6 @@ function ContractorsPage() {
   // our own debounced write below, since debouncedSearch already matches.
   useEffect(() => {
     setSearchInput(qParam);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qParam]);
 
   useEffect(() => {
@@ -164,7 +164,9 @@ function ContractorsPage() {
                   <td colSpan={7} className="p-4">
                     <EmptyState
                       icon={HardHat}
-                      title={hasFilters ? "No contractors match these filters" : "No contractors yet"}
+                      title={
+                        hasFilters ? "No contractors match these filters" : "No contractors yet"
+                      }
                       description={
                         hasFilters
                           ? "Try a different search term, trade or approval status."
@@ -201,20 +203,26 @@ function ContractorsPage() {
                       {c.display_name}
                     </Link>
                     <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                      {c.trades.length > 0 ? c.trades.map(titleCase).join(", ") : "No trades on file"}
+                      {c.trades.length > 0
+                        ? c.trades.map(titleCase).join(", ")
+                        : "No trades on file"}
                     </div>
                   </td>
                   <td className="max-w-[180px] truncate px-2 py-2 text-muted-foreground">
                     {c.service_postcodes.length > 0 ? c.service_postcodes.join(", ") : "—"}
                   </td>
                   <td className="px-2 py-2">
-                    <Pill tone={approvalTone(c.approval_status)}>{titleCase(c.approval_status)}</Pill>
+                    <Pill tone={approvalTone(c.approval_status)}>
+                      {titleCase(c.approval_status)}
+                    </Pill>
                     {c.approval_status !== "APPROVED" && (
                       <div className="mt-0.5 text-[10px] text-muted-foreground">Not assignable</div>
                     )}
                   </td>
                   <td className="px-2 py-2 text-muted-foreground">{c.assigned_work_order_count}</td>
-                  <td className="px-2 py-2 text-muted-foreground">{c.completed_work_order_count}</td>
+                  <td className="px-2 py-2 text-muted-foreground">
+                    {c.completed_work_order_count}
+                  </td>
                   <td className="px-2 py-2 text-right">
                     <Link
                       to="/contractors/$contractorId"

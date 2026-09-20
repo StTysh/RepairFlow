@@ -10,9 +10,21 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ContractorsIndexRouteImport } from './routes/contractors.index'
+import { Route as ContractorsContractorIdRouteImport } from './routes/contractors.$contractorId'
+import { Route as InsightsIndexRouteImport } from './routes/insights.index'
 import { Route as MaintenanceIndexRouteImport } from './routes/maintenance.index'
+import { Route as MessagesIndexRouteImport } from './routes/messages.index'
+import { Route as MessagesCaseIdRouteImport } from './routes/messages.$caseId'
 import { Route as PropertiesIndexRouteImport } from './routes/properties.index'
+import { Route as ReportsIndexRouteImport } from './routes/reports.index'
+import { Route as TenantsIndexRouteImport } from './routes/tenants.index'
+import { Route as TenantsTenantIdRouteImport } from './routes/tenants.$tenantId'
+import { Route as PropertiesPropertyIdIndexRouteImport } from './routes/properties.$propertyId.index'
+import { Route as PropertiesPropertyIdDetailsRouteImport } from './routes/properties.$propertyId.details'
+import { Route as PropertiesPropertyIdDocumentsRouteImport } from './routes/properties.$propertyId.documents'
 import { Route as PropertiesPropertyIdHistoryRouteImport } from './routes/properties.$propertyId.history'
+import { Route as PropertiesPropertyIdNotesRouteImport } from './routes/properties.$propertyId.notes'
 import { Route as MaintenanceTicketsTicketIdChar123SectionChar125RouteImport } from './routes/maintenance.tickets.$ticketId.{-$section}'
 
 const IndexRoute = IndexRouteImport.update({
@@ -20,9 +32,34 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ContractorsIndexRoute = ContractorsIndexRouteImport.update({
+  id: '/contractors/',
+  path: '/contractors/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ContractorsContractorIdRoute = ContractorsContractorIdRouteImport.update({
+  id: '/contractors/$contractorId',
+  path: '/contractors/$contractorId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InsightsIndexRoute = InsightsIndexRouteImport.update({
+  id: '/insights/',
+  path: '/insights/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MaintenanceIndexRoute = MaintenanceIndexRouteImport.update({
   id: '/maintenance/',
   path: '/maintenance/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MessagesIndexRoute = MessagesIndexRouteImport.update({
+  id: '/messages/',
+  path: '/messages/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MessagesCaseIdRoute = MessagesCaseIdRouteImport.update({
+  id: '/messages/$caseId',
+  path: '/messages/$caseId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PropertiesIndexRoute = PropertiesIndexRouteImport.update({
@@ -30,10 +67,49 @@ const PropertiesIndexRoute = PropertiesIndexRouteImport.update({
   path: '/properties/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ReportsIndexRoute = ReportsIndexRouteImport.update({
+  id: '/reports/',
+  path: '/reports/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TenantsIndexRoute = TenantsIndexRouteImport.update({
+  id: '/tenants/',
+  path: '/tenants/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TenantsTenantIdRoute = TenantsTenantIdRouteImport.update({
+  id: '/tenants/$tenantId',
+  path: '/tenants/$tenantId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PropertiesPropertyIdIndexRoute =
+  PropertiesPropertyIdIndexRouteImport.update({
+    id: '/properties/$propertyId/',
+    path: '/properties/$propertyId/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const PropertiesPropertyIdDetailsRoute =
+  PropertiesPropertyIdDetailsRouteImport.update({
+    id: '/properties/$propertyId/details',
+    path: '/properties/$propertyId/details',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const PropertiesPropertyIdDocumentsRoute =
+  PropertiesPropertyIdDocumentsRouteImport.update({
+    id: '/properties/$propertyId/documents',
+    path: '/properties/$propertyId/documents',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const PropertiesPropertyIdHistoryRoute =
   PropertiesPropertyIdHistoryRouteImport.update({
     id: '/properties/$propertyId/history',
     path: '/properties/$propertyId/history',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const PropertiesPropertyIdNotesRoute =
+  PropertiesPropertyIdNotesRouteImport.update({
+    id: '/properties/$propertyId/notes',
+    path: '/properties/$propertyId/notes',
     getParentRoute: () => rootRouteImport,
   } as any)
 const MaintenanceTicketsTicketIdChar123SectionChar125Route =
@@ -45,55 +121,139 @@ const MaintenanceTicketsTicketIdChar123SectionChar125Route =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/contractors/$contractorId': typeof ContractorsContractorIdRoute
+  '/messages/$caseId': typeof MessagesCaseIdRoute
+  '/tenants/$tenantId': typeof TenantsTenantIdRoute
+  '/contractors/': typeof ContractorsIndexRoute
+  '/insights/': typeof InsightsIndexRoute
   '/maintenance/': typeof MaintenanceIndexRoute
+  '/messages/': typeof MessagesIndexRoute
   '/properties/': typeof PropertiesIndexRoute
+  '/reports/': typeof ReportsIndexRoute
+  '/tenants/': typeof TenantsIndexRoute
+  '/properties/$propertyId/details': typeof PropertiesPropertyIdDetailsRoute
+  '/properties/$propertyId/documents': typeof PropertiesPropertyIdDocumentsRoute
   '/properties/$propertyId/history': typeof PropertiesPropertyIdHistoryRoute
+  '/properties/$propertyId/notes': typeof PropertiesPropertyIdNotesRoute
+  '/properties/$propertyId/': typeof PropertiesPropertyIdIndexRoute
   '/maintenance/tickets/$ticketId/{-$section}': typeof MaintenanceTicketsTicketIdChar123SectionChar125Route
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/contractors/$contractorId': typeof ContractorsContractorIdRoute
+  '/messages/$caseId': typeof MessagesCaseIdRoute
+  '/tenants/$tenantId': typeof TenantsTenantIdRoute
+  '/contractors': typeof ContractorsIndexRoute
+  '/insights': typeof InsightsIndexRoute
   '/maintenance': typeof MaintenanceIndexRoute
+  '/messages': typeof MessagesIndexRoute
   '/properties': typeof PropertiesIndexRoute
+  '/reports': typeof ReportsIndexRoute
+  '/tenants': typeof TenantsIndexRoute
+  '/properties/$propertyId/details': typeof PropertiesPropertyIdDetailsRoute
+  '/properties/$propertyId/documents': typeof PropertiesPropertyIdDocumentsRoute
   '/properties/$propertyId/history': typeof PropertiesPropertyIdHistoryRoute
+  '/properties/$propertyId/notes': typeof PropertiesPropertyIdNotesRoute
+  '/properties/$propertyId': typeof PropertiesPropertyIdIndexRoute
   '/maintenance/tickets/$ticketId/{-$section}': typeof MaintenanceTicketsTicketIdChar123SectionChar125Route
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/contractors/$contractorId': typeof ContractorsContractorIdRoute
+  '/messages/$caseId': typeof MessagesCaseIdRoute
+  '/tenants/$tenantId': typeof TenantsTenantIdRoute
+  '/contractors/': typeof ContractorsIndexRoute
+  '/insights/': typeof InsightsIndexRoute
   '/maintenance/': typeof MaintenanceIndexRoute
+  '/messages/': typeof MessagesIndexRoute
   '/properties/': typeof PropertiesIndexRoute
+  '/reports/': typeof ReportsIndexRoute
+  '/tenants/': typeof TenantsIndexRoute
+  '/properties/$propertyId/details': typeof PropertiesPropertyIdDetailsRoute
+  '/properties/$propertyId/documents': typeof PropertiesPropertyIdDocumentsRoute
   '/properties/$propertyId/history': typeof PropertiesPropertyIdHistoryRoute
+  '/properties/$propertyId/notes': typeof PropertiesPropertyIdNotesRoute
+  '/properties/$propertyId/': typeof PropertiesPropertyIdIndexRoute
   '/maintenance/tickets/$ticketId/{-$section}': typeof MaintenanceTicketsTicketIdChar123SectionChar125Route
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/contractors/$contractorId'
+    | '/messages/$caseId'
+    | '/tenants/$tenantId'
+    | '/contractors/'
+    | '/insights/'
     | '/maintenance/'
+    | '/messages/'
     | '/properties/'
+    | '/reports/'
+    | '/tenants/'
+    | '/properties/$propertyId/details'
+    | '/properties/$propertyId/documents'
     | '/properties/$propertyId/history'
+    | '/properties/$propertyId/notes'
+    | '/properties/$propertyId/'
     | '/maintenance/tickets/$ticketId/{-$section}'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/contractors/$contractorId'
+    | '/messages/$caseId'
+    | '/tenants/$tenantId'
+    | '/contractors'
+    | '/insights'
     | '/maintenance'
+    | '/messages'
     | '/properties'
+    | '/reports'
+    | '/tenants'
+    | '/properties/$propertyId/details'
+    | '/properties/$propertyId/documents'
     | '/properties/$propertyId/history'
+    | '/properties/$propertyId/notes'
+    | '/properties/$propertyId'
     | '/maintenance/tickets/$ticketId/{-$section}'
   id:
     | '__root__'
     | '/'
+    | '/contractors/$contractorId'
+    | '/messages/$caseId'
+    | '/tenants/$tenantId'
+    | '/contractors/'
+    | '/insights/'
     | '/maintenance/'
+    | '/messages/'
     | '/properties/'
+    | '/reports/'
+    | '/tenants/'
+    | '/properties/$propertyId/details'
+    | '/properties/$propertyId/documents'
     | '/properties/$propertyId/history'
+    | '/properties/$propertyId/notes'
+    | '/properties/$propertyId/'
     | '/maintenance/tickets/$ticketId/{-$section}'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ContractorsContractorIdRoute: typeof ContractorsContractorIdRoute
+  MessagesCaseIdRoute: typeof MessagesCaseIdRoute
+  TenantsTenantIdRoute: typeof TenantsTenantIdRoute
+  ContractorsIndexRoute: typeof ContractorsIndexRoute
+  InsightsIndexRoute: typeof InsightsIndexRoute
   MaintenanceIndexRoute: typeof MaintenanceIndexRoute
+  MessagesIndexRoute: typeof MessagesIndexRoute
   PropertiesIndexRoute: typeof PropertiesIndexRoute
+  ReportsIndexRoute: typeof ReportsIndexRoute
+  TenantsIndexRoute: typeof TenantsIndexRoute
+  PropertiesPropertyIdDetailsRoute: typeof PropertiesPropertyIdDetailsRoute
+  PropertiesPropertyIdDocumentsRoute: typeof PropertiesPropertyIdDocumentsRoute
   PropertiesPropertyIdHistoryRoute: typeof PropertiesPropertyIdHistoryRoute
+  PropertiesPropertyIdNotesRoute: typeof PropertiesPropertyIdNotesRoute
+  PropertiesPropertyIdIndexRoute: typeof PropertiesPropertyIdIndexRoute
   MaintenanceTicketsTicketIdChar123SectionChar125Route: typeof MaintenanceTicketsTicketIdChar123SectionChar125Route
 }
 
@@ -106,11 +266,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/contractors/': {
+      id: '/contractors/'
+      path: '/contractors'
+      fullPath: '/contractors/'
+      preLoaderRoute: typeof ContractorsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/contractors/$contractorId': {
+      id: '/contractors/$contractorId'
+      path: '/contractors/$contractorId'
+      fullPath: '/contractors/$contractorId'
+      preLoaderRoute: typeof ContractorsContractorIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/insights/': {
+      id: '/insights/'
+      path: '/insights'
+      fullPath: '/insights/'
+      preLoaderRoute: typeof InsightsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/maintenance/': {
       id: '/maintenance/'
       path: '/maintenance'
       fullPath: '/maintenance/'
       preLoaderRoute: typeof MaintenanceIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/messages/': {
+      id: '/messages/'
+      path: '/messages'
+      fullPath: '/messages/'
+      preLoaderRoute: typeof MessagesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/messages/$caseId': {
+      id: '/messages/$caseId'
+      path: '/messages/$caseId'
+      fullPath: '/messages/$caseId'
+      preLoaderRoute: typeof MessagesCaseIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/properties/': {
@@ -120,11 +315,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PropertiesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/reports/': {
+      id: '/reports/'
+      path: '/reports'
+      fullPath: '/reports/'
+      preLoaderRoute: typeof ReportsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tenants/': {
+      id: '/tenants/'
+      path: '/tenants'
+      fullPath: '/tenants/'
+      preLoaderRoute: typeof TenantsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tenants/$tenantId': {
+      id: '/tenants/$tenantId'
+      path: '/tenants/$tenantId'
+      fullPath: '/tenants/$tenantId'
+      preLoaderRoute: typeof TenantsTenantIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/properties/$propertyId/': {
+      id: '/properties/$propertyId/'
+      path: '/properties/$propertyId'
+      fullPath: '/properties/$propertyId/'
+      preLoaderRoute: typeof PropertiesPropertyIdIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/properties/$propertyId/details': {
+      id: '/properties/$propertyId/details'
+      path: '/properties/$propertyId/details'
+      fullPath: '/properties/$propertyId/details'
+      preLoaderRoute: typeof PropertiesPropertyIdDetailsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/properties/$propertyId/documents': {
+      id: '/properties/$propertyId/documents'
+      path: '/properties/$propertyId/documents'
+      fullPath: '/properties/$propertyId/documents'
+      preLoaderRoute: typeof PropertiesPropertyIdDocumentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/properties/$propertyId/history': {
       id: '/properties/$propertyId/history'
       path: '/properties/$propertyId/history'
       fullPath: '/properties/$propertyId/history'
       preLoaderRoute: typeof PropertiesPropertyIdHistoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/properties/$propertyId/notes': {
+      id: '/properties/$propertyId/notes'
+      path: '/properties/$propertyId/notes'
+      fullPath: '/properties/$propertyId/notes'
+      preLoaderRoute: typeof PropertiesPropertyIdNotesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/maintenance/tickets/$ticketId/{-$section}': {
@@ -139,9 +383,21 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ContractorsContractorIdRoute: ContractorsContractorIdRoute,
+  MessagesCaseIdRoute: MessagesCaseIdRoute,
+  TenantsTenantIdRoute: TenantsTenantIdRoute,
+  ContractorsIndexRoute: ContractorsIndexRoute,
+  InsightsIndexRoute: InsightsIndexRoute,
   MaintenanceIndexRoute: MaintenanceIndexRoute,
+  MessagesIndexRoute: MessagesIndexRoute,
   PropertiesIndexRoute: PropertiesIndexRoute,
+  ReportsIndexRoute: ReportsIndexRoute,
+  TenantsIndexRoute: TenantsIndexRoute,
+  PropertiesPropertyIdDetailsRoute: PropertiesPropertyIdDetailsRoute,
+  PropertiesPropertyIdDocumentsRoute: PropertiesPropertyIdDocumentsRoute,
   PropertiesPropertyIdHistoryRoute: PropertiesPropertyIdHistoryRoute,
+  PropertiesPropertyIdNotesRoute: PropertiesPropertyIdNotesRoute,
+  PropertiesPropertyIdIndexRoute: PropertiesPropertyIdIndexRoute,
   MaintenanceTicketsTicketIdChar123SectionChar125Route:
     MaintenanceTicketsTicketIdChar123SectionChar125Route,
 }

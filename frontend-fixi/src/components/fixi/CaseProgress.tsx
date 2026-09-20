@@ -1,7 +1,7 @@
 import { AlertTriangle, Ban, Check } from "lucide-react";
 import { useMemo } from "react";
 import { Card } from "@/components/fixi/AppShell";
-import type { Appointment, CaseSnapshot, Dependency, WorkOrder } from "@/api/types";
+import type { CaseSnapshot, Dependency, WorkOrder } from "@/api/types";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -87,7 +87,8 @@ export function deriveCaseProgress(snapshot: CaseSnapshot): {
   const onSite: StepTone = onSiteDone ? "done" : diagnosingDone ? "current" : "upcoming";
   let followUp: StepTone;
   if (resolvedDone) followUp = "done";
-  else if (onSiteDone || c.status === "AWAITING_CONFIRMATION" || tenantConfirmed) followUp = "current";
+  else if (onSiteDone || c.status === "AWAITING_CONFIRMATION" || tenantConfirmed)
+    followUp = "current";
   else followUp = "upcoming";
   const resolved: StepTone = resolvedDone ? "done" : "upcoming";
 

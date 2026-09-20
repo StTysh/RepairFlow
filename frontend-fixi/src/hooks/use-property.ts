@@ -156,7 +156,13 @@ export interface DocumentsResponse {
 // Photo asset map
 // ---------------------------------------------------------------------------
 
+// house-exterior.jpg is a real, selectable bundled photo (the task brief
+// lists it alongside the seven property-*.jpg files), not a stand-in for
+// "no photo" -- a null/unknown photo_key gets a non-photographic tile
+// instead (see PropertyTabs.tsx's PropertyPhoto), so a placeholder is never
+// mistaken for a real photo of some other building.
 const PROPERTY_PHOTOS: Record<string, string> = {
+  "house-exterior.jpg": houseExterior,
   "property-birch-lane.jpg": birchLane,
   "property-church-road.jpg": churchRoad,
   "property-maple-road.jpg": mapleRoad,
@@ -172,13 +178,14 @@ export const SELECTABLE_PROPERTY_PHOTOS: { key: string; src: string }[] = Object
   PROPERTY_PHOTOS,
 ).map(([key, src]) => ({ key, src }));
 
-export const PLACEHOLDER_PROPERTY_PHOTO = houseExterior;
-
-/** photo_key -> bundled asset. A null or unrecognised key renders the
- * neutral placeholder -- never a different property's real photo. */
-export function resolvePropertyPhoto(key: string | null | undefined): string {
-  if (!key) return houseExterior;
-  return PROPERTY_PHOTOS[key] ?? houseExterior;
+/** photo_key -> bundled asset, or null for "no photo on file". Callers
+ * render null as a plain icon tile (PropertyTabs.tsx's PropertyPhoto), never
+ * as a substitute photograph -- a real photo of *a* house standing in for
+ * "no photo of *this* house" is exactly the misrepresentation the task
+ * brief rules out. */
+export function resolvePropertyPhoto(key: string | null | undefined): string | null {
+  if (!key) return null;
+  return PROPERTY_PHOTOS[key] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -380,6 +387,12 @@ export function useUpdateProperty(propertyId: string) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["property", propertyId] });
       void queryClient.invalidateQueries({ queryKey: ["properties"] });
+      // build_year flows straight into GET /properties/{id}/stats's response
+      // (backend/app/api/cases.py get_property_stats passes prop.build_year
+      // through), so the history tab's "Build year" card needs this too --
+      // the 10s poll would eventually catch it, but there's no reason to
+      // show stale data for up to 10s after a save that just changed it.
+      void queryClient.invalidateQueries({ queryKey: ["property-stats", propertyId] });
       toast.success("Property updated");
     },
     onError: (error: Error) => {

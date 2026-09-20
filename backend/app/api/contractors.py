@@ -60,6 +60,10 @@ class ContractorListResponse(_ResponseModel):
     limit: int
     offset: int
     total: int
+    # Derived, not stored: the UI's pagination controls need to know
+    # whether a Next button should exist, and computing offset+len(items)
+    # < total in three separate screens is how they drift apart.
+    has_more: bool
 
 
 class ContractorWorkHistoryItem(_ResponseModel):
@@ -198,7 +202,10 @@ async def list_contractors(
     page = rows[offset: offset + limit]
     counts = await _work_order_counts(session, [c.id for c in page])
     items = [_list_item(c, *counts.get(c.id, (0, 0))) for c in page]
-    return ContractorListResponse(items=items, limit=limit, offset=offset, total=total)
+    return ContractorListResponse(
+        items=items, limit=limit, offset=offset, total=total,
+        has_more=offset + len(items) < total,
+    )
 
 
 @router.post("/contractors", status_code=201)

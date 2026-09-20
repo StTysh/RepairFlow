@@ -46,9 +46,7 @@ function FormDialogShell({
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85vh] w-full max-w-md -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-6 shadow-panel">
           <div className="flex items-start justify-between">
             <div>
-              <Dialog.Title className="text-sm font-semibold text-foreground">
-                {title}
-              </Dialog.Title>
+              <Dialog.Title className="text-sm font-semibold text-foreground">{title}</Dialog.Title>
               <Dialog.Description className="mt-1 text-xs text-muted-foreground">
                 {description}
               </Dialog.Description>
@@ -370,11 +368,7 @@ export function TenantFormDialog({
   const phoneValid = phone.trim().length === 0 || isValidE164(phone.trim());
   const emailValid = email.trim().length === 0 || isValidEmail(email.trim());
   const canSubmit =
-    displayName.trim().length > 0 &&
-    propertyId.length > 0 &&
-    phoneValid &&
-    emailValid &&
-    !pending;
+    displayName.trim().length > 0 && propertyId.length > 0 && phoneValid && emailValid && !pending;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

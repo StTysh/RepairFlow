@@ -72,8 +72,6 @@ export function useCancelCase(caseId: string) {
   });
 }
 
-
-
 /** Approve/reject one ActionRecord that's sitting in AWAITING_APPROVAL --
  * see api/endpoints.ts's decideActionApproval and DecisionCard.tsx, which
  * is the only caller. Both outcomes need the case-detail query invalidated

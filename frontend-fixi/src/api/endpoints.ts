@@ -106,7 +106,7 @@ export function fetchPropertyHistory(
 
 export function fetchProperties(
   creds: OperatorCredentials,
-  params: { q?: string; limit?: number; offset?: number } = {},
+  params: { q?: string | undefined; limit?: number | undefined; offset?: number | undefined } = {},
 ): Promise<PropertyListResponse> {
   const search = new URLSearchParams();
   if (params.q) search.set("q", params.q);
@@ -148,9 +148,6 @@ export function fetchPropertyStats(
   return request<PropertyStatsResponse>(creds, `/api/v1/properties/${propertyId}/stats`);
 }
 
-
-
-
 export function resumeCase(
   creds: OperatorCredentials,
   caseId: string,
@@ -184,7 +181,6 @@ export function cancelCase(
   });
 }
 
-
 /** Approve or reject an ActionRecord sitting in AWAITING_APPROVAL. The
  * caller supplies expected_case_version/action_payload_hash echoed from
  * that ActionRecord (see ApprovalDecisionRequest) so the backend can
@@ -214,4 +210,3 @@ export function cancelAppointment(
     body: JSON.stringify(body),
   });
 }
-

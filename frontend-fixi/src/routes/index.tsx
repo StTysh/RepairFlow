@@ -33,7 +33,8 @@ export const Route = createFileRoute("/")({
       { title: "Overview — Fixi" },
       {
         name: "description",
-        content: "Portfolio at a glance: what needs attention, upcoming visits and recent activity.",
+        content:
+          "Portfolio at a glance: what needs attention, upcoming visits and recent activity.",
       },
       { property: "og:title", content: "Overview — Fixi" },
     ],
@@ -98,7 +99,10 @@ function OverviewPage() {
         ) : (
           <>
             {/* --- Portfolio metrics ----------------------------------- */}
-            <section className="grid grid-cols-2 gap-3 md:grid-cols-4" aria-label="Portfolio metrics">
+            <section
+              className="grid grid-cols-2 gap-3 md:grid-cols-4"
+              aria-label="Portfolio metrics"
+            >
               {overview.isLoading ? (
                 <LoadingRows rows={4} className="col-span-2 md:col-span-4" />
               ) : (
@@ -119,15 +123,20 @@ function OverviewPage() {
                     // the SPA fallback shell once it exists, same pattern
                     // __root.tsx's ErrorComponent already uses for "Go
                     // home". See NEEDS_FROM_ROOT_analytics.md.
-                    linkHref="/tenants"
+                    linkTo="/tenants"
                   />
                   <MetricLink
                     icon={HardHat}
                     value={data?.approved_contractor_count}
                     label="Approved contractors"
-                    linkHref="/contractors"
+                    linkTo="/contractors"
                   />
-                  <MetricLink icon={Wrench} value={openCases} label="Open cases" linkTo="/maintenance" />
+                  <MetricLink
+                    icon={Wrench}
+                    value={openCases}
+                    label="Open cases"
+                    linkTo="/maintenance"
+                  />
                 </>
               )}
             </section>
@@ -287,13 +296,11 @@ function MetricLink({
   value,
   label,
   linkTo,
-  linkHref,
 }: {
   icon: LucideIcon;
   value: number | undefined;
   label: string;
-  linkTo?: string;
-  linkHref?: string;
+  linkTo: string;
 }) {
   const content = (
     <>
@@ -309,17 +316,13 @@ function MetricLink({
   const className =
     "flex min-h-[92px] items-center gap-3 rounded-xl border border-border bg-card px-3.5 py-3 shadow-card transition-colors hover:bg-accent/60";
 
-  if (linkTo) {
-    return (
-      <Link to={linkTo} className={className}>
-        {content}
-      </Link>
-    );
-  }
+  // Every metric card is a real destination -- there is no plain-anchor
+  // fallback any more, because there is no longer a card whose route does
+  // not exist.
   return (
-    <a href={linkHref} className={className}>
+    <Link to={linkTo} className={className}>
       {content}
-    </a>
+    </Link>
   );
 }
 

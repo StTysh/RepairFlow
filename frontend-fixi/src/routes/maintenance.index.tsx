@@ -553,7 +553,9 @@ function RowActions({
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-foreground/25 backdrop-blur-[1px]" />
           <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(26rem,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-card p-5 shadow-panel">
-            <Dialog.Title className="text-sm font-semibold">Cancel ticket #{caseNumber}</Dialog.Title>
+            <Dialog.Title className="text-sm font-semibold">
+              Cancel ticket #{caseNumber}
+            </Dialog.Title>
             <Dialog.Description className="mt-1 text-xs leading-relaxed text-muted-foreground">
               Closes the case without a repair outcome. The case and its history stay readable —
               nothing is deleted.
@@ -591,5 +593,37 @@ function RowActions({
         </Dialog.Portal>
       </Dialog.Root>
     </>
+  );
+}
+function FilterDropdown<T extends string>({
+  value,
+  onChange,
+  allLabel,
+  options,
+}: {
+  value: T | "ALL";
+  onChange: (v: T | "ALL") => void;
+  allLabel: string;
+  options: Array<{ value: T; label: string }>;
+}) {
+  return (
+    <label className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent">
+      {/* appearance-none drops the browser's own arrow so only the
+       * ChevronDown below renders -- without it the native select arrow
+       * and this icon would both show. */}
+      <select
+        className="max-w-[160px] truncate appearance-none bg-transparent outline-none"
+        value={value}
+        onChange={(e) => onChange(e.target.value as T | "ALL")}
+      >
+        <option value="ALL">{allLabel}</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+    </label>
   );
 }

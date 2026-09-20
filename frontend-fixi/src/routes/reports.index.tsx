@@ -1,10 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { format, startOfMonth, startOfYear, subDays } from "date-fns";
-import { Download, Printer } from "lucide-react";
+import { Download, FileQuestion, Printer } from "lucide-react";
 import { useState } from "react";
 import type { Trade } from "@/api/types";
 import { AppShell, Card, PageContainer } from "@/components/fixi/AppShell";
-import { ErrorState, LoadingRows } from "@/components/fixi/EmptyState";
+import { EmptyState, ErrorState, LoadingRows } from "@/components/fixi/EmptyState";
 import {
   useExportReportsCsv,
   useReportProperties,
@@ -105,18 +105,17 @@ function ReportsPage() {
 
   const windowLabel = range.from && range.to ? `${range.from} to ${range.to}` : "All time";
 
+  const allSectionsEmpty =
+    !!summary.data &&
+    [
+      summary.data.maintenance,
+      summary.data.spend,
+      summary.data.resolution,
+      summary.data.recurringIssues,
+    ].every((s) => !s || (s.rows.length === 0 && Object.keys(s.totals).length === 0));
+
   return (
     <>
-      {/* AppShell's sidebar/utility bar live in a file this slice doesn't
-       * own, so they can't carry their own print:hidden classes -- this
-       * scoped stylesheet hides them for the duration this route is
-       * mounted instead. See NEEDS_FROM_ROOT_messaging.md for the proper
-       * fix (add print:hidden directly to AppShell.tsx). Selectors match
-       * AppShell's actual DOM: <aside> is the sidebar, and the utility bar
-       * is main's first child (the page content -- this PageContainer --
-       * is always its second). */}
-      <style>{`@media print { aside, main > div:first-child { display: none !important; } }`}</style>
-
       <AppShell>
         <PageContainer
           title="Reports"
@@ -174,7 +173,8 @@ function ReportsPage() {
               {category && (
                 <>
                   {" "}
-                  · Category: <span className="font-medium text-foreground">{titleCase(category)}</span>
+                  · Category:{" "}
+                  <span className="font-medium text-foreground">{titleCase(category)}</span>
                 </>
               )}
             </span>
@@ -184,8 +184,8 @@ function ReportsPage() {
           {includeArchived && (
             <p className="mt-2 text-xs text-muted-foreground">
               Includes archived / sample-history records alongside live ones (each row's{" "}
-              <code className="rounded bg-muted px-1 py-0.5">record_source</code> column, where present,
-              says which). The CSV export carries the same column.
+              <code className="rounded bg-muted px-1 py-0.5">record_source</code> column, where
+              present, says which). The CSV export carries the same column.
             </p>
           )}
 
@@ -202,7 +202,16 @@ function ReportsPage() {
             />
           )}
 
-          {summary.data && (
+          {summary.data && allSectionsEmpty && (
+            <EmptyState
+              className="mt-4"
+              icon={FileQuestion}
+              title="No data for this report window"
+              description="Nothing matches the current filters. Try widening the date range, clearing the property/category filter, or including archived history."
+            />
+          )}
+
+          {summary.data && !allSectionsEmpty && (
             <div className="mt-4 grid gap-4">
               <SectionPanel
                 title="Maintenance summary"

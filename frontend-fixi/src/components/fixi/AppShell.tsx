@@ -107,7 +107,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen w-full bg-background font-sans text-foreground antialiased">
-      <aside className="sticky top-0 hidden h-screen w-[218px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-3.5 py-4 lg:flex">
+      {/* print:hidden here rather than in each printable page: the Reports
+       * print view needs the chrome gone, and a route-scoped stylesheet
+       * reaching up into the shell to hide it is the kind of action at a
+       * distance that breaks the next time the shell changes. */}
+      <aside className="sticky top-0 hidden h-screen w-[218px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-3.5 py-4 print:hidden lg:flex">
         <FixiLogo />
         <nav className="mt-7 flex flex-col gap-1" aria-label="Main">
           {nav.map((item) => {
@@ -162,7 +166,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
          * duplicated; matches the max-w-[1510px]/px-6 container the page
          * content uses so the bar's right edge lines up with the content
          * below it on a wide screen. */}
-        <div className="mx-auto w-full max-w-[1510px] px-6 pt-4 xl:px-7">
+        <div className="mx-auto w-full max-w-[1510px] px-6 pt-4 print:hidden xl:px-7">
           <UtilityBar />
         </div>
         {children}
@@ -190,9 +194,7 @@ export function PageContainer({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-          {description ? (
-            <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-          ) : null}
+          {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
         </div>
         {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </div>

@@ -5,12 +5,11 @@ import { useEffect, useState } from "react";
 import { AppShell, Card } from "@/components/fixi/AppShell";
 import { Pill } from "@/components/fixi/Badge";
 import { EmptyState, ErrorState, LoadingRows } from "@/components/fixi/EmptyState";
+import { PropertyPhoto } from "@/components/fixi/PropertyTabs";
 import { Button } from "@/components/ui/button";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import {
-  PLACEHOLDER_PROPERTY_PHOTO,
   PROPERTY_TYPE_OPTIONS,
-  resolvePropertyPhoto,
   SELECTABLE_PROPERTY_PHOTOS,
   useCreateProperty,
   useProperties,
@@ -80,7 +79,6 @@ function PropertiesPage() {
   // never fires a request per keystroke.
   useEffect(() => {
     setFilters((f) => (f.q === debouncedSearch ? f : { ...f, q: debouncedSearch, offset: 0 }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
 
   useEffect(() => {
@@ -169,7 +167,11 @@ function PropertiesPage() {
           {!properties.isLoading && !properties.isError && items.length === 0 && (
             <EmptyState
               icon={Building2}
-              title={filters.q || filters.includeArchived ? "No matching properties" : "No properties yet"}
+              title={
+                filters.q || filters.includeArchived
+                  ? "No matching properties"
+                  : "No properties yet"
+              }
               description={
                 filters.q
                   ? "Try a different address, postcode or landlord reference, or clear the search."
@@ -195,13 +197,7 @@ function PropertiesPage() {
                   search={{ address: p.address_line, postcode: p.postcode }}
                 >
                   <Card className="flex h-full flex-col overflow-hidden transition-colors hover:bg-accent">
-                    <img
-                      src={resolvePropertyPhoto(p.photo_key)}
-                      alt=""
-                      width={912}
-                      height={736}
-                      className="h-32 w-full object-cover"
-                    />
+                    <PropertyPhoto photoKey={p.photo_key} className="h-32 w-full" />
                     <div className="flex flex-1 flex-col gap-2 p-4">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
@@ -242,7 +238,9 @@ function PropertiesPage() {
                 variant="outline"
                 size="sm"
                 disabled={filters.offset === 0}
-                onClick={() => setFilters((f) => ({ ...f, offset: Math.max(0, f.offset - PAGE_SIZE) }))}
+                onClick={() =>
+                  setFilters((f) => ({ ...f, offset: Math.max(0, f.offset - PAGE_SIZE) }))
+                }
               >
                 <ChevronLeft className="h-4 w-4" /> Previous
               </Button>
@@ -407,9 +405,7 @@ function NewPropertyDialog({
                 placeholder="e.g. LDN-0192"
               />
               {touched && landlordReference.trim().length === 0 && (
-                <p className="mt-1 text-[11px] text-destructive">
-                  Landlord reference is required.
-                </p>
+                <p className="mt-1 text-[11px] text-destructive">Landlord reference is required.</p>
               )}
             </Field>
 
@@ -477,11 +473,7 @@ function NewPropertyDialog({
                     photoKey === null ? "border-primary" : "border-transparent",
                   )}
                 >
-                  <img
-                    src={PLACEHOLDER_PROPERTY_PHOTO}
-                    alt=""
-                    className="h-12 w-full object-cover opacity-60"
-                  />
+                  <PropertyPhoto photoKey={null} className="h-12 w-full" />
                 </button>
                 {SELECTABLE_PROPERTY_PHOTOS.map((photo) => (
                   <button

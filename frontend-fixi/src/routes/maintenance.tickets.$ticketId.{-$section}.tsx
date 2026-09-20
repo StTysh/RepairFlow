@@ -6,30 +6,33 @@ import {
   Calendar,
   Check,
   Copy,
-  FileQuestion,
+  ExternalLink,
   Loader2,
   Mail,
   MapPin,
   Phone,
   PhoneCall,
-  PoundSterling,
 } from "lucide-react";
 import { AppShell, Card } from "@/components/fixi/AppShell";
 import { Pill, StatusBadge, UrgencyBadge } from "@/components/fixi/Badge";
 import { CaseLifecycleActions } from "@/components/fixi/CaseLifecycleActions";
+import { CaseProgress } from "@/components/fixi/CaseProgress";
+import { CaseToolbar } from "@/components/fixi/CaseToolbar";
+import { CostsPanel } from "@/components/fixi/CostsPanel";
 import { DecisionCard } from "@/components/fixi/DecisionCard";
+import { DocumentsPanel } from "@/components/fixi/DocumentsPanel";
+import { RescheduleDialog } from "@/components/fixi/RescheduleDialog";
 import { WorkGraph } from "@/components/fixi/WorkGraph";
 import { RecordFieldUpdateDialog } from "@/components/fixi/RecordFieldUpdateDialog";
 import { MessagesPanel } from "@/components/fixi/MessagesPanel";
 import { authHeader, BASE_URL } from "@/api/client";
 import { useCaseDetail } from "@/hooks/use-case-detail";
 import { useCaseEvents } from "@/hooks/use-case-events";
-import { useCancelAppointment } from "@/hooks/use-case-actions";
 import { usePropertyHistory } from "@/hooks/use-property-history";
 import { useAuthedCreds } from "@/lib/auth-context";
-import type { Appointment, CaseSnapshot, Communication, WorkOrder } from "@/api/types";
+import type { Appointment, CaseSnapshot, Communication } from "@/api/types";
 import { statusTone } from "@/lib/fixi-data";
-import { formatDateRange, formatPence, formatRelative, initials, titleCase } from "@/lib/format";
+import { formatDateRange, formatRelative, initials, titleCase } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 // "property"/"files"/"costs" used to be a second, dead button row above
@@ -127,11 +130,6 @@ function CasePage() {
   return (
     <AppShell>
       <div className="px-8 py-6">
-        {/* Share/Edit/a "..." kebab used to sit here (ToolbarButton, no
-         * onClick at all) -- no share link or case-editing endpoint exists
-         * in this phase's API, and the kebab had no menu behind it, so
-         * there was nothing to wire. CaseLifecycleActions below already
-         * covers every real write this page can make. */}
         <Link
           to="/maintenance"
           className="flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
@@ -139,7 +137,7 @@ function CasePage() {
           <ArrowLeft className="h-4 w-4" /> Back to tickets
         </Link>
 
-        <div className="mt-4 flex items-start justify-between gap-6">
+        <div className="mt-4 flex flex-wrap items-start justify-between gap-6">
           <div>
             <UrgencyBadge urgency={c.risk.urgency} />
             <h1
@@ -152,24 +150,29 @@ function CasePage() {
               <MapPin className="h-3.5 w-3.5" /> {address}
               <button
                 type="button"
-                onClick={() => void navigator.clipboard.writeText(address)}
+                onClick={() => void navigator.clipboard?.writeText(address)}
                 title="Copy address"
               >
                 <Copy className="ml-1 h-3.5 w-3.5 cursor-pointer hover:text-foreground" />
               </button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {snapshot.agent_active && (
-              <span className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground shadow-card">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Agent thinking…
-              </span>
-            )}
-            <StatusBadge status={c.status} className="h-9 px-3.5 text-sm" />
-            <CaseLifecycleActions caseId={c.id} status={c.status} version={c.version} />
+          <div className="flex flex-col items-end gap-2">
+            <CaseToolbar snapshot={snapshot} />
+            <div className="flex items-center gap-2">
+              {snapshot.agent_active && (
+                <span className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground shadow-card">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Agent thinking…
+                </span>
+              )}
+              <StatusBadge status={c.status} className="h-9 px-3.5 text-sm" />
+              <CaseLifecycleActions caseId={c.id} status={c.status} version={c.version} />
+            </div>
           </div>
         </div>
+
+        <CaseProgress snapshot={snapshot} />
 
         {/* There's no live contractor/tenant phone channel in this MVP --
          * this is how the hero demo path (contractor reports scaffolding
@@ -220,14 +223,23 @@ function CasePage() {
           className={cn("mt-3 grid gap-4", section === null ? "xl:grid-cols-2" : "xl:grid-cols-1")}
         >
           {show("summary") && <SummaryColumn snapshot={snapshot} />}
-          {show("timeline") && <TimelineColumn caseId={c.id} agentActive={snapshot.agent_active} />}
+          {show("timeline") && (
+            <TimelineColumn
+              caseId={c.id}
+              agentActive={snapshot.agent_active}
+              ticketId={ticketId}
+              showViewAll={section === null}
+            />
+          )}
           {show("calls") && <CallsColumn communications={snapshot.communications} />}
           {section === "work" && (
             <WorkGraph workOrders={snapshot.work_orders} dependencies={snapshot.dependencies} />
           )}
           {section === "property" && <PropertyColumn snapshot={snapshot} />}
-          {section === "files" && <FilesColumn />}
-          {section === "costs" && <CostsColumn workOrders={snapshot.work_orders} />}
+          {section === "files" && (
+            <DocumentsPanel caseId={c.id} evidenceRefs={snapshot.issue.evidence_refs} />
+          )}
+          {section === "costs" && <CostsPanel caseId={c.id} workOrders={snapshot.work_orders} />}
           {section === "messages" && <MessagesPanel caseId={c.id} />}
         </div>
       </div>
@@ -507,18 +519,22 @@ function IconButton({
   );
 }
 
-function NextAppointmentRow({
-  appointment,
-  onReschedule,
-  rescheduling,
-}: {
-  appointment: Appointment;
-  onReschedule: () => void;
-  rescheduling: boolean;
-}) {
+const appointmentStatusTone: Record<Appointment["status"], "amber" | "green" | "gray"> = {
+  PENDING: "amber",
+  CONFIRMED: "green",
+  FINISHED: "gray",
+  CANCELLED: "gray",
+};
+
+/** A PENDING appointment (the only kind RescheduleDialog ever creates --
+ * an operator-arranged slot is never auto-confirmed, docs/19) must read as
+ * pending right here in the header, not only inside the dialog that made
+ * it -- showing a confident date/time with no status would be the same
+ * "confirmed" fabrication the rest of this app avoids. */
+function NextAppointmentRow({ caseId, appointment }: { caseId: string; appointment: Appointment }) {
   const { date, time } = formatDateRange(appointment.start_at, appointment.end_at);
   return (
-    <div className="mt-2 flex items-center justify-between">
+    <div className="mt-2 flex items-center justify-between gap-3">
       <div className="flex items-center gap-3">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground">
           <Calendar className="h-4 w-4" />
@@ -526,11 +542,14 @@ function NextAppointmentRow({
         <div className="leading-tight">
           <div className="text-[13px] font-medium">{date}</div>
           <div className="text-xs text-muted-foreground">{time}</div>
+          <Pill tone={appointmentStatusTone[appointment.status]} className="mt-1">
+            {appointment.status === "PENDING"
+              ? "Pending — contractor has not confirmed"
+              : titleCase(appointment.status)}
+          </Pill>
         </div>
       </div>
-      <OutlineButton onClick={onReschedule} disabled={rescheduling}>
-        Reschedule
-      </OutlineButton>
+      <RescheduleDialog caseId={caseId} appointment={appointment} />
     </div>
   );
 }
@@ -556,6 +575,25 @@ function OutlineButton({
   );
 }
 
+/** Navigates to an internal profile/history page. Plain `<a>` rather than a
+ * typed `<Link>` for `/tenants/$tenantId` and `/contractors/$contractorId`:
+ * neither route exists in this checkout yet (other agents are adding them
+ * concurrently -- see NEEDS_FROM_ROOT_ticket.md), and TanStack's `to` prop
+ * is checked against the generated route tree, so a typed `Link` to a route
+ * that doesn't exist yet fails `tsc` until it lands. A full navigation
+ * still reaches the right page once it does. */
+function ProfileLinkButton({ href, title }: { href: string; title: string }) {
+  return (
+    <a
+      href={href}
+      title={title}
+      className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+    >
+      <ExternalLink className="h-3.5 w-3.5" />
+    </a>
+  );
+}
+
 function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
   const {
     case: c,
@@ -567,7 +605,6 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
     latest_reports,
   } = snapshot;
   const propertyHistory = usePropertyHistory(property.id);
-  const cancelAppointment = useCancelAppointment(c.id);
 
   // Real mailto:/tel: targets off the tenant's actual contact fields --
   // gated on contact_allowed (a real field, not assumed) so a tenant who
@@ -582,16 +619,6 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
   const phoneTitle = !tenant.contact_allowed
     ? "Tenant has not consented to contact"
     : (tenant.phone_e164 ?? "No phone number on file");
-
-  async function handleReschedule() {
-    if (!next_appointment) return;
-    const reason = window.prompt("Reason for rescheduling this visit?") ?? "";
-    try {
-      await cancelAppointment.mutateAsync({ appointmentId: next_appointment.id, reason });
-    } catch {
-      // handled by onError toast (see use-case-actions.ts)
-    }
-  }
 
   return (
     <Card className="p-5">
@@ -618,28 +645,31 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
           <div className="flex gap-1.5">
             <IconButton icon={Mail} href={emailHref} title={emailTitle} />
             <IconButton icon={Phone} href={phoneHref} title={phoneTitle} />
+            <ProfileLinkButton href={`/tenants/${tenant.id}`} title="View tenant profile" />
           </div>
         </div>
       </div>
 
       <div className="mt-4 border-t border-border pt-4">
         <Label>Assigned contractor</Label>
-        {/* No contractor-profile page exists in this phase (AssignedContractor
-         * has no route/detail endpoint beyond what's already shown inline
-         * here) -- a "View profile" button used to sit here with no onClick
-         * and nowhere to go. */}
         {assigned_contractor ? (
-          <div className="mt-2 flex items-center gap-3">
-            <Avatar initials={initials(assigned_contractor.display_name)} tone="green" />
-            <div className="leading-tight">
-              <div className="text-[13px] font-medium">{assigned_contractor.display_name}</div>
-              <div className="text-xs text-muted-foreground">
-                {assigned_contractor.trade ?? "—"}
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Avatar initials={initials(assigned_contractor.display_name)} tone="green" />
+              <div className="leading-tight">
+                <div className="text-[13px] font-medium">{assigned_contractor.display_name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {assigned_contractor.trade ?? "—"}
+                </div>
+                {assigned_contractor.phone && (
+                  <div className="text-xs text-muted-foreground">{assigned_contractor.phone}</div>
+                )}
               </div>
-              {assigned_contractor.phone && (
-                <div className="text-xs text-muted-foreground">{assigned_contractor.phone}</div>
-              )}
             </div>
+            <ProfileLinkButton
+              href={`/contractors/${assigned_contractor.id}`}
+              title="View contractor profile"
+            />
           </div>
         ) : (
           <p className="mt-2 text-xs text-muted-foreground">No contractor assigned yet.</p>
@@ -649,11 +679,7 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
       <div className="mt-4 border-t border-border pt-4">
         <Label>Next appointment</Label>
         {next_appointment ? (
-          <NextAppointmentRow
-            appointment={next_appointment}
-            onReschedule={() => void handleReschedule()}
-            rescheduling={cancelAppointment.isPending}
-          />
+          <NextAppointmentRow caseId={c.id} appointment={next_appointment} />
         ) : (
           <p className="mt-2 text-xs text-muted-foreground">No appointment scheduled yet.</p>
         )}
@@ -723,7 +749,17 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
   );
 }
 
-function TimelineColumn({ caseId, agentActive }: { caseId: string; agentActive: boolean }) {
+function TimelineColumn({
+  caseId,
+  agentActive,
+  ticketId,
+  showViewAll,
+}: {
+  caseId: string;
+  agentActive: boolean;
+  ticketId: string;
+  showViewAll: boolean;
+}) {
   const events = useCaseEvents(caseId);
   const items = events.data?.items ?? [];
 
@@ -733,14 +769,27 @@ function TimelineColumn({ caseId, agentActive }: { caseId: string; agentActive: 
         title="Agent timeline"
         subtitle="What the AI agent has done and what's next."
         action={
-          agentActive ? (
-            <span
-              className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground"
-              title="The coordinator is actively working on this case right now"
-            >
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Thinking…
-            </span>
+          agentActive || showViewAll ? (
+            <div className="flex items-center gap-3">
+              {agentActive && (
+                <span
+                  className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground"
+                  title="The coordinator is actively working on this case right now"
+                >
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Thinking…
+                </span>
+              )}
+              {showViewAll && (
+                <Link
+                  to="/maintenance/tickets/$ticketId/{-$section}"
+                  params={{ ticketId, section: "timeline" }}
+                  className="text-[11px] font-medium text-primary hover:underline"
+                >
+                  View all
+                </Link>
+              )}
+            </div>
           ) : undefined
         }
       />
@@ -849,75 +898,6 @@ function PropertyColumn({ snapshot }: { snapshot: CaseSnapshot }) {
   );
 }
 
-/** No file-attachment model exists anywhere in this codebase yet (backend
- * or frontend) -- this is an honest empty state, not a stand-in for a real
- * upload feature (that's separate, larger scope). Making the tab navigate
- * and render this is the fix for the dead button; inventing a fake file
- * list would not be. */
-function FilesColumn() {
-  return (
-    <Card className="flex flex-col items-center justify-center gap-2 p-10 text-center">
-      <FileQuestion className="h-8 w-8 text-muted-foreground" />
-      <p className="text-[13px] font-medium">No files attached to this ticket yet.</p>
-      <p className="max-w-xs text-xs text-muted-foreground">
-        File uploads aren't part of this build. Evidence for this ticket lives in the call
-        recordings and transcripts under the Calls tab.
-      </p>
-    </Card>
-  );
-}
-
-const workOrderKindLabel: Record<string, string> = {
-  REPAIR: "Repair",
-  SCAFFOLD_INSTALL: "Scaffold install",
-  SCAFFOLD_REMOVE: "Scaffold removal",
-};
-
-/** Real quote_pence/approved_limit_pence per work order, already on the
- * snapshot -- labelled as a quote/approved ceiling rather than an actual
- * invoiced cost, since that's what these fields actually are (docs/06). */
-function CostsColumn({ workOrders }: { workOrders: WorkOrder[] }) {
-  return (
-    <Card className="p-5">
-      <SectionHeader
-        title="Costs"
-        subtitle="Quotes and approved spend limits per work order -- not final invoiced costs."
-      />
-      {workOrders.length === 0 && (
-        <p className="mt-4 text-xs text-muted-foreground">No costs recorded yet.</p>
-      )}
-      <ul className="mt-4 space-y-3">
-        {workOrders.map((wo) => (
-          <li key={wo.id} className="rounded-lg border border-border p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 text-[13px] font-semibold">
-                  {workOrderKindLabel[wo.kind] ?? titleCase(wo.kind)}
-                  <Pill tone="gray">{titleCase(wo.trade)}</Pill>
-                </div>
-                <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{wo.scope}</p>
-              </div>
-              <Pill tone={wo.status === "COMPLETED" ? "green" : "blue"}>
-                {titleCase(wo.status)}
-              </Pill>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2 border-t border-border pt-2.5 text-xs">
-              <div className="flex items-center gap-1.5 text-muted-foreground">
-                <PoundSterling className="h-3 w-3" /> Quoted
-              </div>
-              <div className="text-right font-medium">
-                {formatPence(wo.quote_pence) ?? "No quote recorded"}
-              </div>
-              <div className="flex items-center gap-1.5 text-muted-foreground">
-                <PoundSterling className="h-3 w-3" /> Approved limit
-              </div>
-              <div className="text-right font-medium">
-                {formatPence(wo.approved_limit_pence) ?? "No approved limit set"}
-              </div>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </Card>
-  );
-}
+// FilesColumn/CostsColumn (the old dead-button placeholder and the
+// per-work-order-only cost view) are replaced by DocumentsPanel.tsx and
+// CostsPanel.tsx respectively -- see the Files/Costs tab wiring above.

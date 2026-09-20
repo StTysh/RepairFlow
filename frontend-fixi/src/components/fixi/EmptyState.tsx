@@ -26,8 +26,8 @@ export function EmptyState({
   icon: LucideIcon;
   title: string;
   description: string;
-  action?: ReactNode;
-  className?: string;
+  action?: ReactNode | undefined;
+  className?: string | undefined;
 }) {
   return (
     <Card className={cn("flex flex-col items-center px-6 py-12 text-center", className)}>
@@ -48,10 +48,13 @@ export function ErrorState({
   onRetry,
   className,
 }: {
-  title?: string;
-  detail?: string;
-  onRetry?: () => void;
-  className?: string;
+  title?: string | undefined;
+  // `| undefined` is deliberate: tsconfig has exactOptionalPropertyTypes,
+  // and every caller derives this from an `unknown` error, so the value
+  // genuinely may be undefined at the call site rather than simply absent.
+  detail?: string | undefined;
+  onRetry?: (() => void) | undefined;
+  className?: string | undefined;
 }) {
   return (
     <Card className={cn("px-6 py-10 text-center", className)}>
@@ -73,7 +76,13 @@ export function ErrorState({
 }
 
 /** Skeleton rows, sized to the list they stand in for. */
-export function LoadingRows({ rows = 4, className }: { rows?: number; className?: string }) {
+export function LoadingRows({
+  rows = 4,
+  className,
+}: {
+  rows?: number | undefined;
+  className?: string | undefined;
+}) {
   return (
     <div className={cn("space-y-2", className)} aria-busy="true" aria-live="polite">
       <span className="sr-only">Loading…</span>

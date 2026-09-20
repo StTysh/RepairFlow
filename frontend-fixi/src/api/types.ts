@@ -488,22 +488,35 @@ export interface PropertyStatsResponse {
 
 // --- Demo / intake ------------------------------------------------------------
 
+/** One row of GET /api/v1/properties (backend/app/api/properties.py's
+ * PropertyListItem). Replaced the demo seed-reference shape, which
+ * carried a single `tenant_id`/`tenant_name` because the seeded data
+ * happened to have exactly one tenant per property -- the real directory
+ * returns a count and the tenants are fetched per property. */
 export interface PropertyListItem {
-  property_id: string;
-  tenant_id: string;
+  id: string;
   address_line: string;
   postcode: string;
   landlord_reference: string;
+  property_type: string | null;
+  bedrooms: number | null;
+  build_year: number | null;
+  photo_key: string | null;
+  timezone: string;
   roof_responsibility: string;
   access_notes: string | null;
-  tenant_name: string;
-  tenant_phone: string | null;
+  is_archived: boolean;
+  open_case_count: number;
+  total_case_count: number;
+  tenant_count: number;
 }
 
 /** GET /api/v1/properties -- the real property directory, which replaced
  * the demo seed-reference endpoint the New Ticket form used to read. */
 export interface PropertyListResponse {
   items: PropertyListItem[];
+  limit: number;
+  offset: number;
   total: number;
   has_more: boolean;
 }
@@ -645,9 +658,7 @@ export interface AttendanceWindowEndedUpdate {
 }
 
 export type FieldUpdateRequest =
-  | ContractorReportUpdate
-  | TenantUpdate
-  | AttendanceWindowEndedUpdate;
+  ContractorReportUpdate | TenantUpdate | AttendanceWindowEndedUpdate;
 
 export interface ReportSubmitResponse {
   report_id: string;
@@ -661,8 +672,7 @@ export interface TenantUpdateResponse {
 
 /** Which variant comes back depends on which `kind` was submitted; all
  * three carry a `result`, which is all any caller needs. */
-export type FieldUpdateResponse =
-  ReportSubmitResponse | TenantUpdateResponse | ApprovalResponse;
+export type FieldUpdateResponse = ReportSubmitResponse | TenantUpdateResponse | ApprovalResponse;
 
 // --- Messages (display-only, read-only) -------------------------------------
 //

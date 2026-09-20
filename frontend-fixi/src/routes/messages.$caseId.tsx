@@ -28,20 +28,24 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/messages/$caseId")({
   head: ({ params }) => ({
-    meta: [{ title: `Conversation — Fixi` }, { name: "description", content: `Message thread for case ${params.caseId}.` }],
+    meta: [
+      { title: `Conversation — Fixi` },
+      { name: "description", content: `Message thread for case ${params.caseId}.` },
+    ],
   }),
   component: ThreadPage,
 });
 
-const DELIVERY_TONE: Record<DeliveryState, "gray" | "purple" | "amber" | "blue" | "green" | "red"> = {
-  DRAFT: "gray",
-  INTERNAL_NOTE: "purple",
-  QUEUED: "amber",
-  SENT: "blue",
-  DELIVERED: "green",
-  FAILED: "red",
-  RECEIVED: "gray",
-};
+const DELIVERY_TONE: Record<DeliveryState, "gray" | "purple" | "amber" | "blue" | "green" | "red"> =
+  {
+    DRAFT: "gray",
+    INTERNAL_NOTE: "purple",
+    QUEUED: "amber",
+    SENT: "blue",
+    DELIVERED: "green",
+    FAILED: "red",
+    RECEIVED: "gray",
+  };
 
 const DELIVERY_LABEL: Record<DeliveryState, string> = {
   DRAFT: "Draft — not sent",
@@ -70,7 +74,9 @@ function dayLabel(iso: string): string {
   return format(d, "d MMM yyyy");
 }
 
-function groupByDay(items: ThreadMessage[]): Array<{ key: string; label: string; items: ThreadMessage[] }> {
+function groupByDay(
+  items: ThreadMessage[],
+): Array<{ key: string; label: string; items: ThreadMessage[] }> {
   const groups: Array<{ key: string; label: string; items: ThreadMessage[] }> = [];
   for (const m of items) {
     const key = m.created_at.slice(0, 10);
@@ -88,7 +94,8 @@ function ThreadPage() {
   const { caseId } = Route.useParams();
   const [filters, setFilters] = useThreadListFilters();
   const search = filtersToSearch(filters);
-  const threads = useMessageThreads(filters, 50);
+  const [limit, setLimit] = useState(50);
+  const threads = useMessageThreads(filters, limit);
   const thread = useMessageThread(caseId);
   const markRead = useMarkThreadRead(caseId);
 
@@ -116,7 +123,7 @@ function ThreadPage() {
           <ArrowLeft className="h-4 w-4" /> Back to messages
         </Link>
 
-        <div className="mt-2 grid min-h-[560px] gap-4 lg:mt-0 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+        <div className="mt-2 grid h-[75vh] min-h-[560px] gap-4 lg:mt-0 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
           {/* Wide screens only -- on narrow, this thread is the whole
            * screen and the list is reached via Back above. */}
           <Card className="hidden flex-col overflow-hidden lg:flex">
@@ -125,8 +132,8 @@ function ThreadPage() {
               threads={threads}
               activeCaseId={caseId}
               search={search}
-              limit={50}
-              setLimit={() => {}}
+              limit={limit}
+              setLimit={setLimit}
             />
           </Card>
 
@@ -157,7 +164,9 @@ function ThreadDetail({
     return (
       <ErrorState
         className="border-0 shadow-none"
-        detail={thread.error instanceof Error ? thread.error.message : "Could not load this thread."}
+        detail={
+          thread.error instanceof Error ? thread.error.message : "Could not load this thread."
+        }
         onRetry={() => void thread.refetch()}
       />
     );
@@ -172,9 +181,13 @@ function ThreadDetail({
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold">
             {case_title ?? `Case ${caseId}`}
-            {case_number !== null && <span className="text-muted-foreground"> · #{case_number}</span>}
+            {case_number !== null && (
+              <span className="text-muted-foreground"> · #{case_number}</span>
+            )}
           </div>
-          <div className="text-[11px] text-muted-foreground">{items.length} message{items.length === 1 ? "" : "s"}</div>
+          <div className="text-[11px] text-muted-foreground">
+            {items.length} message{items.length === 1 ? "" : "s"}
+          </div>
         </div>
         <Link
           to="/maintenance/tickets/$ticketId/{-$section}"
@@ -253,8 +266,12 @@ function MessageRow({ caseId, message }: { caseId: string; message: ThreadMessag
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold">
             {message.sender_name}
-            <Pill tone={senderTone(message.sender_type)}>{titleCase(message.sender_type || "unknown")}</Pill>
-            <Pill tone={DELIVERY_TONE[message.delivery_state]}>{DELIVERY_LABEL[message.delivery_state]}</Pill>
+            <Pill tone={senderTone(message.sender_type)}>
+              {titleCase(message.sender_type || "unknown")}
+            </Pill>
+            <Pill tone={DELIVERY_TONE[message.delivery_state]}>
+              {DELIVERY_LABEL[message.delivery_state]}
+            </Pill>
           </div>
           <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed">{message.text}</p>
           {message.delivery_detail && (
@@ -270,7 +287,9 @@ function MessageRow({ caseId, message }: { caseId: string; message: ThreadMessag
           {message.photo_url && <PhotoThumb url={message.photo_url} />}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <span className="text-[11px] text-muted-foreground">{formatTime(message.created_at)}</span>
+          <span className="text-[11px] text-muted-foreground">
+            {formatTime(message.created_at)}
+          </span>
           <button
             type="button"
             title="Mark this message unread"
@@ -396,8 +415,8 @@ function Composer({ caseId }: { caseId: string }) {
       </div>
       {channel !== "INTERNAL" && (
         <p className="mt-2 text-[11px] text-muted-foreground">
-          No delivery transport is configured for {channel === "EMAIL" ? "email" : "SMS"} yet — this will
-          be saved as a draft, not sent to the tenant.
+          No delivery transport is configured for {channel === "EMAIL" ? "email" : "SMS"} yet — this
+          will be saved as a draft, not sent to the tenant.
         </p>
       )}
       <textarea

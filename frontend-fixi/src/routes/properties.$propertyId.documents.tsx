@@ -67,7 +67,10 @@ function DocumentsPage() {
   function startUploads(files: FileList | File[]) {
     for (const file of Array.from(files)) {
       const key = `${file.name}-${file.size}-${Date.now()}-${Math.random()}`;
-      setPending((prev) => [...prev, { key, name: file.name, size: file.size, progress: 0, error: null }]);
+      setPending((prev) => [
+        ...prev,
+        { key, name: file.name, size: file.size, progress: 0, error: null },
+      ]);
       uploadDocument(creds, { subjectId: propertyId, file }, (percent) => {
         setPending((prev) => prev.map((p) => (p.key === key ? { ...p, progress: percent } : p)));
       })
@@ -234,8 +237,12 @@ function DocumentRow({
     return () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // Deps on previewUrl deliberately -- this must revoke both when the
+    // preview changes (a stale blob URL replaced by a fresh one) AND on
+    // unmount. An empty dep array would close over the first render's
+    // `previewUrl` (always null), so unmount would never actually revoke
+    // anything and every opened preview would leak its blob URL.
+  }, [previewUrl]);
 
   async function togglePreview() {
     if (previewOpen) {
@@ -295,8 +302,8 @@ function DocumentRow({
             <div className="min-w-0">
               <div className="truncate text-[13px] font-medium">{doc.display_name}</div>
               <div className="text-[11px] text-muted-foreground">
-                {doc.content_type} · {formatBytes(doc.size_bytes)} · uploaded by {doc.uploaded_by}{" "}
-                · {formatDateTime(doc.uploaded_at)}
+                {doc.content_type} · {formatBytes(doc.size_bytes)} · uploaded by {doc.uploaded_by} ·{" "}
+                {formatDateTime(doc.uploaded_at)}
               </div>
               {doc.description && (
                 <p className="mt-1 text-xs text-muted-foreground">{doc.description}</p>
@@ -356,12 +363,20 @@ function DocumentRow({
           {previewOpen && previewUrl && (
             <div className="mt-3 overflow-hidden rounded-lg border border-border">
               {isImage ? (
-                <img src={previewUrl} alt={doc.display_name} className="max-h-96 w-full object-contain" />
+                <img
+                  src={previewUrl}
+                  alt={doc.display_name}
+                  className="max-h-96 w-full object-contain"
+                />
               ) : (
                 <object data={previewUrl} type="application/pdf" className="h-96 w-full">
                   <p className="p-4 text-xs text-muted-foreground">
                     This browser can't preview PDFs inline.{" "}
-                    <a href={previewUrl} download={doc.display_name} className="text-primary underline">
+                    <a
+                      href={previewUrl}
+                      download={doc.display_name}
+                      className="text-primary underline"
+                    >
                       Download it
                     </a>{" "}
                     instead.

@@ -75,7 +75,9 @@ function TenantProfilePage() {
             className="mt-4"
             title={notFound ? "Tenant not found" : "This didn't load"}
             detail={
-              notFound ? "It may have been removed, or the link is out of date." : tenant.error.message
+              notFound
+                ? "It may have been removed, or the link is out of date."
+                : tenant.error.message
             }
             {...(notFound ? {} : { onRetry: () => void tenant.refetch() })}
           />
@@ -89,8 +91,6 @@ function TenantProfilePage() {
   // No confirmed way from this endpoint to know whether any of this
   // tenant's cases actually has a message thread -- "has open cases" is
   // the closest honest proxy available, so the link only appears then.
-  // See routes/NEEDS_FROM_ROOT_directories.md for the /messages filter
-  // param this assumes (tenantId), unconfirmed with whoever owns that route.
   const hasCases = t.cases.length > 0;
 
   return (
@@ -101,20 +101,19 @@ function TenantProfilePage() {
         actions={
           <div className="flex items-center gap-2">
             {hasCases && (
-              // Plain <a>, not TanStack's typed <Link>: /messages isn't one
-              // of this file's owned routes and no route file for it exists
-              // in this checkout yet (see NEEDS_FROM_ROOT_directories.md) --
-              // unlike /contractors and /tenants, which resolve once this
-              // agent's own routes are registered, whether this link ever
-              // resolves depends on another agent's route landing. A plain
-              // href still works once it does, without a route registry
-              // whose contents this file can't know about at compile time.
-              <a
-                href={`/messages?tenantId=${encodeURIComponent(t.id)}`}
+              // `q` is the Messages screen's real filter parameter (see
+              // useThreadListFilters in hooks/use-messaging.ts), and its
+              // search spans tenant name, so filtering by name lands on
+              // this tenant's threads. There is no tenant-id filter to use
+              // instead, and inventing one would produce a link that looks
+              // precise and quietly matches nothing.
+              <Link
+                to="/messages"
+                search={{ q: t.display_name }}
                 className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 text-sm font-medium shadow-card transition-colors hover:bg-accent"
               >
                 <MessageSquare className="h-4 w-4" /> Messages
-              </a>
+              </Link>
             )}
             <TenantFormDialog
               mode="edit"
@@ -140,8 +139,8 @@ function TenantProfilePage() {
                 Contact not allowed
               </p>
               <p className="mt-0.5 text-xs text-status-red-foreground/80">
-                This tenant has not consented to contact. Do not call, text or email them from
-                this app.
+                This tenant has not consented to contact. Do not call, text or email them from this
+                app.
               </p>
             </div>
           </Card>

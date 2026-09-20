@@ -132,8 +132,8 @@ export function NewTicketDialog() {
                 New maintenance ticket
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Record a repair as it was reported to you. Triage runs
-                immediately; nothing is contacted without your approval.
+                Record a repair as it was reported to you. Triage runs immediately; nothing is
+                contacted without your approval.
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>

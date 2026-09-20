@@ -129,10 +129,7 @@ export function CaseVolumeChart({
 
   return (
     <Card className="p-4">
-      <CardHead
-        title="Case volume by month"
-        description="Click a month to see its cases."
-      />
+      <CardHead title="Case volume by month" description="Click a month to see its cases." />
       {data.length === 0 ? (
         <p className="mt-6 py-6 text-center text-xs text-muted-foreground">
           No cases in the selected range.
@@ -149,7 +146,8 @@ export function CaseVolumeChart({
           <div className="mt-3 flex h-32 items-end gap-1.5 overflow-x-auto border-b border-border px-1 pb-1">
             {data.map((d, index) => {
               const active = selectedMonth === d.month;
-              const showYear = index === 0 || d.month.slice(0, 4) !== data[index - 1]?.month.slice(0, 4);
+              const showYear =
+                index === 0 || d.month.slice(0, 4) !== data[index - 1]?.month.slice(0, 4);
               return (
                 <button
                   key={d.month}
@@ -249,7 +247,9 @@ export function CategoryBreakdownDonut({
                         TRADE_DOT_CLASS[TRADE_TONE[d.trade]],
                       )}
                     />
-                    <span className={active ? "font-semibold" : undefined}>{titleCase(d.trade)}</span>
+                    <span className={active ? "font-semibold" : undefined}>
+                      {titleCase(d.trade)}
+                    </span>
                     <b className="ml-auto shrink-0">{displayPercentages[index]}%</b>
                     <span className="ml-2 shrink-0 text-muted-foreground">({d.count})</span>
                   </button>
@@ -278,7 +278,10 @@ export function SpendByYearChart({
 
   return (
     <Card className="p-4">
-      <CardHead title="Spend by year" description="Quoted vs. actual. Click a year to see its cases." />
+      <CardHead
+        title="Spend by year"
+        description="Quoted vs. actual. Click a year to see its cases."
+      />
       {data.length === 0 ? (
         <p className="mt-6 py-6 text-center text-xs text-muted-foreground">
           No quoted or actual spend in the selected range.
@@ -318,11 +321,15 @@ export function SpendByYearChart({
                   <div className="flex h-16 items-end gap-1">
                     <span
                       className="w-3.5 rounded-t-sm bg-primary/70"
-                      style={{ height: `${Math.max(3, Math.round((d.quoted_pence / max) * 64))}px` }}
+                      style={{
+                        height: `${Math.max(3, Math.round((d.quoted_pence / max) * 64))}px`,
+                      }}
                     />
                     <span
                       className="w-3.5 rounded-t-sm bg-chart-4"
-                      style={{ height: `${Math.max(3, Math.round((d.actual_pence / max) * 64))}px` }}
+                      style={{
+                        height: `${Math.max(3, Math.round((d.actual_pence / max) * 64))}px`,
+                      }}
                     />
                   </div>
                   <span
@@ -445,7 +452,10 @@ export function RecurringIssuesTable({
 }) {
   return (
     <Card className="p-4">
-      <CardHead title="Recurring issues" description="Same trade, same property, more than once. Click a row to see its cases." />
+      <CardHead
+        title="Recurring issues"
+        description="Same trade, same property, more than once. Click a row to see its cases."
+      />
       {data.length === 0 ? (
         <p className="mt-6 py-6 text-center text-xs text-muted-foreground">
           No recurring issues in the selected range.
