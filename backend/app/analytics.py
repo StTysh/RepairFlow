@@ -566,7 +566,16 @@ async def category_breakdown(
     count descending; percentages are integers summing to exactly 100 (see
     _largest_remainder_percentages).
     """
-    query = select(RepairCaseModel.category, func.count()).group_by(RepairCaseModel.category)
+    query = (
+        select(RepairCaseModel.category, func.count())
+        .group_by(RepairCaseModel.category)
+        # Deterministic tie-break: group by count descending (below), but
+        # among equal counts always break ties the same way -- alphabetical
+        # by category -- rather than leaving it to SQLite's unspecified
+        # GROUP BY row order, which a test (or a user re-running the same
+        # report) should never see change.
+        .order_by(RepairCaseModel.category)
+    )
     query = _apply_case_filters(
         query, property_id=property_id, date_from=date_from, date_to=date_to, include_archived=include_archived,
     )

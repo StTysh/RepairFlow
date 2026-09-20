@@ -570,7 +570,12 @@ class Communication(ReadModel):
     tenant_id: UUID | None = None
     purpose: CommPurpose
     direction: CommDirection
-    provider: Literal["ELEVENLABS"] = "ELEVENLABS"
+    # OPERATOR is not a provider in the network sense -- it marks a
+    # conversation that happened in person or on a handset the operator
+    # was holding, with no vendor involved. It still gets a
+    # Communication row because intake is defined in terms of one
+    # (docs/16); what differs is that nothing external carried it.
+    provider: Literal["ELEVENLABS", "OPERATOR"] = "ELEVENLABS"
     provider_conversation_id: str | None = None
     provider_call_sid: str | None = None
     correlation_token_hash: str

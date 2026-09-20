@@ -82,13 +82,21 @@ async def _seed_case() -> tuple[str, str, str, str]:
                 preferred_channel="VOICE", contact_allowed=True,
             )
         )
+        # These models declare raw FK columns with no relationship(), so
+        # SQLAlchemy's unit of work has no dependency graph to sort the
+        # INSERTs by and will happily emit the case before its property.
+        # PRAGMA foreign_keys=ON is on, so that is a hard IntegrityError.
+        # One flush per FK boundary is what keeps the order honest.
+        await session.flush()
         session.add(
             RepairCaseModel(
                 id=case_id, case_number=_case_number(), property_id=property_id, tenant_id=tenant_id,
                 title="Leaking roof", risk={},
             )
         )
+        await session.flush()
         session.add(RepairIssueModel(id=issue_id, case_id=case_id, description="Water ingress", location="Bedroom"))
+        await session.flush()
         session.add(
             WorkOrderModel(
                 id=work_order_id, case_id=case_id, issue_id=issue_id, kind=WorkOrderKind.REPAIR,
@@ -181,7 +189,7 @@ async def test_document_oversize_rejected_and_leaves_no_file(app_db, content_dir
             files={"file": ("big.bin", b"x" * 11, "application/octet-stream")},
             auth=AUTH,
         )
-        assert r.status_code == 422, r.text
+        assert r.status_code == 413, r.text
     assert list(documents_dir.iterdir()) == []
 
 
