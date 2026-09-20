@@ -32,9 +32,9 @@ and served by FastAPI (`frontend-fixi/`). Pydantic AI over Gemini for the
 coordinator. ElevenLabs (with Twilio behind it) for voice. Tavily for
 contractor research.
 
-**Scale today.** ~11,800 lines of backend Python across 40 modules;
-17 frontend routes and ~25 components; 58 HTTP routes; 22 database
-tables; 155 backend tests.
+**Scale today.** ~12,500 lines of backend Python across 42 modules;
+17 frontend routes and ~27 components; 58 HTTP routes; 22 database
+tables; **186 backend tests**; no frontend tests.
 
 ---
 
@@ -168,6 +168,8 @@ is the summary.
 | **Largest-remainder percentages** | Every edge case sums to exactly 100. |
 | **Supply chain** | `uv.lock` hash-pinned; `npm audit` clean; no secrets in the built bundle. |
 | **Every visible control does something** | All interactive elements traced: no `console.log`-only buttons, no toast-without-a-write, no fabricated "Sent"/"Confirmed" strings. |
+| **The fixes are pinned** | 15 regression tests, each proven to fail when its fix is reverted. |
+| **Money reconciles** | One figure across five reads of the same scope: property stats by trade, by year, property history rows, insights case detail, and the costs endpoint. |
 
 ### Fixed during this session
 
@@ -239,7 +241,7 @@ Found by audit, fixed, and covered by new regression tests:
 | 16 | No browser voice panel. The original was a disabled placeholder; there was nothing to port. | **LOW** | — |
 | 17 | `docs/18` describes an abandoned single-case UI and carries no superseded banner; `docs/04` and `docs/20` describe the retired hackathon product. | **LOW** | `docs/` |
 | 18 | No frontend test suite at all, and no runner configured. | **MEDIUM** | — |
-| 19 | **Three critical invariants have no test**, proven by mutation: `assert_case_transition` reduced to a no-op, the approval staleness check disabled, and archival exclusion removed from `GET /cases` — each left the full suite green. Tests are being added. | **HIGH** | `tests/` |
+| ~~19~~ | ~~Three critical invariants have no test.~~ **Resolved**: `tests/test_audit_regressions.py` covers all three plus twelve more. Every one was proven to fail when its fix is reverted — a test that passes both ways guards nothing. |  — | `tests/test_audit_regressions.py` |
 | 20 | Every page load produces a React hydration mismatch (error #418). React recovers by client-rendering, so it is cosmetic, but it is noise and can flicker. | **LOW** | prerendered shell |
 | 21 | The upload size cap runs *after* Starlette has spooled the whole body — disk exhaustion, not the memory exhaustion its comment claims to prevent. | **MEDIUM** | `api/documents.py` |
 
