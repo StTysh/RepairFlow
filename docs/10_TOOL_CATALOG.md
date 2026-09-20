@@ -53,7 +53,7 @@ this table lists no more and no fewer.
 | `read_report` — original contractor evidence | RecordRef → ContractorReport | None | Coordinator | Missing report, wrong case (`ModelRetry`) | No |
 | `read_communication` — caller words and normalized outcome | RecordRef → Communication with `recording.media_path` set to null (transcript and `correlation_token_hash` are returned as-is) | None | Coordinator | Missing communication, wrong case (`ModelRetry`) | No |
 | `list_case_events` — bounded prior history | ReadEvents → list[CaseEvent] | None | Coordinator | Wrong case (`ModelRetry`); `limit` over 100 rejected by schema validation before the call | No |
-| `find_appointment_options` — intersect confirmed windows and connector slots | AppointmentQuery → AppointmentOptions | Reads and, if absent, lazily materializes `MockSlotModel` rows for that contractor/trade (a real write in the tool's own session, not merely a trace) | Coordinator | Unknown work order (`ModelRetry`, self-correcting); empty result with `reason_if_empty` for no matching tenant-availability window or no intersecting slot — these are not errors | No |
+| `find_appointment_options` — intersect confirmed windows and connector slots | AppointmentQuery → AppointmentOptions | Pure read. Candidate slots are generated in memory by `candidate_slots()` and never persisted; only `book()` writes a row, for the one slot it reserves | Coordinator | Unknown work order (`ModelRetry`, self-correcting); empty result with `reason_if_empty` for no matching tenant-availability window or no intersecting slot — these are not errors | No |
 | `read_research` — completed contractor-discovery evidence | RecordRef → ContractorSearchResult | None | Coordinator | Missing research snapshot, wrong case (`ModelRetry`) | No |
 
 Correction: an earlier revision of this table listed a `get_case_snapshot`
@@ -67,19 +67,22 @@ agent (`construct_agent` in `coordinator.py:45-62` registers only the five
 tools above). It is called directly by `GET /cases/{case_id}` in
 `backend/app/api/cases.py:177` and by the dispatcher in
 `backend/app/orchestration/dispatcher.py:152` to build the very snapshot
-that becomes the model's prompt. The earlier claim that
-`find_appointment_options` performs only a read ("Connector read, trace
-only") was also wrong: `MockBookingConnector.list_slots` calls
-`_ensure_slots` (`backend/app/integrations/booking.py:36-63`), which
-inserts `MockSlotModel` rows the first time a contractor/trade/day
-combination is requested. That insert is committed, not just flushed:
-`find_appointment_options` reads and writes inside the same
-`session_scope()` (`backend/app/db.py:60-69`), which commits on a clean
-exit from the `async with` block. A nominally read-only, model-visible
-tool therefore does cause a persisted write — worth flagging against
-this document's own "Model-visible tools are scoped reads" rule
-(CLAUDE.md), even though the write is idempotent and internal (no
-provider or case-state effect).
+that becomes the model's prompt. `find_appointment_options` was also described as
+"Connector read, trace only", and for a while that was false in a way
+worth recording: `list_slots` called `_ensure_slots`, which inserted
+`MockSlotModel` rows the first time a contractor/trade/day combination
+was requested, inside a `session_scope()` that commits on clean exit.
+A model-visible tool the catalogue called a read was persisting rows,
+against CLAUDE.md's "model-visible tools are scoped reads".
+
+**Fixed 2026-09-20** (see `docs/26`): listing builds candidates in
+memory via `candidate_slots()` and writes nothing. The executor no
+longer proves a slot exists by looking it up — with listing pure, a row
+means "already booked" rather than "offered" — and instead asks
+`mock_booking_connector.offered_slot(...)`, which still rejects an id
+the model invented. `book()` materialises the single slot it reserves.
+The availability is still fabricated (`APPLICATION_STATE.md` §5 row 1);
+it is simply no longer fabricated and persisted by a read.
 
 The initial snapshot is already supplied to the model as the run prompt; no read tool re-fetches it. Tools always use `RunContext` to enforce the injected case scope. `get_tenant` and `get_property` are internal reads included in the snapshot, not additional model tools. Do not expose contact secrets or entire unrelated cases.
 
