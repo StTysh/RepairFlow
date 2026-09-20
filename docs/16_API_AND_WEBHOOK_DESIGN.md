@@ -1,5 +1,8 @@
 # 16 — HTTP API, webhooks and event sequences
 
+> **Partially superseded (2026-09-20).** This document describes the 26-route MVP surface. The application now serves 58 routes; the additions are listed in `docs/UI2_IMPLEMENTATION_HANDOFF.md` §1 and recorded in `docs/26` entry 23. Everything below is still accurate for the routes it covers — it is incomplete, not wrong.
+
+
 These are **RepairFlow application routes**, not vendor endpoints. JSON models are defined in 06/10. Prefix ordinary API routes with `/api/v1`. Generate OpenAPI and a TypeScript client once implemented.
 
 ## Shared conventions

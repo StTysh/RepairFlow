@@ -134,3 +134,88 @@ Not covered by an explicit test in this matrix, noted honestly rather than silen
 Phase 10 (rehearse, document, freeze): README rewritten from the pre-implementation "no application implemented" version to reflect actual runnable state — real run/test/reset commands, an honest live-vs-simulated table per provider, and a "known gaps" section stating plainly that the frontend was never exercised in an actual browser (the Chrome automation extension was unavailable in this environment) even though its production build and full backend dependency surface were verified. No new package dependencies were added in Phases 9-10.
 
 Final honest summary of this implementation session's acceptance gates: the **deterministic core (Phases 0-4) is fully built and tested** — domain engine, dependency DAG, action ledger, mock booking, orchestration, API, 52 tests, zero flakiness observed. The **Gemini live gate is MET** (verified against the real API, not just constructed). The **ElevenLabs live voice gate is UNMET by explicit product decision** (fixture mode is sufficient for this MVP; the code path itself is complete and tested). The **Tavily live gate is UNMET for lack of credentials** (SHOULD-HAVE, not required). The **frontend is built, typed against the real OpenAPI schema, and passes a production build, but was never interactively verified in a browser** in this environment — this is the one gap a reviewer should close before treating the UI as demo-ready.
+
+### 2026-09-20 — Full-application migration: the hackathon scope is retired
+
+Executed `prompts/UI2_FULL_APPLICATION_MIGRATION.md`. The authoritative
+report is **`docs/UI2_IMPLEMENTATION_HANDOFF.md`** (what was built, how it
+was verified, and §7: what is not done). Recorded here because several
+entries are material corrections to canonical contracts, per CLAUDE.md.
+
+22. **docs/04's one-day MVP scope no longer governs.** The user has stated
+    the hackathon has ended and asked for an application they can use. The
+    scripted layer is gone: `app/api/demo.py` deleted, no boot-time
+    seeding, `_seed_demo_activity()` removed. An empty database is now a
+    supported, first-class state with real onboarding empty states, rather
+    than something the product papers over with fictional activity. The
+    MVP *exclusions* in docs/04 no longer justify omitting navigation
+    destinations, documents, notes, analytics or reports.
+
+23. **docs/16 is materially incomplete: 26 routes → 58.** New routers:
+    `overview`, `insights` (+ `/insights/cases`), `reports` (summary and
+    `export.csv`), `search`, `properties`, `contractors`, `tenants`,
+    `documents`, `notes`, `costs`, `messaging`, `field_updates`; plus
+    `PATCH /cases/{id}`, `POST /cases` (operator-recorded intake) and
+    `POST /appointments/{id}/reschedule`. The full table is in the handoff
+    §1; docs/16 has not been rewritten route-by-route.
+
+24. **docs/17 is materially incomplete: four new tables.**
+    `archive_batches`, `notes`, `documents`, `cost_entries`, plus archival
+    and category columns on `properties`, `repair_cases`, `tenants`,
+    `contractors`, and delivery-state columns on `messages`. Migration is
+    still `create_all()` at boot, now with `_add_missing_columns()` —
+    Alembic revisions remain for the record but are not what runs.
+
+25. **Three event types were appended but never declared in
+    `EventType`** — `OPERATOR_INFO_REQUESTED` (latent since it was added),
+    `CASE_EDITED`, `APPOINTMENT_RESCHEDULED`. `CaseEventModel.type` is a
+    plain string, so the write always succeeded; the failure landed on the
+    *read* side, where `load_case_snapshot` validates the case's own
+    history and 500s the entire ticket page once such an event enters the
+    recent window. A test now checks the enum against every `event_type=`
+    in the tree.
+
+26. **`assert_case_transition` permits a self-transition**, which is right
+    for an idempotent internal retry and wrong for an operator action.
+    Cancelling an already-cancelled case returned 202 and appended a second
+    `CASE_CANCELLED` event, so the history showed it closed twice for two
+    different reasons; resuming a never-escalated case did the same. The
+    operator endpoints now refuse both explicitly. The transition graph
+    itself is unchanged.
+
+27. **`Communication.provider` was `Literal["ELEVENLABS"]`**, which
+    rejected the operator-recorded intake channel. Widened to include
+    `OPERATOR` — a conversation that happened in person or on a handset the
+    operator was holding, with no vendor involved. It still gets a
+    Communication row because intake is defined in terms of one (docs/16);
+    what differs is that nothing external carried it.
+
+28. **`create_all()` never backfilled a newly added column.** SQLite fills
+    it with NULL on existing rows and a SQLAlchemy `default=` only runs at
+    INSERT time, so three NOT NULL additions to `messages` would have read
+    back NULL on the five rows already in `backend/data/repairflow.db` —
+    a 500 on the Messages screen, on the one database that matters. Every
+    test and manual check up to that point had run against a database
+    created fresh, where the migration path is a no-op. Found by copying
+    the real database and migrating the copy. Fixed, with a regression
+    test that was confirmed to fail without the fix.
+
+29. **`MockBookingConnector` still invents availability.** CLAUDE.md
+    prohibits it and §3 of the assignment names "fake bookings"
+    explicitly; this is the last piece of the demo layer in the
+    operational path. `POST /appointments/{id}/reschedule` is the honest
+    counterpart — a human-recorded time, PENDING, no provider booking id,
+    with an event naming who arranged it — but the coordinator's
+    SCHEDULE_VISIT proposals are still booked against fabricated slots.
+    Documented in the connector's own docstring and in the handoff §7;
+    not fixed.
+
+30. **No live call was placed at any point.**
+    `app/integrations/no_contact.py` reads the environment on every call,
+    self-enables under pytest, and guards `place_outbound_call()` — the
+    one function in the codebase that makes a phone ring. A harness may
+    arm a substitute so downstream handling can be exercised, but the real
+    transport still refuses: arming the flag without patching the
+    transport raises rather than dialling, and that fail-closed property
+    has its own test. The docs/11 live voice gate remains UNMET, now
+    deliberately.

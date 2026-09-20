@@ -1,5 +1,8 @@
 # 17 — Persistence, jobs and transactions
 
+> **Partially superseded (2026-09-20).** Four tables (`archive_batches`, `notes`, `documents`, `cost_entries`) and several columns were added after this was written; see `docs/UI2_IMPLEMENTATION_HANDOFF.md` §1 and `docs/26` entry 24. Everything below is still accurate for the tables it covers — it is incomplete, not wrong.
+
+
 ## Recommendation
 
 Use SQLite on a persistent local disk, SQLAlchemy 2.0 and Alembic. One Uvicorn process and one worker. Enable foreign keys, WAL and a busy timeout; use short transactions and a deliberate synchronous setting (FULL for the demo's recovery tests). WAL still has one writer and is not suitable for a shared network database file. [SQLite WAL](https://sqlite.org/wal.html).

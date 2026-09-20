@@ -67,7 +67,25 @@ class MockBookingConnector:
     """Local, in-database "provider". No real network call is made; results
     are still produced outside the caller's write transaction so the same
     commit-intent -> call -> commit-result shape works for a real connector
-    later without restructuring callers."""
+    later without restructuring callers.
+
+    **This invents availability, and that is a known outstanding problem.**
+    `_ensure_slots` above generates candidate times from a date offset
+    rather than reading any contractor's real calendar, so a slot this
+    returns reflects nothing a contractor has agreed to. It is the last
+    piece of the retired demo layer still in the operational path: the
+    coordinator's SCHEDULE_VISIT proposals are booked against these
+    fabricated slots, and an appointment created that way carries
+    `connector = MOCK` to say so.
+
+    The honest path already exists alongside it --
+    `POST /appointments/{id}/reschedule` records a time a human actually
+    arranged, as PENDING with no provider booking id and an event naming
+    who agreed it. Replacing this connector means either a real provider
+    integration or making that human-recorded path the only way an
+    appointment is created. Tracked in
+    docs/UI2_IMPLEMENTATION_HANDOFF.md §7.
+    """
 
     async def list_slots(self, session: AsyncSession, query: AppointmentQuery, *, trade: Trade) -> list[SlotOption]:
         contractor = await session.get(ContractorModel, str(query.contractor_id))

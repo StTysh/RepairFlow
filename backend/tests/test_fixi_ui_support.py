@@ -1077,3 +1077,70 @@ async def test_every_appended_event_type_is_declared_in_the_enum():
 
     missing = sorted(appended - declared)
     assert not missing, f"event types appended but not declared in EventType: {missing}"
+
+
+@pytest.mark.asyncio
+async def test_added_column_is_backfilled_with_its_default(tmp_path):
+    """`create_all` never alters an existing table, so a column added to a
+    model after a database was created arrives NULL on every row already
+    there -- and a SQLAlchemy `default=` runs at INSERT time, so it does
+    not help them. For a NOT NULL column that is a crash waiting for the
+    first read of an old row, which is exactly how it would have shipped:
+    every test and every manual check so far ran against a database
+    created fresh, where the migration path is a no-op.
+
+    This builds the failure deliberately: a table created WITHOUT the new
+    columns, a row inserted into it, then create_all(). The row must read
+    back with the model's defaults, not NULL.
+    """
+    import os
+
+    import sqlalchemy as sa
+
+    import app.db as db_module
+    from app.config import get_settings
+    from app.models import MessageModel
+
+    path = tmp_path / "legacy.db"
+    legacy = sa.create_engine(f"sqlite:///{path}")
+    with legacy.begin() as conn:
+        # The pre-migration shape of `messages`, as it existed on disk.
+        conn.exec_driver_sql(
+            "CREATE TABLE messages ("
+            " id VARCHAR(36) PRIMARY KEY, case_id VARCHAR(36), sender_type VARCHAR(40),"
+            " sender_name VARCHAR(128), text TEXT, photo_url VARCHAR(512), created_at VARCHAR(32))"
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO messages (id, case_id, sender_type, sender_name, text, created_at)"
+            " VALUES ('m1', 'c1', 'TENANT', 'Old Row', 'Predates the new columns',"
+            " '2026-01-01T00:00:00+00:00')"
+        )
+    legacy.dispose()
+
+    previous = os.environ.get("DATABASE_PATH")
+    os.environ["DATABASE_PATH"] = str(path)
+    get_settings.cache_clear()
+    db_module._engine = None
+    db_module._session_factory = None
+    try:
+        await db_module.create_all()
+        async with db_module.session_scope() as session:
+            row = await session.get(MessageModel, "m1")
+            assert row is not None
+            # Every NOT NULL column the model gained must have a value.
+            assert row.channel is not None, "channel left NULL on a pre-existing row"
+            assert row.delivery_state is not None, "delivery_state left NULL"
+            assert row.attachments == [], "attachments left NULL rather than an empty list"
+            # A genuinely nullable addition stays null -- backfilling it
+            # would invent a fact about a row nobody has looked at.
+            assert row.read_at is None
+            assert row.archive_batch_id is None
+    finally:
+        await db_module.dispose_engine()
+        if previous is None:
+            os.environ.pop("DATABASE_PATH", None)
+        else:
+            os.environ["DATABASE_PATH"] = previous
+        get_settings.cache_clear()
+        db_module._engine = None
+        db_module._session_factory = None

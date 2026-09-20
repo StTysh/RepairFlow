@@ -552,11 +552,24 @@ async def validate(session: AsyncSession, *, label: str = DEFAULT_LABEL, seed: i
 
     check("no_open_or_pending_work", _no_open_pending_check)
 
-    job_count = (await session.execute(sa.select(sa.func.count()).select_from(JobModel))).scalar_one()
+    # Scoped to the batch's own cases, not the whole table. The claim
+    # being checked is "this import created no durable work" -- a real
+    # database will have thousands of legitimate jobs from genuine cases,
+    # and counting those turned a passing import into a false failure the
+    # first time this ran anywhere other than an empty database.
+    job_count = (
+        await session.execute(
+            sa.select(sa.func.count())
+            .select_from(JobModel)
+            .where(JobModel.case_id.in_(case_ids))
+        )
+    ).scalar_one() if case_ids else 0
     report.checks.append(
         CheckResult(
             name="no_jobs", passed=job_count == 0,
-            detail=f"{job_count} job row(s) in DB" if job_count else "clean",
+            detail=(
+                f"{job_count} job row(s) against archival cases" if job_count else "clean"
+            ),
         )
     )
 

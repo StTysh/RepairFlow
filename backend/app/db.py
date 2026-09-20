@@ -107,7 +107,53 @@ def _add_missing_columns(conn) -> list[str]:
             conn.exec_driver_sql(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {ddl_type}')
             applied.append(f"{table.name}.{column.name}")
 
+            # SQLite fills the new column with NULL on every existing row,
+            # and a SQLAlchemy `default=` runs in Python at INSERT time --
+            # it never touches rows that are already there. For a column
+            # the model declares NOT NULL that is a latent crash rather
+            # than a cosmetic gap: writes stay happy and the read side
+            # raises the first time a pre-existing row is loaded. Backfill
+            # in the same transaction as the ALTER so the table is never
+            # left in that state.
+            backfill = _default_value(column)
+            if backfill is not _NO_DEFAULT:
+                processor = column.type.bind_processor(conn.dialect)
+                value = processor(backfill) if processor is not None else backfill
+                conn.exec_driver_sql(
+                    f'UPDATE "{table.name}" SET "{column.name}" = ? WHERE "{column.name}" IS NULL',
+                    (value,),
+                )
+
     return applied
+
+
+_NO_DEFAULT = object()
+
+
+def _default_value(column):
+    """What a freshly-inserted row would get for this column, or
+    `_NO_DEFAULT` when there is no single right answer.
+
+    Covers both shapes SQLAlchemy stores: a scalar (`default="INTERNAL"`,
+    or an Enum member) and a callable (`default=list`, which SQLAlchemy
+    wraps to accept an execution context). A default that genuinely
+    depends on the insert's other values cannot be reconstructed for a
+    historical row, so it is skipped rather than guessed at.
+    """
+    default = column.default
+    if default is None:
+        return _NO_DEFAULT
+    if getattr(default, "is_scalar", False):
+        arg = default.arg
+    elif getattr(default, "is_callable", False):
+        try:
+            arg = default.arg(None)
+        except Exception:
+            return _NO_DEFAULT
+    else:
+        return _NO_DEFAULT
+    # An Enum column stores the member's value, not the member.
+    return getattr(arg, "value", arg)
 
 
 async def create_all() -> None:

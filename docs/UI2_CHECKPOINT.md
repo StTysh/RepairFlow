@@ -170,3 +170,12 @@ remain open.
 holds both the nine scripted demo cases and the five real ones with
 genuine ElevenLabs conversations. `python -m app.legacy_demo_purge
 --dry-run` shows exactly what a cleanup would remove.
+
+The migration path itself *was* rehearsed against a copy of that
+database, which is where the last two bugs came from: three NOT NULL
+columns left NULL on pre-existing rows (fixed, with a regression test),
+and the archive validator counting every job in the database rather
+than the batch's own (fixed). The backend that was running on :8000 was
+stopped rather than restarted -- it was serving the new frontend build
+against pre-migration code, and restarting it starts the durable-job
+worker with live credentials, which is not an unattended decision.

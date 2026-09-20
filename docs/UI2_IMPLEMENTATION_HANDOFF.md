@@ -103,6 +103,18 @@ operator writing a time into this system is not a contractor accepting it.
 
 ## 3. Commands
 
+> **The backend that was running on :8000 has been stopped.** It was the
+> pre-migration process, and `StaticFiles` reads `frontend-fixi/dist` from
+> disk — which this work rebuilt. It was therefore serving the new
+> frontend against an API that predates seven of its eight destinations:
+> a half-dead app with no explanation. It was **not** restarted, because
+> booting it runs the durable-job worker against the real database with
+> live ElevenLabs credentials, and this was an unattended session. Start
+> it yourself with the first command below when you want it back. Its
+> queue was checked at the start of this session and had zero open jobs,
+> so a restart will not dial anyone.
+
+
 ```bash
 # Backend (from backend/)
 uv run uvicorn app.main:app --port 8000
@@ -192,6 +204,34 @@ Served build on `:8010`, `FIXI_NO_CONTACT=1`, isolated database, at a
   Share / Edit / kebab, status control, the five-step progression derived
   from real state (Reported done, Diagnosing current), "Record an update",
   nine working tabs.
+
+### Against a copy of the real database
+
+Every other check in this document ran against a database created fresh,
+where the migration path is a no-op — so it was never exercised at all.
+`backend/data/repairflow.db` was **copied** and the copy migrated and
+driven. That rehearsal found two things:
+
+- **Three NOT NULL columns were left NULL on existing rows.** `create_all`
+  adds the column; a SQLAlchemy `default=` only runs at INSERT time. The
+  five message rows already in that database came back with
+  `channel`/`delivery_state`/`attachments` NULL, which the Messages screen
+  declares non-optional — a 500 on first open, on the one database that
+  matters. `_add_missing_columns()` now backfills a column's default in
+  the same transaction as the ALTER. **Regression test added and confirmed
+  to fail without the fix.**
+- **`--validate`'s `no_jobs` check counted every job in the database**,
+  not just jobs against the imported batch. The real database holds 5,508
+  legitimate job rows, so a perfectly good import reported 12/13. Scoped
+  to the batch; now 13/13 there too.
+
+After those fixes, on the migrated copy: 18 columns added and backfilled,
+all eleven API surfaces return 200, all four real cases load with their
+events, messages and costs, and the two genuine LIVE ElevenLabs
+communications are intact. `--apply` allocates case numbers from the live
+MAX, so the archive's 60 cases became #15–#74 with no collision against
+the existing #1–#14; `--remove` then left exactly those 14 cases and 5
+messages with no orphans.
 
 ### Visual comparison against the reference
 
@@ -286,36 +326,48 @@ Honest list. None of these is hidden behind a "coming soon" screen.
    never functional — its own docstring calls it a disabled placeholder —
    so there was nothing to port. Signed session creation exists
    server-side; nothing in the UI starts one.
-4. **`ELEVENLABS_WEBHOOK_SECRET` is still empty**, so post-call webhooks
+4. **`MockBookingConnector` still invents availability.** This is the
+   last piece of the retired demo layer left in the operational path, and
+   CLAUDE.md prohibits invented availability explicitly. It generates
+   candidate slots from a date offset rather than reading any
+   contractor's calendar, and the coordinator's `SCHEDULE_VISIT`
+   proposals are booked against them. The honest counterpart already
+   exists — `POST /appointments/{id}/reschedule` records a time a human
+   actually arranged, PENDING, with no provider booking id and an event
+   naming who agreed it — but it is not yet the only way an appointment
+   is created. Replacing the connector means either a real provider
+   integration or routing all scheduling through that human-recorded
+   path. Flagged in the connector's own docstring.
+5. **`ELEVENLABS_WEBHOOK_SECRET` is still empty**, so post-call webhooks
    cannot be verified and transcripts are polled instead. ElevenLabs only
    issues that secret against a reachable HTTPS destination, and
    `PUBLIC_BASE_URL` is localhost.
 
 ### Not verified
 
-5. **No live call, ever, this session.** Downstream processing is proven
+6. **No live call, ever, this session.** Downstream processing is proven
    with an injected substitute; a real call, real audio and a real signed
    webhook delivery remain unperformed by design (§12). That is the single
    biggest gap between "verified" and "known to work end to end", and it
    is deliberate.
-6. **No side-by-side visual diff against the running reference** — see §4.
-7. **Narrow-width behaviour was reasoned about, not measured.** Every
+7. **No side-by-side visual diff against the running reference** — see §4.
+8. **Narrow-width behaviour was reasoned about, not measured.** Every
    screen uses the responsive patterns the existing ones do, and tables
    scroll inside their own containers, but no 768px screenshot pass was
    run.
 
 ### Known rough edges
 
-8. The **Reports** screen does not read its filters from the URL, so a
+9. The **Reports** screen does not read its filters from the URL, so a
    reports view is not linkable the way Insights, Properties, Contractors,
    Tenants and Messages are. Its own controls work.
-9. The **Insights property filter** lists operational properties only, so
+10. The **Insights property filter** lists operational properties only, so
    an archival sample property cannot be singled out there even with
    archival history included.
-10. **Insights chart drill-downs** open an inline panel; they do not push
+11. **Insights chart drill-downs** open an inline panel; they do not push
     filters onto the Maintenance list. Both were acceptable per the brief;
     only one is implemented.
-11. The **property-history trade drill-down** filters the table but its
+12. The **property-history trade drill-down** filters the table but its
     total is computed from the filtered rows rather than asserted equal to
     the donut segment — the donut sums work orders by trade while a history
     row carries the case's single primary trade, so the two genuinely
@@ -326,16 +378,16 @@ Honest list. None of these is hidden behind a "coming soon" screen.
 
 These predate the migration and are recorded in `docs/UI2_CHECKPOINT.md`:
 
-12. ESCALATED / CANCELLED cases do not halt automatic execution. Reachable
+13. ESCALATED / CANCELLED cases do not halt automatic execution. Reachable
     only with a hazard flag; every existing case carries `risk = UNKNOWN`.
-13. `RESOLVED → ESCALATED` is broken, so a hazard reported after resolution
+14. `RESOLVED → ESCALATED` is broken, so a hazard reported after resolution
     cannot re-escalate.
-14. `execute_action` can stick at `RUNNING` if the executor raises between
+15. `execute_action` can stick at `RUNNING` if the executor raises between
     lease and terminal write.
-15. Some service paths commit rows written before a `DomainError` is
+16. Some service paths commit rows written before a `DomainError` is
     raised.
-16. A lost-update race remains on double-submitted approvals.
-17. `create_voice_session` returns 202 even when the provider call failed.
+17. A lost-update race remains on double-submitted approvals.
+18. `create_voice_session` returns 202 even when the provider call failed.
 
 ### One judgement call worth re-checking
 
