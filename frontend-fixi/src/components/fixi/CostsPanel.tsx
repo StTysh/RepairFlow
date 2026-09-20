@@ -16,6 +16,7 @@ import {
 } from "@/hooks/use-case-content";
 import type { WorkOrder } from "@/api/types";
 import { formatDate, formatPence, titleCase } from "@/lib/format";
+import { parsePoundsToPence, penceToPoundsInput } from "@/lib/pence";
 import { cn } from "@/lib/utils";
 
 const fieldClass =
@@ -39,32 +40,6 @@ const KIND_TONE: Record<CostKind, "blue" | "green" | "purple"> = {
   INVOICE: "green",
   ADJUSTMENT: "purple",
 };
-
-/** Pounds-in-a-text-field -> integer pence, entirely by string handling --
- * never `Math.round(pounds * 100)` on a raw float, per the task
- * instructions and backend/app/api/costs.py's own "always pence" rule.
- * Mirrors `_validate_amount` there: every kind rejects zero; only
- * QUOTE/INVOICE additionally reject a negative amount -- ADJUSTMENT is a
- * signed correction and must be allowed to go either way. */
-function parsePoundsToPence(raw: string, allowNegative: boolean): number | null {
-  const trimmed = raw.trim();
-  const re = allowNegative ? /^-?\d+(\.\d{1,2})?$/ : /^\d+(\.\d{1,2})?$/;
-  if (!re.test(trimmed)) return null;
-  const negative = trimmed.startsWith("-");
-  const unsigned = negative ? trimmed.slice(1) : trimmed;
-  const [poundsPart = "0", penceRaw = ""] = unsigned.split(".");
-  const penceStr = (penceRaw + "00").slice(0, 2);
-  const total = parseInt(poundsPart, 10) * 100 + parseInt(penceStr, 10);
-  return negative ? -total : total;
-}
-
-function penceToPoundsInput(pence: number): string {
-  const negative = pence < 0;
-  const abs = Math.abs(pence);
-  const pounds = Math.floor(abs / 100);
-  const remainder = String(abs % 100).padStart(2, "0");
-  return `${negative ? "-" : ""}${pounds}.${remainder}`;
-}
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 

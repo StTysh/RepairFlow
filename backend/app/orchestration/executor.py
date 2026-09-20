@@ -470,7 +470,18 @@ async def _apply_schedule_result(action_id: str, work_order_id: str, booking_req
             appointment = AppointmentModel(
                 id=new_uuid(), case_id=case.id, work_order_id=work_order.id,
                 contractor_id=str(booking_request.contractor_id), slot_id=booking_request.slot_id,
-                start_at=outcome.confirmed_start, end_at=outcome.confirmed_end, status="CONFIRMED",
+                # PENDING, not CONFIRMED. CLAUDE.md: "Provider request
+                # acceptance is not booking confirmation", and docs/07:
+                # "CONFIRMED requires connector acknowledgment". The mock
+                # connector acknowledges instantly because it is the same
+                # process answering itself -- no contractor has agreed to
+                # anything. Writing CONFIRMED made the status field assert
+                # a fact that never happened, which no provenance label
+                # can undo: a reader filtering for confirmed visits got
+                # fabrications. CONFIRMED is now reachable only through
+                # the human-recorded path, where somebody really did
+                # arrange it.
+                start_at=outcome.confirmed_start, end_at=outcome.confirmed_end, status="PENDING",
                 connector="MOCK", provider_booking_id=outcome.provider_booking_id, action_id=action_record.id,
                 attempt_number=attempt_number, availability_revision=1, provenance=outcome.provenance,
             )

@@ -23,6 +23,7 @@ import type {
 import type { Trade } from "@/api/types";
 import type { StatusTone } from "@/lib/fixi-data";
 import { formatDate, formatPence, titleCase } from "@/lib/format";
+import { largestRemainderPercentages } from "@/lib/percentages";
 import { cn } from "@/lib/utils";
 
 // Duplicated from PropertyStatsCharts.tsx rather than imported -- that file
@@ -67,24 +68,6 @@ const TRADE_CSS_VAR: Record<StatusTone, string> = {
   purple: "var(--status-purple-foreground)",
   gray: "var(--status-gray-foreground)",
 };
-
-/** Same largest-remainder rounding as PropertyStatsCharts.tsx's donut, so a
- * displayed percentage column always sums to exactly 100 rather than
- * 99/101 from independently-rounded shares. */
-function largestRemainderPercentages(values: number[]): number[] {
-  const floors = values.map((v) => Math.floor(v));
-  let leftover = Math.round(values.reduce((a, b) => a + b, 0)) - floors.reduce((a, b) => a + b, 0);
-  const order = values
-    .map((v, index) => ({ index, remainder: v - Math.floor(v) }))
-    .sort((a, b) => b.remainder - a.remainder);
-  const result = [...floors];
-  for (const { index } of order) {
-    if (leftover <= 0) break;
-    result[index] = (result[index] ?? 0) + 1;
-    leftover -= 1;
-  }
-  return result;
-}
 
 function formatMonthLabel(month: string): string {
   const parsed = parse(month, "yyyy-MM", new Date());

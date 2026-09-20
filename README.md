@@ -52,7 +52,7 @@ machine can only move by copying `backend/data/repairflow.db` by hand.
 ```
 cd backend
 uv sync --frozen                  # ~10s; creates .venv from uv.lock
-uv run pytest -q                  # 203 tests, ~60s, fully offline
+uv run pytest -q                  # 214 tests, ~60s, fully offline
 ```
 
 The suite passes on a bare clone with no `.env` and no database. It
@@ -139,7 +139,12 @@ for reference only.
 
 ```
 cd backend
-uv run pytest -q
+uv run pytest -q          # 214 backend tests
+```
+
+```
+cd frontend-fixi
+npm test                  # 62 frontend tests (Vitest)
 ```
 
 Real on-disk SQLite, zero external network calls, and no outreach is

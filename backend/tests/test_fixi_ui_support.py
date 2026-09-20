@@ -507,7 +507,11 @@ async def test_cancel_appointment_reopens_work_order_and_wakes_coordinator(app_d
             await session.execute(select(AppointmentModel).where(AppointmentModel.work_order_id == repair_wo.id))
         ).scalars().all()
     assert len(appts) == 2, "expected the cancelled attempt plus a fresh rebooked one"
-    assert {a.status for a in appts} == {"CANCELLED", "CONFIRMED"}
+    # PENDING, not CONFIRMED: the mock connector acknowledges instantly
+    # because it is the same process answering itself, so nothing a
+    # contractor did justifies CONFIRMED. See CLAUDE.md, "Provider
+    # request acceptance is not booking confirmation".
+    assert {a.status for a in appts} == {"CANCELLED", "PENDING"}
 
 
 @pytest.mark.asyncio
@@ -833,7 +837,10 @@ async def test_upcoming_appointments_list(app_db):
     assert item["property_address"] == "1 Test St"
     assert item["contractor_id"] == roofer_id
     assert item["contractor_name"] == "Apex Roofing"
-    assert item["status"] == "CONFIRMED"
+    # PENDING: an arranged-but-unacknowledged visit still belongs on an
+    # "upcoming visits" list -- it is a visit someone must turn up to.
+    # Only the human-recorded path can produce CONFIRMED.
+    assert item["status"] == "PENDING"
 
 
 @pytest.mark.asyncio

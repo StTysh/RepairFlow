@@ -39,7 +39,7 @@ are the authority on every deliberate deviation.
 | `backend/.env` | No provider keys. Operator auth defaults **on**. | Optional — every setting has a working default. Sign in with `operator` / `repairflow-demo`. |
 
 The full sequence, verified from a bare checkout on 2026-09-20, is in
-README's *Running locally, from a fresh clone*. The 209-test suite
+README's *Running locally, from a fresh clone*. The 214-test backend suite
 passes on a clone with no `.env` and no database.
 
 **The existing data does not travel.** `backend/data/repairflow.db` on
@@ -68,8 +68,8 @@ contractor research.
 **Scale today**, measured 2026-09-20, not estimated: ~15,000 lines of
 backend Python across 57 files; 17 frontend routes and 21 components;
 73 HTTP routes (72 under `/api`, `/webhooks` and `/integrations`, plus
-`/healthz`); **25** database tables; **203** backend tests; no frontend
-tests.
+`/healthz`); **25** database tables; **214** backend tests and **62**
+frontend tests.
 
 ---
 
@@ -289,7 +289,7 @@ The four reasons, and which rows they cover:
   table-rebuild migration, an idempotency scheme, an error-envelope
   contract across ~30 routes, a job retention policy) that is a task of
   its own rather than a one-line fix.
-- **Low value against the cost** — rows 15, 18, 20.
+- **Low value against the cost** — row 20.
 
 If any of these should have been fixed instead of recorded, that is a
 scope call to make explicitly — the work is scoped in §6.
@@ -311,10 +311,10 @@ scope call to make explicitly — the work is scoped in §6.
 | ~~12~~ | ~~Upload cap runs after the body is spooled.~~ **Resolved**: `MaxBodySizeMiddleware` rejects an over-sized `Content-Length` before a byte is read, and counts chunked bodies as they stream so omitting the header does not bypass it. It sits inside CORS on purpose, so a 413 still carries the headers a browser needs to read the status. | — | `app/middleware.py` |
 | ~~13~~ | ~~No CORS guardrail against a wildcard with credentials.~~ **Resolved**: `Settings` refuses to construct on that combination, so it cannot be reached from configuration. The wildcard remains available with `CORS_ALLOW_CREDENTIALS=false`. The default allow-list also gained `:5174` — the only dev port actually served — which it had been missing. | — | `app/config.py` |
 | ~~14~~ | ~~`vulnerability_concern` is unenforced.~~ **Resolved**: it now forces the approval gate before any visit is booked, which is what docs/19's "only with explicit reviewed plan" means. Deliberately not part of `is_hazard` — a hazard freezes the case, which would strand a repair that still needs doing. | — | `domain/policy.py` |
-| 15 | Reports filters are not in the URL, so a filtered report is not linkable. | **LOW** | `routes/reports.index.tsx` |
+| ~~15~~ | ~~Reports filters are not in the URL.~~ **Resolved**: filters now read from and write to the URL, matching Insights and the directory pages. Note `validateSearch` is avoided app-wide — it reproducibly froze the renderer against the SPA-fallback hydration shell — so this uses the same `useRouterState` + `readParam` pattern the other pages do. | — | `routes/reports.index.tsx` |
 | 16 | No browser voice panel. The original was a disabled placeholder; there was nothing to port. | **LOW** | — |
 | ~~17~~ | ~~`docs/18`, `docs/04` and `docs/20` carry no superseded banner.~~ **Resolved**: all three were bannered in commit `5b2a07f`, as were `docs/16` and `docs/17`. This row was stale, not outstanding. | — | `docs/` |
-| 18 | No frontend test suite at all, and no runner configured. | **MEDIUM** | — |
+| ~~18~~ | ~~No frontend test suite at all.~~ **Resolved**: Vitest, `npm test`, 62 tests over the pure logic most likely to break silently — the search-param readers (the reason every URL filter was once inert), the insights normaliser (the date-fns crash), largest-remainder rounding and pence parsing. Four were verified by deliberate breakage. | — | `frontend-fixi/` |
 | ~~19~~ | ~~Three critical invariants have no test.~~ **Resolved**: `tests/test_audit_regressions.py` covers all three plus twelve more. Every one was proven to fail when its fix is reverted — a test that passes both ways guards nothing. |  — | `tests/test_audit_regressions.py` |
 | 20 | Every page load produces a React hydration mismatch (error #418). React recovers by client-rendering, so it is cosmetic, but it is noise and can flicker. | **LOW** | prerendered shell |
 | ~~22~~ | ~~The `jobs` table has no retention.~~ **Resolved**: `purge_finished_jobs` trims DONE rows past a week, hourly. Only DONE — a FAILED job is evidence until someone looks at it. The 5,601 dead rows already in `backend/data` will clear on the next worker run. Original finding: ~~the `jobs` table has no retention and holds 5,601 dead `FETCH_RECORDING` rows** — 5,618 jobs for 14 cases. They are the wreckage of the unbounded reconciliation sweep, each a distinct row with a timestamped dedupe key, all `DONE`. The sweep is bounded now (`RECONCILE_MAX_ATTEMPTS = 40`, counted by key prefix, so it fires correctly), but nothing ever deletes a finished job and no retention command exists. Harmless functionally; badly misleading to anyone who inspects the database. | **MEDIUM** | `orchestration/worker.py` |
@@ -375,9 +375,8 @@ That is incomplete, and this document is the correction.
 
 **Then**
 
-11. A frontend test suite — start with the search-param readers, the
-    insights normaliser, largest-remainder, and pence parsing.
-12. URL-backed Reports filters.
+11. ~~A frontend test suite.~~ **Done** — exactly those four areas.
+12. ~~URL-backed Reports filters.~~ **Done**.
 13. ~~Banner `docs/18`, `docs/04` and `docs/20` as superseded.~~ **Done**
     already — see row 17. This entry was stale when written.
 

@@ -213,7 +213,7 @@ export interface InsightsResponse {
  * translation into the screen would spread it across a dozen call sites.
  * One normaliser, one place to look when the contract next moves.
  */
-interface RawInsightsResponse {
+export interface RawInsightsResponse {
   case_volume_by_month?: Array<{ year: number; month: number; count: number }>;
   category_breakdown?: Array<{ category: string; count: number; percentage: number }>;
   spend_by_year?: SpendByYearItem[];
@@ -245,7 +245,7 @@ interface RawInsightsResponse {
   archived_case_count?: number;
 }
 
-function normalizeInsights(raw: RawInsightsResponse): InsightsResponse {
+export function normalizeInsights(raw: RawInsightsResponse): InsightsResponse {
   const comparison: InsightsComparison = {};
   if (raw.case_volume_comparison) {
     comparison["case_volume"] = {

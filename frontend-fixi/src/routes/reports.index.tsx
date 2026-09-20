@@ -1,7 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouterState } from "@tanstack/react-router";
 import { format, startOfMonth, startOfYear, subDays } from "date-fns";
 import { Download, FileQuestion, Printer } from "lucide-react";
-import { useState } from "react";
+import { useMemo } from "react";
 import type { Trade } from "@/api/types";
 import { AppShell, Card, PageContainer } from "@/components/fixi/AppShell";
 import { EmptyState, ErrorState, LoadingRows } from "@/components/fixi/EmptyState";
@@ -13,8 +13,22 @@ import {
   type ReportsFilters,
 } from "@/hooks/use-reports";
 import { formatDate, formatPence, titleCase } from "@/lib/format";
+import { readFlag, readParam } from "@/lib/search-params";
 import { cn } from "@/lib/utils";
 
+// No zod validateSearch here -- same app-wide reasoning as
+// contractors.index.tsx / tenants.index.tsx / insights.index.tsx (see
+// properties.$propertyId.history.tsx's Route comment for the original
+// finding: validateSearch reproducibly froze the renderer on a hard
+// navigation to a non-prerendered route). This route DOES navigate on
+// every filter change, so -- like insights.index.tsx, whose date-range +
+// property + category + archived-flag filters this page mirrors almost
+// exactly -- search is read reactively off router state (useRouterState)
+// rather than a one-off window.location read, and written with a plain,
+// unvalidated updater through useNavigate. Filters live in the URL so a
+// filtered report is linkable and survives a reload; see search-params.ts
+// for why raw URLSearchParams reads go through readParam/readFlag rather
+// than a naive `=== "true"` check.
 export const Route = createFileRoute("/reports/")({
   head: () => ({
     meta: [
@@ -41,6 +55,17 @@ const PRESET_LABEL: Record<Preset, string> = {
   all: "All time",
   custom: "Custom",
 };
+
+const PRESET_VALUES: Preset[] = ["7d", "30d", "90d", "month", "year", "all", "custom"];
+
+// The default a bare, unfiltered "/reports" URL must render -- matches
+// this page's previous `useState<Preset>("30d")` initial value exactly,
+// so an unfiltered URL keeps rendering what it always did.
+const DEFAULT_PRESET: Preset = "30d";
+
+function isPreset(value: string | undefined): value is Preset {
+  return value !== undefined && (PRESET_VALUES as string[]).includes(value);
+}
 
 function presetRange(preset: Preset): { from: string; to: string } {
   const today = new Date();
@@ -83,12 +108,44 @@ function formatStat(key: string, value: number): string {
 }
 
 function ReportsPage() {
-  const [preset, setPreset] = useState<Preset>("30d");
-  const [customFrom, setCustomFrom] = useState("");
-  const [customTo, setCustomTo] = useState("");
-  const [propertyId, setPropertyId] = useState("");
-  const [category, setCategory] = useState("");
-  const [includeArchived, setIncludeArchived] = useState(false);
+  const searchStr = useRouterState({ select: (s) => s.location.searchStr });
+  const navigate = useNavigate({ from: Route.fullPath });
+  const params = useMemo(() => new URLSearchParams(searchStr), [searchStr]);
+
+  const presetParam = readParam(params, "preset");
+  const preset: Preset = isPreset(presetParam) ? presetParam : DEFAULT_PRESET;
+  const customFrom = readParam(params, "from") ?? "";
+  const customTo = readParam(params, "to") ?? "";
+  const propertyId = readParam(params, "property_id") ?? "";
+  const category = readParam(params, "category") ?? "";
+  const includeArchived = readFlag(params, "archived");
+
+  function patchSearch(patch: Record<string, string | undefined>) {
+    void navigate({
+      // Route has no validateSearch (see the comment above), so this is a
+      // plain updater function over an unvalidated search object -- same
+      // shape as insights.index.tsx's patchSearch.
+      search: (prev: Record<string, string>) => {
+        const next: Record<string, string> = { ...prev };
+        for (const [key, value] of Object.entries(patch)) {
+          if (value === undefined || value === "") delete next[key];
+          else next[key] = value;
+        }
+        return next;
+      },
+      replace: true,
+    });
+  }
+
+  function selectPreset(next: Preset) {
+    patchSearch({
+      preset: next === DEFAULT_PRESET ? undefined : next,
+      // Custom keeps whatever from/to are already in the URL; any other
+      // preset computes its own range from today, so stale custom dates
+      // are cleared instead of left dangling in the query string.
+      ...(next === "custom" ? {} : { from: undefined, to: undefined }),
+    });
+  }
 
   const range = preset === "custom" ? { from: customFrom, to: customTo } : presetRange(preset);
   const filters: ReportsFilters = {
@@ -144,17 +201,17 @@ function ReportsPage() {
           <div className="print:hidden">
             <FilterBar
               preset={preset}
-              setPreset={setPreset}
+              setPreset={selectPreset}
               customFrom={customFrom}
               customTo={customTo}
-              setCustomFrom={setCustomFrom}
-              setCustomTo={setCustomTo}
+              setCustomFrom={(v) => patchSearch({ from: v || undefined })}
+              setCustomTo={(v) => patchSearch({ to: v || undefined })}
               propertyId={propertyId}
-              setPropertyId={setPropertyId}
+              setPropertyId={(v) => patchSearch({ property_id: v || undefined })}
               category={category}
-              setCategory={setCategory}
+              setCategory={(v) => patchSearch({ category: v || undefined })}
               includeArchived={includeArchived}
-              setIncludeArchived={setIncludeArchived}
+              setIncludeArchived={(v) => patchSearch({ archived: v ? "true" : undefined })}
               propertyOptions={properties.data ?? []}
             />
           </div>

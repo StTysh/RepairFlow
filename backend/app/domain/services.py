@@ -477,7 +477,11 @@ async def record_contractor_report(
     session.add(report)
     await session.flush()
 
-    if appointment.status == "CONFIRMED":
+    # PENDING as well as CONFIRMED: a system-proposed booking is PENDING
+    # (no contractor acknowledged it), and a report against it still
+    # closes the visit. Only CONFIRMED used to qualify, which the mock
+    # connector hid by always writing CONFIRMED.
+    if appointment.status in ("CONFIRMED", "PENDING"):
         appointment.status = "FINISHED"
     if work_order.status in (WorkOrderStatus.SCHEDULED, WorkOrderStatus.IN_PROGRESS):
         assert_work_order_transition(work_order.status, WorkOrderStatus.AWAITING_REPORT)
@@ -1365,10 +1369,17 @@ async def average_resolution_hours(session: AsyncSession, window_days: int = 30)
 
 
 async def load_upcoming_appointments(session: AsyncSession, limit: int = 100) -> list["UpcomingAppointmentItem"]:
-    """Confirmed appointments starting in the future, across every case --
-    for a cross-case "upcoming visits" list. Only CONFIRMED appointments
-    with start_at in the future (a cancelled/finished/pending attempt never
-    appears here); ordered soonest first.
+    """Arranged appointments starting in the future, across every case --
+    for a cross-case "upcoming visits" list. CONFIRMED *or* PENDING, with
+    start_at in the future (a cancelled or finished attempt never appears
+    here); ordered soonest first.
+
+    PENDING counts because a visit the system arranged is still a visit
+    someone must turn up to. It used to be CONFIRMED only, which was
+    harmless while the mock connector wrote CONFIRMED for everything --
+    but that status was asserting a contractor acknowledgment that never
+    happened, and once it was corrected to PENDING an appointment-only
+    filter would have emptied this list entirely.
 
     Deliberately `start_at >= now`, not `end_at >= now` like
     load_case_snapshot's `next_appointment` (which intentionally keeps
@@ -1399,7 +1410,9 @@ async def load_upcoming_appointments(session: AsyncSession, limit: int = 100) ->
             .join(PropertyModel, PropertyModel.id == RepairCaseModel.property_id)
             .join(ContractorModel, ContractorModel.id == AppointmentModel.contractor_id)
             .where(
-                AppointmentModel.status == AppointmentStatus_.CONFIRMED,
+                AppointmentModel.status.in_(
+                    (AppointmentStatus_.CONFIRMED, AppointmentStatus_.PENDING)
+                ),
                 AppointmentModel.start_at >= now,
                 RepairCaseModel.archive_batch_id.is_(None),
             )
@@ -1595,7 +1608,14 @@ async def load_case_snapshot(session: AsyncSession, case_id: str):
     # hasn't started -- a visit currently in progress (start_at <= now <
     # end_at) still belongs on a "next appointment" card; only a window
     # that has fully ended should drop off.
-    upcoming = [a for a in appointments if a.status == AppointmentStatus_.CONFIRMED and a.end_at >= now]
+    # PENDING as well as CONFIRMED -- see load_upcoming_appointments. A
+    # visit the system arranged belongs on the "next appointment" card
+    # whether or not a provider has acknowledged it; the card shows the
+    # status, so the distinction is displayed rather than hidden.
+    upcoming = [
+        a for a in appointments
+        if a.status in (AppointmentStatus_.CONFIRMED, AppointmentStatus_.PENDING) and a.end_at >= now
+    ]
     next_appointment_row = min(upcoming, key=lambda a: a.start_at) if upcoming else None
 
     return CaseSnapshot(

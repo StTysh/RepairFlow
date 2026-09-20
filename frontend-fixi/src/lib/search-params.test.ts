@@ -12,7 +12,7 @@ import { readFlag, readInt, readParam } from "@/lib/search-params";
 
 describe("readParam", () => {
   it("strips a JSON-quoted string value (the router's own output)", () => {
-    const params = new URLSearchParams('status=%22ACTIVE%22');
+    const params = new URLSearchParams("status=%22ACTIVE%22");
     expect(readParam(params, "status")).toBe("ACTIVE");
   });
 
@@ -40,7 +40,7 @@ describe("readParam", () => {
     // `""` (two characters, both quotes) is a valid JSON string, distinct
     // from the "key present but no value" case above -- it must not be
     // conflated with "absent".
-    const params = new URLSearchParams('status=%22%22');
+    const params = new URLSearchParams("status=%22%22");
     expect(readParam(params, "status")).toBe("");
   });
 
@@ -52,19 +52,19 @@ describe("readParam", () => {
   });
 
   it("leaves a quote-prefixed but unterminated value untouched", () => {
-    const params = new URLSearchParams('status=%22unterminated');
+    const params = new URLSearchParams("status=%22unterminated");
     expect(readParam(params, "status")).toBe('"unterminated');
   });
 
   it("leaves a value that only ends in a quote untouched", () => {
-    const params = new URLSearchParams('status=unterminated%22');
+    const params = new URLSearchParams("status=unterminated%22");
     expect(readParam(params, "status")).toBe('unterminated"');
   });
 });
 
 describe("readFlag", () => {
   it("reads the router's quoted true", () => {
-    const params = new URLSearchParams('archived=%22true%22');
+    const params = new URLSearchParams("archived=%22true%22");
     expect(readFlag(params, "archived")).toBe(true);
   });
 
@@ -74,7 +74,7 @@ describe("readFlag", () => {
   });
 
   it("reads a quoted '1'", () => {
-    const params = new URLSearchParams('archived=%221%22');
+    const params = new URLSearchParams("archived=%221%22");
     expect(readFlag(params, "archived")).toBe(true);
   });
 
@@ -84,7 +84,7 @@ describe("readFlag", () => {
   });
 
   it("is false for the router's quoted false", () => {
-    const params = new URLSearchParams('archived=%22false%22');
+    const params = new URLSearchParams("archived=%22false%22");
     expect(readFlag(params, "archived")).toBe(false);
   });
 
@@ -106,7 +106,7 @@ describe("readFlag", () => {
 
 describe("readInt", () => {
   it("parses the router's quoted integer", () => {
-    const params = new URLSearchParams('offset=%2212%22');
+    const params = new URLSearchParams("offset=%2212%22");
     expect(readInt(params, "offset", 0)).toBe(12);
   });
 

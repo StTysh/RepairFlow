@@ -57,6 +57,7 @@ from tests.test_hero_path import (
     _seed_reference_data,
     uid,
 )
+from tests.test_phase2_reliability import _drive_to_blocked_repair
 
 AUTH = ("operator", "repairflow-demo")
 
@@ -1497,3 +1498,46 @@ def test_archival_reporting_dates_are_seasonal_not_uniform():
     assert max(counts) >= 2 * max(min(counts), 1), (
         f"monthly distribution is too flat to look real: {counts}"
     )
+
+
+# --------------------------------------------------------------------------
+# 22. A fabricated booking may not claim to be CONFIRMED
+#     (app/orchestration/executor.py)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_mock_booking_is_pending_never_confirmed(app_db):
+    """CLAUDE.md: "Provider request acceptance is not booking
+    confirmation." docs/07: "CONFIRMED requires connector acknowledgment."
+    `MockBookingConnector` acknowledges instantly because it is the same
+    process answering itself -- no contractor agreed to anything -- and
+    the executor wrote the appointment as CONFIRMED anyway. Provenance
+    labels do not fix that: the status field is a claim of its own, and
+    anyone filtering for confirmed visits was reading fabrications.
+
+    CONFIRMED must now be reachable only through the human-recorded
+    path, where somebody really did arrange it.
+    """
+    from tests.test_fixi_ui_support import _drive_case_to_scheduled
+
+    property_id, tenant_id, roofer_id, _scaffolder_id = await _seed_reference_data()
+    # Stops at the freshly booked visit. The hero path is no good here:
+    # by the time it blocks, a contractor report has already moved the
+    # appointment to FINISHED, so the status this test is about is gone.
+    case_id, _coordinator, _work_order, appointment = await _drive_case_to_scheduled(
+        property_id, tenant_id, roofer_id, "Water ingress near the roofline."
+    )
+    async with session_scope() as session:
+        rows = (
+            await session.execute(select(AppointmentModel).where(AppointmentModel.case_id == case_id))
+        ).scalars().all()
+
+    assert rows, "booking must have produced an appointment"
+    assert appointment is not None
+    for row in rows:
+        assert row.connector == "MOCK", "this path books through the mock connector"
+        assert row.status == "PENDING", (
+            f"a slot this system invented was written as {row.status}; nothing acknowledged it"
+        )
+        assert row.provenance == "SIMULATED"
