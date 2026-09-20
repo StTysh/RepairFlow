@@ -118,7 +118,7 @@ async def run_coordinate(*, case_id: str, trigger_event_id: str, coordinator: Co
         # This sits above the hazard gate deliberately: escalating an
         # already-escalated case would append a second CASE_ESCALATED
         # event for the same standing reason.
-        if case.status in ("ESCALATED", "CANCELLED", "RESOLVED"):  # TEMP: reintroduced bug for regression-test verification
+        if case.status in ("ESCALATED", "CANCELLED"):
             return None
 
         risk = RiskAssessment.model_validate(case.risk)

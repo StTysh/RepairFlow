@@ -12,6 +12,8 @@ approved.
 """
 from __future__ import annotations
 
+import logging
+
 from datetime import datetime, timezone
 from typing import Protocol
 
@@ -288,6 +290,9 @@ async def _dispatch_local(session: AsyncSession, case_id: str, action_id: str, a
     raise ValueError(f"no local dispatch for {action!r}")
 
 
+logger = logging.getLogger(__name__)
+
+
 async def execute_action(action_id: str, *, elevenlabs_configured: bool = False, research_adapter: ResearchAdapter | None = None) -> CommandResult:
     from app.models import ActionRecordModel
 
@@ -378,16 +383,61 @@ async def execute_action(action_id: str, *, elevenlabs_configured: bool = False,
             return result
 
     # --- Phase B: outside any open transaction ---
-    if external_kind == "SCHEDULE_VISIT":
-        booking_request, attempt_number, work_order_id = external_payload
-        async with session_scope() as booking_session:
-            outcome = await mock_booking_connector.book(booking_session, booking_request, action_id=action_id)
-        return await _apply_schedule_result(action_id, work_order_id, booking_request, attempt_number, outcome)
+    #
+    # Everything from here to the terminal write is wrapped. The record is
+    # sitting at RUNNING; if this raises and nothing catches it, the
+    # record stays RUNNING forever. Nothing in the codebase reconciles
+    # that state, and ScheduleVisit's idempotency key is derived from the
+    # count of existing appointments, so a retry of the same work order
+    # then hits a ConflictError and the case is stuck permanently.
+    #
+    # UNKNOWN, not FAILED: the external call may well have succeeded
+    # before we lost the thread. Claiming it failed would be a guess, and
+    # "provider request acceptance is not booking confirmation" cuts both
+    # ways — the honest state is that we do not know, and a human needs
+    # to reconcile it. `reconciliation_required` is what surfaces that.
+    try:
+        if external_kind == "SCHEDULE_VISIT":
+            booking_request, attempt_number, work_order_id = external_payload
+            async with session_scope() as booking_session:
+                outcome = await mock_booking_connector.book(booking_session, booking_request, action_id=action_id)
+            return await _apply_schedule_result(action_id, work_order_id, booking_request, attempt_number, outcome)
 
-    if external_kind == "DISCOVER_CONTRACTORS":
-        action = external_payload
-        search_result = await research_adapter.search(case_id, action.trade, action.postcode)
-        return await _apply_research_result(action_id, search_result)
+        if external_kind == "DISCOVER_CONTRACTORS":
+            action = external_payload
+            search_result = await research_adapter.search(case_id, action.trade, action.postcode)
+            return await _apply_research_result(action_id, search_result)
+    except Exception as exc:  # noqa: BLE001 - must not leave the ledger at RUNNING
+        logger.exception("external action %s (%s) failed after commit-intent", action_id, external_kind)
+        async with session_scope() as recovery_session:
+            stranded = await recovery_session.get(ActionRecordModel, action_id)
+            if stranded is not None and stranded.state == ActionState.RUNNING.value:
+                case_version = (await services.load_case(recovery_session, stranded.case_id)).version
+                unknown = CommandResult(
+                    status=CommandResultStatus.UNKNOWN,
+                    case_version=case_version,
+                    error=ToolError(
+                        code=ToolErrorCode.EXTERNAL_RESULT_UNKNOWN,
+                        message=(
+                            f"{external_kind} was sent but its outcome was never recorded: "
+                            f"{type(exc).__name__}: {exc}"
+                        )[:400],
+                        retryable=False,
+                        reconciliation_required=True,
+                    ),
+                )
+                _record_terminal(stranded, ActionState.UNKNOWN, unknown)
+                await services.append_event(
+                    recovery_session, case_id=stranded.case_id, event_type="ACTION_UNKNOWN",
+                    payload={
+                        "action_id": action_id,
+                        "external_kind": external_kind,
+                        "error": f"{type(exc).__name__}: {exc}"[:400],
+                    },
+                    actor=actor, source_event_key=f"action-unknown:{action_id}",
+                )
+                return unknown
+        raise
 
     raise AssertionError("unreachable: no local result and no external kind selected")
 

@@ -357,24 +357,47 @@ async def test_archival_case_lifecycle_actions_are_read_only(app_db):
 
 @pytest.mark.asyncio
 async def test_report_cannot_be_posted_to_wrong_case(app_db):
-    """POST /cases/{A}/reports carrying a work_order_id that actually
-    belongs to case B used to be accepted with a 202:
-    record_contractor_report derives the case from the work order, not
-    from the URL, so the report silently landed on case B. submit_report
-    must 404 when the work order isn't in the case named in the path, and
-    nothing must be created against either case."""
-    property_id, tenant_id = await _seed_property_tenant()
+    """POST /cases/{A}/reports carrying a work_order_id (and a genuinely
+    matching appointment_id) that actually belong to case B used to be
+    accepted with a 202: record_contractor_report derives the case from
+    the work order, not from the URL, so the report silently landed on
+    case B. submit_report must 404 when the work order isn't in the case
+    named in the path, and nothing must be created against either case.
+
+    Both work_order_id and appointment_id must be real, case-B-consistent
+    rows here -- record_contractor_report's own appointment check (`not in
+    case {case_id}`) also 404s on a merely-nonexistent appointment_id, so a
+    test using a random uuid there would pass whether or not the
+    case-mismatch guard this test targets exists at all."""
+    property_id, tenant_id, roofer_id, _ = await _seed_reference_data()
     case_a = await _seed_bare_case(property_id, tenant_id)
     case_b = await _seed_bare_case(property_id, tenant_id)
 
-    issue_b_id, wo_b_id = uid(), uid()
+    issue_b_id, wo_b_id, action_b_id, appt_b_id = uid(), uid(), uid(), uid()
     async with session_scope() as session:
         session.add(RepairIssueModel(id=issue_b_id, case_id=case_b, description="Issue B", location="Kitchen"))
         await session.flush()
         session.add(
             WorkOrderModel(
-                id=wo_b_id, case_id=case_b, issue_id=issue_b_id, kind="REPAIR", trade="PLUMBING",
-                scope="Fix the leak", status="READY",
+                id=wo_b_id, case_id=case_b, issue_id=issue_b_id, kind="REPAIR", trade="ROOFING",
+                scope="Fix the roof", status="SCHEDULED", contractor_id=roofer_id,
+            )
+        )
+        session.add(
+            ActionRecordModel(
+                id=action_b_id, case_id=case_b, kind="SCHEDULE_VISIT", target_id=wo_b_id,
+                idempotency_key=f"wrong-case-test:{action_b_id}", payload_hash="hash", proposal={},
+                state=ActionState.SUCCEEDED.value,
+            )
+        )
+        await session.flush()
+        now = datetime.now(timezone.utc)
+        session.add(
+            AppointmentModel(
+                id=appt_b_id, case_id=case_b, work_order_id=wo_b_id, contractor_id=roofer_id,
+                slot_id=f"manual:{appt_b_id}", start_at=now + timedelta(days=1), end_at=now + timedelta(days=1, hours=3),
+                status="CONFIRMED", connector="MOCK", provider_booking_id=f"wrong-case-test-{appt_b_id}",
+                action_id=action_b_id, attempt_number=1, provenance="SIMULATED",
             )
         )
 
@@ -382,7 +405,7 @@ async def test_report_cannot_be_posted_to_wrong_case(app_db):
         r = await client.post(
             f"/api/v1/cases/{case_a}/reports",
             json={
-                "work_order_id": wo_b_id, "appointment_id": uid(), "contractor_id": uid(),
+                "work_order_id": wo_b_id, "appointment_id": appt_b_id, "contractor_id": roofer_id,
                 "text": "Report wrongly targeted at case A", "observed_at": datetime.now(timezone.utc).isoformat(),
             },
             auth=AUTH,
