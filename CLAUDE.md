@@ -27,7 +27,9 @@ Do not rebuild it. Read the state document, then the code.
 4. The canonical contracts, when you need them: `docs/06` (domain),
    `docs/07` (case state machine), `docs/10` (tool catalog), `docs/16`
    (API and webhooks), `docs/17` (database), `docs/19` (safety).
-5. `docs/audit/` -- twelve independent read-only audits from 2026-09-20.
+5. `prompts/NEW_SESSION_HANDOFF.md` -- the constraints still in force
+   and the traps that have already cost a session real time. Short.
+6. `docs/audit/` -- twelve independent read-only audits from 2026-09-20.
    These are historical inputs, not a live tracker: many findings were
    fixed afterwards. `docs/APPLICATION_STATE.md` is the tracker.
 
