@@ -1,5 +1,12 @@
 # 20 — Four-to-five-minute demonstration
 
+> **Superseded (2026-09-20).** This is the rehearsal script for the
+> retired hackathon demo. Every control it depends on — Play demo, Reset
+> demo, Inject observation, the scripted scenario progression — has been
+> removed from both the UI and the API. It is kept for history only and
+> cannot be followed against the current build.
+
+
 ## Thesis and wow moment
 
 “A repair is not finished when a contractor leaves. RepairFlow keeps the original issue alive, understands what blocked it, and resumes work when the prerequisite is complete.”

@@ -65,9 +65,11 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. Operator sign-in can be disabled entirely via `OPERATOR_AUTH_ENABLED=false` in `backend/.env` (the frontend auto-detects this and skips the login form); when enabled, credentials come from `backend/.env` (`OPERATOR_USERNAME`/`OPERATOR_PASSWORD`). The frontend polls the backend directly over CORS; no build step is required for local dev.
+Open `http://localhost:5174` (the port `vite.config.ts` sets). Operator sign-in can be disabled entirely via `OPERATOR_AUTH_ENABLED=false` in `backend/.env` (the frontend auto-detects this and skips the login form); when enabled, credentials come from `backend/.env` (`OPERATOR_USERNAME`/`OPERATOR_PASSWORD`). The frontend polls the backend directly over CORS; no build step is required for local dev.
 
-To run the original `frontend` instead (has the approval/dependency-graph/voice-panel UI `frontend-fixi` currently lacks — see Known gaps below):
+`frontend-fixi` now has the approval card (`DecisionCard`) and the
+dependency graph (`WorkGraph`); neither is missing. The original
+`frontend` is kept only for reference and is not served. To run it:
 
 ```
 cd frontend
@@ -136,7 +138,9 @@ To make a genuine call, unset `FIXI_NO_CONTACT`, set
 | Execution | [20 Demo](docs/20_DEMO_SCRIPT.md), [21 Build plan](docs/21_IMPLEMENTATION_PLAN.md), [22 Testing](docs/22_TESTING_STRATEGY.md) |
 | Due diligence | [23 Risks](docs/23_RISKS_AND_OPEN_QUESTIONS.md), [24 Sources](docs/24_RESEARCH_SOURCES.md) |
 | Review | [25 Questions answered](docs/25_RESEARCH_QUESTIONS_ANSWERED.md), [26 Implementation log](docs/26_SPECIFICATION_REVIEW.md) |
-| Full-application migration | [Handoff](docs/UI2_IMPLEMENTATION_HANDOFF.md), [Interaction inventory](docs/UI2_INTERACTION_CHECKLIST.md), [Working checkpoint](docs/UI2_CHECKPOINT.md) |
+| **Current state of everything** | **[Application state](docs/APPLICATION_STATE.md)** — start here |
+| Audit findings | [docs/audit/](docs/audit/) — eleven independent reports |
+| Full-application migration | [Handoff](docs/UI2_IMPLEMENTATION_HANDOFF.md), [Interaction inventory](docs/UI2_INTERACTION_CHECKLIST.md), [Working checkpoint](docs/UI2_CHECKPOINT.md), [Queued work](docs/UI2_TODO.md) |
 
 ## MVP acceptance
 

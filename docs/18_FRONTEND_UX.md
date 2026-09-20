@@ -1,5 +1,24 @@
 # 18 — Case workspace and visible agency
 
+> **Largely superseded (2026-09-20).** This describes a single-case
+> demo workspace: one hero case, a large central dependency graph, and a
+> "Demo controls" region for simulated observations. The application is
+> now a general operator tool with eight navigation destinations and a
+> ticket list — see `docs/APPLICATION_STATE.md`.
+>
+> What still holds: the design language, the provenance-badge rule, the
+> distinction between case/work-order/appointment status, "no dropdown
+> directly changes case status", and the voice-evidence honesty rules.
+>
+> What does not: the "Demo controls" region was removed on purpose (the
+> hackathon has ended); the **Research drawer it lists as required has
+> never been built** — `GET /research/{id}` exists with no caller; the
+> case header does not name the current blocker (the progress track does
+> instead); the communication drawer does not show the conversation ID;
+> and polling is a flat 2s rather than the 1s-active / 5s-idle switch
+> specified here.
+
+
 ## Stack
 
 React + TypeScript + Vite; Tailwind/shadcn components; React Flow for the small work graph. FastAPI serves the production build. No Next.js server is needed for this authenticated operational demo. [Vite](https://vite.dev/guide/), [shadcn](https://ui.shadcn.com/docs), [React Flow](https://reactflow.dev/learn).

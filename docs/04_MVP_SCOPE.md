@@ -1,5 +1,14 @@
 # 04 — One-day MVP scope
 
+> **Superseded (2026-09-20).** This defines a one-day hackathon MVP and
+> its deliberate exclusions. The hackathon has ended and the owner asked
+> for a usable application; the exclusions listed here (portfolio
+> analytics, documents, notes, reports, tenant/contractor directories)
+> have all since been built. Read `docs/APPLICATION_STATE.md` for what
+> the application actually is. This file is kept as a record of the
+> original scope, not as a current contract.
+
+
 ## Build the recovery loop first
 
 One property, one tenant, one active water-ingress issue, one coordinator, two primary trades. Use a safe fictional case with a known roof defect; do not infer that every ceiling leak requires a roofer.
