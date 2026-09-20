@@ -1381,3 +1381,51 @@ async def test_finished_jobs_are_purged_but_unfinished_ones_are_kept(app_db):
     assert ("old-pending", "PENDING") in remaining, "unfinished work must never be purged"
     assert ("recent-done", "DONE") in remaining, "a job inside the retention window must survive"
     assert len(remaining) == 3
+
+
+# --------------------------------------------------------------------------
+# 20. A model-visible read tool must not write (app/integrations/booking.py)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_listing_appointment_options_writes_nothing(app_db):
+    """CLAUDE.md: "Model-visible tools are scoped reads. Domain writes go
+    through a typed action executor and deterministic policy."
+    `find_appointment_options` is registered on the agent, and it reached
+    `_ensure_slots`, which did `session.add()` + `flush()` inside
+    `session_scope()` -- which commits. So the model asking what times
+    were available silently committed rows, through a tool the catalogue
+    documents as a read."""
+    from app.integrations.booking import mock_booking_connector
+    from app.models import ContractorModel, MockSlotModel
+    from app.schemas import AppointmentQuery, Trade
+
+    contractor_id = uid()
+    async with session_scope() as session:
+        session.add(ContractorModel(
+            id=contractor_id, display_name="Apex Roofing", trades=[Trade.ROOFING.value],
+            service_postcodes=["BS1"], approval_status="APPROVED",
+            connector="MOCK", provenance="SIMULATED",
+        ))
+
+    async with session_scope() as session:
+        before = (await session.execute(select(func.count()).select_from(MockSlotModel))).scalar_one()
+        slots = await mock_booking_connector.list_slots(
+            session,
+            AppointmentQuery(
+                case_id=uuid.uuid4(), work_order_id=uuid.uuid4(),
+                contractor_id=uuid.UUID(contractor_id), tenant_availability_ids=[],
+            ),
+            trade=Trade.ROOFING,
+        )
+    assert slots, "listing must still produce candidates"
+
+    async with session_scope() as session:
+        after = (await session.execute(select(func.count()).select_from(MockSlotModel))).scalar_one()
+    assert after == before == 0, f"listing persisted {after - before} slot row(s); it must write nothing"
+
+    # And the identity check the executor relies on still rejects an id
+    # this connector would never have offered.
+    assert mock_booking_connector.offered_slot(contractor_id, Trade.ROOFING, slots[0].slot_id) is not None
+    assert mock_booking_connector.offered_slot(contractor_id, Trade.ROOFING, "made-up:2020-01-01:09") is None

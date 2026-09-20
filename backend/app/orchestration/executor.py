@@ -327,7 +327,7 @@ async def execute_action(action_id: str, *, elevenlabs_configured: bool = False,
 
         try:
             if isinstance(action, ScheduleVisit):
-                from app.models import AvailabilityWindowModel, ContractorModel, MockSlotModel
+                from app.models import AvailabilityWindowModel, ContractorModel
 
                 work_order = await session.get(WorkOrderModel, str(action.work_order_id))
                 if work_order is None or work_order.case_id != case_id:
@@ -339,7 +339,14 @@ async def execute_action(action_id: str, *, elevenlabs_configured: bool = False,
                 if contractor is None or contractor.approval_status != "APPROVED":
                     raise PolicyRejectedError(f"contractor {action.contractor_id} is not an approved supplier")
 
-                slot = await session.get(MockSlotModel, action.slot_id)
+                # Not `session.get(MockSlotModel, ...)`: listing candidate
+                # slots no longer writes them (it is reachable from a
+                # model-visible read tool, which must not commit), so a
+                # row existing now would mean "already booked" rather
+                # than "offered". Ask the connector instead.
+                slot = mock_booking_connector.offered_slot(
+                    str(action.contractor_id), work_order.trade, action.slot_id
+                )
                 if slot is None:
                     raise PolicyRejectedError(f"slot {action.slot_id} does not exist")
                 if not action.tenant_availability_ids:

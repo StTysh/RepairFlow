@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models import ContractorModel, MockReservationModel, MockSlotModel, new_uuid
+from app.models import ContractorModel, MockReservationModel, MockSlotModel, WorkOrderModel, new_uuid
 from app.schemas import (
     AppointmentQuery,
     BookingOutcome,
@@ -31,6 +31,47 @@ _SLOT_HORIZON_DAYS = 10
 
 def _slot_id(contractor_id: str, start_at: datetime) -> str:
     return f"{contractor_id}:{start_at.date().isoformat()}:{start_at.hour:02d}"
+
+
+def _candidate_windows(now: datetime, start_offset: int) -> list[tuple[datetime, datetime]]:
+    """The candidate times themselves, as plain values. Pure: no session,
+    no rows, nothing persisted."""
+    windows: list[tuple[datetime, datetime]] = []
+    for day_offset in range(start_offset, _SLOT_HORIZON_DAYS):
+        day = (now + timedelta(days=day_offset)).replace(minute=0, second=0, microsecond=0)
+        if day.weekday() >= 5:  # skip weekends for a believable fictional calendar
+            continue
+        for hour in _BUSINESS_HOURS:
+            start_at = day.replace(hour=hour)
+            windows.append((start_at, start_at + timedelta(hours=3)))
+    return windows
+
+
+def candidate_slots(contractor_id: str, trade: Trade) -> list[MockSlotModel]:
+    """Candidate slots as **unattached** objects, for listing only.
+
+    `_ensure_slots` below writes these rows. That was fine for the
+    booking path, but `list_slots` called it too -- and `list_slots` is
+    reached from `find_appointment_options`, a model-visible tool. So
+    merely *asking* what times were available committed rows to the
+    database, through a tool the catalogue documents as a read. CLAUDE.md
+    is explicit that model-visible tools are scoped reads and that domain
+    writes go through the typed action executor; this was a hole in that.
+
+    Listing now builds the same objects in memory and never adds them to
+    a session. `book()` materialises the one slot it is actually
+    reserving, which is a real domain write on the executor's path where
+    it belongs.
+    """
+    now = datetime.now(timezone.utc)
+    start_offset = max(1, get_settings().demo_slot_offset_days)
+    return [
+        MockSlotModel(
+            slot_id=_slot_id(contractor_id, start_at), contractor_id=contractor_id, trade=trade,
+            start_at=start_at, end_at=end_at, expires_at=start_at, revision=1, is_reserved=False,
+        )
+        for start_at, end_at in _candidate_windows(now, start_offset)
+    ]
 
 
 async def _ensure_slots(session: AsyncSession, contractor_id: str, trade: Trade) -> list[MockSlotModel]:
@@ -91,7 +132,9 @@ class MockBookingConnector:
         contractor = await session.get(ContractorModel, str(query.contractor_id))
         if contractor is None:
             return []
-        slots = await _ensure_slots(session, contractor.id, trade)
+        # Deliberately not _ensure_slots: this path is reachable from a
+        # model-visible read tool and must not write. See candidate_slots.
+        slots = candidate_slots(contractor.id, trade)
         reserved_ids = set(
             (
                 await session.execute(
@@ -109,10 +152,42 @@ class MockBookingConnector:
             if slot.slot_id not in reserved_ids
         ]
 
+    def offered_slot(self, contractor_id: str, trade: Trade, slot_id: str) -> MockSlotModel | None:
+        """The candidate matching `slot_id`, or None if this connector
+        would never have offered it.
+
+        The executor used to answer this with `session.get(MockSlotModel,
+        ...)`, which worked only because listing persisted every
+        candidate it generated -- and listing is reachable from a
+        model-visible read tool. With listing made pure, existence in the
+        table no longer means "offered"; it means "already booked". This
+        is the identity check the executor actually wanted.
+        """
+        for candidate in candidate_slots(contractor_id, trade):
+            if candidate.slot_id == slot_id:
+                return candidate
+        return None
+
     async def book(self, session: AsyncSession, request: BookingRequest, *, action_id: str) -> BookingOutcome:
         slot = await session.get(MockSlotModel, request.slot_id)
         if slot is None:
-            return BookingOutcome(status=BookingStatus.REJECTED, reason="slot no longer exists", provenance=Provenance.SIMULATED)
+            # Listing no longer persists candidates, so the first booking
+            # of a slot is also what creates its row. Materialise it only
+            # if it is genuinely one of the times this connector would
+            # have offered -- an id the caller invented must still be
+            # rejected, or the "slot no longer exists" guard would mean
+            # nothing.
+            work_order = await session.get(WorkOrderModel, str(request.work_order_id))
+            candidate = (
+                self.offered_slot(str(request.contractor_id), work_order.trade, request.slot_id)
+                if work_order is not None
+                else None
+            )
+            if candidate is None:
+                return BookingOutcome(status=BookingStatus.REJECTED, reason="slot no longer exists", provenance=Provenance.SIMULATED)
+            session.add(candidate)
+            await session.flush()
+            slot = candidate
         if slot.expires_at < datetime.now(timezone.utc):
             return BookingOutcome(status=BookingStatus.REJECTED, reason="slot expired", provenance=Provenance.SIMULATED)
 

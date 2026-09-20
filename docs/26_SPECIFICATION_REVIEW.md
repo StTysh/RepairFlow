@@ -335,3 +335,60 @@ file out with CRLF, and `npx eslint .` in `frontend-fixi` then reports a
 already present on `scripts/flatten-dist.mjs` alone, from an earlier patch
 script that rewrote the file with CRLF. The index was already LF, so this
 introduces no renormalisation churn.
+
+### 2026-09-20 — Handoff pass: a model-visible read tool was writing
+
+Preparing the repository to be picked up on another machine turned up
+one contract violation worth recording against `docs/10`, plus four
+fixes to outstanding rows.
+
+**`find_appointment_options` committed rows.** CLAUDE.md states that
+model-visible tools are scoped reads and that domain writes go through
+the typed action executor. The tool is registered on the coordinator
+(`agents/coordinator.py`), calls `MockBookingConnector.list_slots`,
+which called `_ensure_slots`, which did `session.add()` and
+`session.flush()` — inside `session_scope()`, which commits on clean
+exit. So the model merely *asking what times were available* persisted
+slot rows. Nothing about it was labelled a write, and no test noticed.
+
+Listing is now pure: `candidate_slots()` builds the same objects in
+memory and never attaches them to a session. That moved the executor's
+existence check, which had been `session.get(MockSlotModel, slot_id)`
+and only worked because listing had been writing every candidate. With
+listing pure, a row existing means "already booked", not "offered", so
+the executor now asks `mock_booking_connector.offered_slot(...)` — the
+identity check it actually wanted, and one that still rejects an id the
+model invented. `book()` materialises the single slot it reserves,
+which is a genuine domain write on the executor's own path.
+
+This narrows, but does not close, the invented-availability problem in
+`docs/APPLICATION_STATE.md` §5 row 1: the times are still fabricated,
+they are simply no longer fabricated *and persisted* by a read.
+
+**docs/19's vulnerability rule is now enforced.** `vulnerability_concern`
+was collected at intake, stored on the case and rendered in the UI, and
+read by no policy function. docs/19 permits automatic booking for such a
+case "only with explicit reviewed plan"; it now requires approval.
+Deliberately not folded into `is_hazard`, which freezes the case before
+any model call — that would strand a repair that still needs doing.
+
+**Property history and stats disclose their archival mix**
+(`include_archived`, `includes_archived_history`, `archived_case_count`,
+and `is_archived` per row), matching what Insights and Reports already
+reported.
+
+**Intake accepts an `Idempotency-Key`.** `submit_intake` was always
+idempotent per communication; the endpoint minted a fresh communication
+per call, so a double-submitted form produced two cases. The header
+derives the communication id deterministically and reuses the existing
+NOOP path rather than adding a second dedupe mechanism.
+
+**Finished jobs are purged.** Nothing ever deleted one; the real
+database holds 5,618 rows for 14 cases. `purge_finished_jobs` trims DONE
+rows past a week, hourly. FAILED rows are kept as evidence.
+
+**Correction to a previous finding.** `docs/APPLICATION_STATE.md` row 9
+claimed a late reopen reported a stale `resolution_hours` (48h against
+2,376h true). It does not: `_terminal_event_at_by_case` takes MAX over
+terminal events, and a direct probe reported 2,376h. The row was wrong
+and is struck; the behaviour is now pinned by a test.

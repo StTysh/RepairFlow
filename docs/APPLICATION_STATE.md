@@ -10,10 +10,43 @@ per area. §6 is the outstanding work, ranked. §7 is what needs a human
 decision. Nothing in here is aspirational — where something is unverified
 it says so.
 
-Companion files: `docs/audit/` (the eleven raw audit reports, with
+Companion files: `docs/audit/` (the twelve raw audit reports, with
 `file:line` evidence), `docs/UI2_IMPLEMENTATION_HANDOFF.md` (what the
 migration did), `docs/UI2_TODO.md` (the queued work), `docs/26` (the
 running corrections log).
+
+---
+
+## 0. Picking this up on another machine
+
+Everything you need is tracked in git. Nothing else carries over.
+
+**Read, in this order:** this document; then `README.md` for what it is
+and how to run it; then `CLAUDE.md` if you are an AI agent, which points
+back here. The numbered `docs/00`–`docs/26` are the original
+specification — useful for *why* a contract is shaped the way it is, but
+several are superseded and say so at the top. Where a numbered spec and
+the code disagree, the code is usually right. `docs/26`'s newest entries
+are the authority on every deliberate deviation.
+
+**What a clone does not give you**, because `.gitignore` excludes it:
+
+| Missing | Consequence | What to do |
+|---|---|---|
+| `backend/data/` | **No database.** No cases, no call history. | The app creates and migrates one on first boot. `python -m app.seed` adds reference data; `python -m app.archive --apply` adds 60 closed sample cases. |
+| `frontend-fixi/dist/` | The SPA is **not built**, and `main.py` only mounts it `if FRONTEND_DIST.is_dir()` — checked once at import. | `npm ci && npm run build` **before** starting the backend. Building afterwards does not fix a running process; restart it. |
+| `backend/.venv/`, `node_modules/` | Nothing installed. | `uv sync --frozen`, `npm ci`. `uv` is the one prerequisite this repo does not install for you. |
+| `backend/.env` | No provider keys. Operator auth defaults **on**. | Optional — every setting has a working default. Sign in with `operator` / `repairflow-demo`. |
+
+The full sequence, verified from a bare checkout on 2026-09-20, is in
+README's *Running locally, from a fresh clone*. The 209-test suite
+passes on a clone with no `.env` and no database.
+
+**The existing data does not travel.** `backend/data/repairflow.db` on
+the old machine holds 14 real cases and the only three `LIVE`
+communications that exist, including two genuine failed call attempts.
+Copying that file by hand is the only way to bring them; a clone starts
+empty, which is a supported state.
 
 ---
 
@@ -272,21 +305,23 @@ scope call to make explicitly — the work is scoped in §6.
 | 5 | Enum CHECK constraints: `enum_column()` now passes `create_constraint=True`, but **this only protects tables created from now on**. The existing database gains nothing; retrofitting needs a table-rebuild migration, which was not attempted. | **MEDIUM** | `models.py` |
 | 6 | 22 of 87 archival work orders are COMPLETED with no backing appointment; one has `created_at` after its case closed. Reproduced exactly on 2026-09-20 against a fresh `--apply`. The archive's own `no_open_or_pending_work` check reads the status enum only, so it cannot catch this. **This describes the dataset `python -m app.archive --apply` generates, not `backend/data/repairflow.db`, which currently holds zero archival rows.** | **MEDIUM** | `archive/dataset.py` |
 | 7 | Archival seasonality is flat: measured 3–7 cases a month across all twelve, and roofing peaks in **July**, which is backwards for storm damage. Charts look synthetic on inspection. Same caveat as row 6 — this is the generated dataset, not the live database. | **MEDIUM** | `archive/dataset.py` |
-| 8 | Property `/history` and `/stats` include archival cases with no disclosure field and no opt-out. | **MEDIUM** | `api/cases.py` |
-| 9 | A late reopen (RESOLVED → ESCALATED → resumed) reports a stale `resolution_hours` — 48h reported against 2,376h true. | **MEDIUM** | `analytics.py` |
+| ~~8~~ | ~~Property history/stats include archival cases undisclosed.~~ **Resolved**: both take `include_archived` (default true — the blending is wanted), both return `includes_archived_history` and `archived_case_count`, and each history row carries `is_archived`. | — | `api/cases.py` |
+| ~~9~~ | ~~A late reopen reports stale `resolution_hours`.~~ **Was already correct** — `_terminal_event_at_by_case` takes MAX. Probed directly: 2,376h reported, not 48h. The row described a bug that did not exist; now pinned by a test so it cannot appear. | — | `analytics.py` |
 | 10 | Error envelopes are inconsistent: `DomainError` and FastAPI's `RequestValidationError` produce different shapes across ~30 routes. | **MEDIUM** | `api/errors.py` |
-| 11 | No idempotency key on case creation — a double-submit creates two cases. | **MEDIUM** | `api/cases.py` |
+| ~~11~~ | ~~No idempotency on case creation.~~ **Resolved**: an optional `Idempotency-Key` header derives the intake communication id deterministically, routing a repeat into `submit_intake`'s existing per-communication NOOP path. Without the header behaviour is unchanged, because two genuine reports of one fault must not merge. | — | `api/cases.py` |
 | ~~12~~ | ~~Upload cap runs after the body is spooled.~~ **Resolved**: `MaxBodySizeMiddleware` rejects an over-sized `Content-Length` before a byte is read, and counts chunked bodies as they stream so omitting the header does not bypass it. It sits inside CORS on purpose, so a 413 still carries the headers a browser needs to read the status. | — | `app/middleware.py` |
 | ~~13~~ | ~~No CORS guardrail against a wildcard with credentials.~~ **Resolved**: `Settings` refuses to construct on that combination, so it cannot be reached from configuration. The wildcard remains available with `CORS_ALLOW_CREDENTIALS=false`. The default allow-list also gained `:5174` — the only dev port actually served — which it had been missing. | — | `app/config.py` |
-| 14 | `vulnerability_concern` is collected at intake and never read by any policy function, so docs/19's approval requirement for it is unenforced. | **MEDIUM** | `domain/policy.py` |
+| ~~14~~ | ~~`vulnerability_concern` is unenforced.~~ **Resolved**: it now forces the approval gate before any visit is booked, which is what docs/19's "only with explicit reviewed plan" means. Deliberately not part of `is_hazard` — a hazard freezes the case, which would strand a repair that still needs doing. | — | `domain/policy.py` |
 | 15 | Reports filters are not in the URL, so a filtered report is not linkable. | **LOW** | `routes/reports.index.tsx` |
 | 16 | No browser voice panel. The original was a disabled placeholder; there was nothing to port. | **LOW** | — |
 | ~~17~~ | ~~`docs/18`, `docs/04` and `docs/20` carry no superseded banner.~~ **Resolved**: all three were bannered in commit `5b2a07f`, as were `docs/16` and `docs/17`. This row was stale, not outstanding. | — | `docs/` |
 | 18 | No frontend test suite at all, and no runner configured. | **MEDIUM** | — |
 | ~~19~~ | ~~Three critical invariants have no test.~~ **Resolved**: `tests/test_audit_regressions.py` covers all three plus twelve more. Every one was proven to fail when its fix is reverted — a test that passes both ways guards nothing. |  — | `tests/test_audit_regressions.py` |
 | 20 | Every page load produces a React hydration mismatch (error #418). React recovers by client-rendering, so it is cosmetic, but it is noise and can flicker. | **LOW** | prerendered shell |
-| 22 | **The `jobs` table has no retention and holds 5,601 dead `FETCH_RECORDING` rows** — 5,618 jobs for 14 cases. They are the wreckage of the unbounded reconciliation sweep, each a distinct row with a timestamped dedupe key, all `DONE`. The sweep is bounded now (`RECONCILE_MAX_ATTEMPTS = 40`, counted by key prefix, so it fires correctly), but nothing ever deletes a finished job and no retention command exists. Harmless functionally; badly misleading to anyone who inspects the database. | **MEDIUM** | `orchestration/worker.py` |
+| ~~22~~ | ~~The `jobs` table has no retention.~~ **Resolved**: `purge_finished_jobs` trims DONE rows past a week, hourly. Only DONE — a FAILED job is evidence until someone looks at it. The 5,601 dead rows already in `backend/data` will clear on the next worker run. Original finding: ~~the `jobs` table has no retention and holds 5,601 dead `FETCH_RECORDING` rows** — 5,618 jobs for 14 cases. They are the wreckage of the unbounded reconciliation sweep, each a distinct row with a timestamped dedupe key, all `DONE`. The sweep is bounded now (`RECONCILE_MAX_ATTEMPTS = 40`, counted by key prefix, so it fires correctly), but nothing ever deletes a finished job and no retention command exists. Harmless functionally; badly misleading to anyone who inspects the database. | **MEDIUM** | `orchestration/worker.py` |
 | ~~21~~ | ~~Upload size cap runs after body spooling.~~ **Duplicate of row 12** — recorded twice by two different audits. Kept struck so the numbering in `docs/audit/` still resolves. |  — | — |
+
+| ~~23~~ | ~~A model-visible read tool committed rows.~~ **Resolved**: `find_appointment_options` reached `_ensure_slots`, which added and flushed slot rows inside a committing scope — so the model asking what times were free wrote to the database, against CLAUDE.md's "model-visible tools are scoped reads". Listing is now pure; the executor validates a proposed slot against what the connector *would have offered* rather than against a stored row, and `book()` materialises the one slot it reserves. | — | `integrations/booking.py` |
 
 ### Never verified
 
