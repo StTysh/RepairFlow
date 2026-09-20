@@ -201,17 +201,32 @@ Found by audit, fixed, and covered by new regression tests:
 - A **served build called the wrong backend** on any port but 8000.
 - A real mobile number was **committed in a tracked doc** (redacted;
   still in three earlier commits).
+- **The two money sources disagreed** on 29 of 60 archival cases, by up
+  to 3.4×. Resolved — see below.
+- **Four CLI commands crashed against a real database** (`no such table:
+  cost_entries`) because only the FastAPI lifespan called `create_all()`.
+- **The production database was missing all five archival indexes**, so
+  `WHERE archive_batch_id IS NULL` — the leading filter in nearly every
+  analytics query — was a full table scan.
+- **`_add_missing_columns` silently produced a wrong column** for a
+  `nullable=False` + `server_default` addition; it now refuses loudly.
+- **Message attachments were unopenable** (`/documents/undefined/content`).
+- **Contractor work history rendered archival cases as live tickets.**
+- **A dead invalidation key** meant Reports never refreshed after a cost
+  was recorded.
+- **There was no navigation at all below 1024px** — on a tablet every
+  destination but the current one was unreachable.
 
 ### Known broken or incomplete
 
 | # | Issue | Severity | Where |
 | --- | --- | --- | --- |
 | 1 | `MockBookingConnector` invents contractor availability. CLAUDE.md prohibits it outright. The coordinator's `SCHEDULE_VISIT` still books against fabricated slots. The UI now labels them "Simulated booking". | **HIGH** | `integrations/booking.py` |
-| 2 | Two money sources disagree — work-order quotes vs cost entries — by up to 3.4× on the same case. | **HIGH** | §7 |
+| ~~2~~ | ~~Two money sources disagree.~~ **Resolved**: quoted is now reconciled per work order at read time — the cost ledger if entries exist, otherwise the work order's own quote. Never globally, so nothing double counts. Five reads of the same scope now return one figure; all 60 archival cases match. | — | `analytics.reconciled_quotes` |
 | 3 | No email or SMS transport. Outward messages persist as drafts and say so. | **HIGH** | `api/messaging.py` |
-| 4 | Alembic revisions are 4 tables and 17+ columns behind; `alembic upgrade head` on an empty database does not produce a working schema. | **HIGH** | `alembic/versions/` |
-| 5 | Enum CHECK constraints do not exist — `enum_column()` never passes `create_constraint=True`, so an invalid value inserts cleanly via raw SQL. | **HIGH** | `models.py` |
-| 6 | 22 of 87 archival work orders are COMPLETED with no backing appointment; one has `created_at` after its case closed. | **MEDIUM** | `archive/dataset.py` |
+| ~~4~~ | ~~Alembic is behind and produces a broken schema.~~ **Resolved by decision**: the chain is frozen. `env.py` now refuses to run without `REPAIRFLOW_ALLOW_ALEMBIC=1`. `create_all()` plus the additive column/index passes is the real bootstrap and now says so out loud, rather than leaving revisions that look authoritative and are not. | — | `alembic/env.py` |
+| 5 | Enum CHECK constraints: `enum_column()` now passes `create_constraint=True`, but **this only protects tables created from now on**. The existing database gains nothing; retrofitting needs a table-rebuild migration, which was not attempted. | **MEDIUM** | `models.py` |
+| 6 | 22 of 87 archival work orders are COMPLETED with no backing appointment; one has `created_at` after its case closed. The archive's own `no_open_or_pending_work` check reads the status enum only, so it cannot catch this. | **MEDIUM** | `archive/dataset.py` |
 | 7 | Archival seasonality is flat — no storm clustering for roofing. Charts look synthetic on inspection. | **MEDIUM** | `archive/dataset.py` |
 | 8 | Property `/history` and `/stats` include archival cases with no disclosure field and no opt-out. | **MEDIUM** | `api/cases.py` |
 | 9 | A late reopen (RESOLVED → ESCALATED → resumed) reports a stale `resolution_hours` — 48h reported against 2,376h true. | **MEDIUM** | `analytics.py` |
@@ -223,7 +238,10 @@ Found by audit, fixed, and covered by new regression tests:
 | 15 | Reports filters are not in the URL, so a filtered report is not linkable. | **LOW** | `routes/reports.index.tsx` |
 | 16 | No browser voice panel. The original was a disabled placeholder; there was nothing to port. | **LOW** | — |
 | 17 | `docs/18` describes an abandoned single-case UI and carries no superseded banner; `docs/04` and `docs/20` describe the retired hackathon product. | **LOW** | `docs/` |
-| 18 | No frontend test suite at all. | **MEDIUM** | — |
+| 18 | No frontend test suite at all, and no runner configured. | **MEDIUM** | — |
+| 19 | **Three critical invariants have no test**, proven by mutation: `assert_case_transition` reduced to a no-op, the approval staleness check disabled, and archival exclusion removed from `GET /cases` — each left the full suite green. Tests are being added. | **HIGH** | `tests/` |
+| 20 | Every page load produces a React hydration mismatch (error #418). React recovers by client-rendering, so it is cosmetic, but it is noise and can flicker. | **LOW** | prerendered shell |
+| 21 | The upload size cap runs *after* Starlette has spooled the whole body — disk exhaustion, not the memory exhaustion its comment claims to prevent. | **MEDIUM** | `api/documents.py` |
 
 ### Never verified
 
@@ -283,15 +301,23 @@ That is incomplete, and this document is the correction.
 
 ## 7. Decisions that need a human
 
-**1. Which money source wins?** Work-order `quote_pence` and
-`CostEntryModel` both exist, nothing syncs them, and the same case shows
-different totals on different screens. The options are: make cost entries
-the only source and backfill from work orders; keep work orders for
-*quoted* and cost entries for *actual*, never summed; or derive a
-per-work-order reconciliation. This is a definition question about what
-"spend" means in your business, not a bug with an obvious fix. *A
-decision agent is working this; its conclusion will be recorded in
-`docs/26`.*
+**1. ~~Which money source wins?~~ — decided 2026-09-20.** Reconcile
+per work order at read time: a work order's quoted figure is its cost-
+ledger QUOTE entries if any exist, otherwise its own `quote_pence`. Per
+work order, never globally, so nothing double counts. Chosen over
+"ledger only, backfill once" because the write path that sets
+`quote_pence` still exists, so a one-time backfill would regress on the
+next work order created; and over "two homes, never summed" because
+QUOTE ledger rows a human has already logged would be orphaned. It needs
+no migration and is correct both for the cases that have no cost entries
+(all of the real ones) and for those that have both. Recorded in
+`docs/26` entry 31; the reasoning and the proof are in
+`docs/audit/06_analytics_metrics.md`.
+
+**Still open here:** nothing in the UI yet distinguishes a figure that
+came from the ledger from one estimated off a work-order quote. Both are
+"quoted", but one is a real logged document and the other is an
+estimate. Worth an indicator.
 
 **2. What replaces the mock booking connector?** Either a real provider
 integration, or make the human-recorded path (`POST
@@ -305,11 +331,12 @@ still holds the nine scripted demo cases alongside five real ones with
 genuine call history. `python -m app.legacy_demo_purge --dry-run` shows
 exactly what would go. It has not been run.
 
-**4. Is Alembic alive?** `create_all()` is what actually runs. Either
-invest in keeping migrations current, or delete them and commit to
-`create_all` + the additive column helper as the real mechanism. The
-current middle ground is the worst option: revisions that look
-authoritative and are not.
+**4. ~~Is Alembic alive?~~ — decided 2026-09-20: no.** The chain is
+frozen behind `REPAIRFLOW_ALLOW_ALEMBIC=1` and refuses to run otherwise.
+`create_all()` plus the additive column and index passes is the real
+bootstrap. Revisit only if this ever needs a destructive migration —
+renaming a column, retyping one, or adding the enum CHECK constraints to
+existing tables — none of which the additive helper can do.
 
 **5. How real does the archive need to look?** It is internally
 consistent and passes 13 checks, but the cost distributions and

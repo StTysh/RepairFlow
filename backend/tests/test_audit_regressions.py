@@ -821,3 +821,127 @@ async def test_external_action_never_strands_at_running(app_db, monkeypatch):
     result = CommandResult.model_validate(action.result) if action.result else None
     assert result is not None and result.error is not None and result.error.reconciliation_required is True
     assert len(events) == 1, "expected exactly one ACTION_UNKNOWN event"
+
+
+# --------------------------------------------------------------------------
+# 13. The case-transition graph is enforced (app/domain/transitions.py)
+# --------------------------------------------------------------------------
+
+
+def test_case_transition_graph_is_enforced():
+    """assert_case_transition is the sole guard against illegal case-status
+    transitions. Mutation-tested by disabling it (reduced to a no-op): the
+    entire suite still passed with nothing catching an illegal transition
+    like CANCELLED -> ACTIVE. Table-driven over every (current, target)
+    pair in CaseStatus, not a handful of hand-picked ones -- the property
+    being protected is that the guard *exists* at all, not that one
+    particular pair behaves. No app_db/DB needed: this is a pure function
+    over the in-memory _CASE_EDGES graph."""
+    from app.domain.errors import PolicyRejectedError
+    from app.domain.transitions import _CASE_EDGES, assert_case_transition
+    from app.schemas import CaseStatus
+
+    for current in CaseStatus:
+        for target in CaseStatus:
+            if current == target:
+                assert_case_transition(current, target)  # self-loop: always a permitted no-op
+                continue
+            if target in _CASE_EDGES.get(current, set()):
+                assert_case_transition(current, target)  # legal edge: must not raise
+            else:
+                with pytest.raises(PolicyRejectedError):
+                    assert_case_transition(current, target)  # illegal edge: must raise
+
+
+# --------------------------------------------------------------------------
+# 14. decide_approval rejects a stale expected_case_version
+#     (app/orchestration/executor.py)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_decide_approval_rejects_stale_expected_version(app_db):
+    """decide_approval's `case.version != decision.expected_case_version`
+    check is the guard that stops two operators overwriting each other on
+    a spend/scheduling decision -- an operator approving against a version
+    they saw before someone else already changed the case. Mutation-tested
+    by disabling this check: the entire suite still passed. Approving with
+    an expected_case_version one behind the case's real version must 409
+    (StaleVersionError), leave the action AWAITING_APPROVAL, and append no
+    APPROVAL_DECIDED event."""
+    property_id, tenant_id = await _seed_property_tenant()
+    case_id = await _seed_bare_case(property_id, tenant_id, status="ACTIVE")
+    action_id = uid()
+    async with session_scope() as session:
+        session.add(
+            ActionRecordModel(
+                id=action_id, case_id=case_id, kind="APPLY_TRIAGE", target_id=None,
+                idempotency_key=f"stale:{action_id}", payload_hash="fixed-hash", proposal={},
+                state=ActionState.AWAITING_APPROVAL.value,
+            )
+        )
+        # Simulate the case having moved on since the operator loaded it
+        # (e.g. a concurrent edit elsewhere) -- the DB's real version is
+        # now ahead of what the approval body claims to have seen.
+        case = await session.get(RepairCaseModel, case_id)
+        case.version = 2
+
+    async with await _client() as client:
+        r = await client.post(
+            f"/api/v1/actions/{action_id}/approval",
+            json={
+                "action_id": action_id, "expected_case_version": 1, "approve": True,
+                "reason": "approve", "action_payload_hash": "fixed-hash",
+            },
+            auth=AUTH,
+        )
+    assert r.status_code == 409, r.text
+
+    async with session_scope() as session:
+        action = await session.get(ActionRecordModel, action_id)
+        events = (
+            await session.execute(
+                select(CaseEventModel).where(CaseEventModel.case_id == case_id, CaseEventModel.type == "APPROVAL_DECIDED")
+            )
+        ).scalars().all()
+    assert action.state == ActionState.AWAITING_APPROVAL.value, "a rejected-as-stale approval must not move the action"
+    assert events == [], "a rejected-as-stale approval must append no APPROVAL_DECIDED event"
+
+
+# --------------------------------------------------------------------------
+# 15. Archival cases are excluded from GET /cases by default
+#     (app/api/cases.py)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_case_list_excludes_archival_by_default(app_db):
+    """Every sibling list endpoint (/properties, /contractors, /tenants)
+    already has an archival-exclusion test; GET /api/v1/cases -- the
+    most-used endpoint in the whole app -- did not. An archival case must
+    be absent from the default list, present when include_archived=true is
+    passed, and carry is_archived: true when it is returned."""
+    property_id, tenant_id = await _seed_property_tenant()
+    batch_id = uid()
+    async with session_scope() as session:
+        session.add(
+            ArchiveBatchModel(id=batch_id, label=f"list-test-{batch_id}", generator_version="test", random_seed=1)
+        )
+    archived_case_id = await _seed_bare_case(property_id, tenant_id, archive_batch_id=batch_id)
+    operational_case_id = await _seed_bare_case(property_id, tenant_id)
+
+    async with await _client() as client:
+        r = await client.get("/api/v1/cases", auth=AUTH)
+        assert r.status_code == 200
+        default_ids = {i["id"] for i in r.json()["items"]}
+
+        r = await client.get("/api/v1/cases", params={"include_archived": "true"}, auth=AUTH)
+        assert r.status_code == 200
+        by_id = {i["id"]: i for i in r.json()["items"]}
+
+    assert archived_case_id not in default_ids, "an archival case must not appear in the default case list"
+    assert operational_case_id in default_ids
+
+    assert archived_case_id in by_id, "include_archived=true must still surface the archival case"
+    assert by_id[archived_case_id]["is_archived"] is True
+    assert by_id[operational_case_id]["is_archived"] is False
