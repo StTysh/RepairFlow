@@ -233,6 +233,15 @@ class EventType(str, enum.Enum):
     RECORDING_FAILED = "RECORDING_FAILED"
     ACTION_FAILED = "ACTION_FAILED"
     ACTION_UNKNOWN = "ACTION_UNKNOWN"
+    # Operator-originated facts. These are read back through the same
+    # CaseEvent model as everything else, so an event_type that is
+    # appended but missing here does not fail at write time -- it fails
+    # later, when the case detail endpoint tries to validate its own
+    # history and 500s the whole ticket page. OPERATOR_INFO_REQUESTED
+    # had exactly that latent fault before this line existed.
+    OPERATOR_INFO_REQUESTED = "OPERATOR_INFO_REQUESTED"
+    CASE_EDITED = "CASE_EDITED"
+    APPOINTMENT_RESCHEDULED = "APPOINTMENT_RESCHEDULED"
 
 
 class ActionState(str, enum.Enum):

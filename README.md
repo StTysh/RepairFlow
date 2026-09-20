@@ -1,6 +1,6 @@
 # Fixi — autonomous repair coordination
 
-**Status:** implemented. Backend (FastAPI + SQLAlchemy + Pydantic AI) and frontend (React + Vite + Tailwind + React Flow) both run locally against a real SQLite database. 52 backend tests pass against a real on-disk file with zero external network calls in the default suite. See [docs/23](docs/23_RISKS_AND_OPEN_QUESTIONS.md) and [docs/26](docs/26_SPECIFICATION_REVIEW.md) for the full, dated implementation log — including every material deviation from the original spec and the exact state of each live-provider gate.
+**Status:** implemented, and no longer a demo. The scripted hackathon layer (Play demo, Reset demo, simulated observations, boot-time seeding of fictional cases) has been removed: cases originate from real intake, and an empty database is a supported state with real onboarding empty states rather than manufactured activity. Backend (FastAPI + SQLAlchemy + Pydantic AI) and frontend (React + Vite + Tailwind) run locally against a real SQLite database. The default test suite passes against a real on-disk file with zero external network calls, and can never place a call, send a message or reach a provider — see *No-contact guarantee* below. See [docs/23](docs/23_RISKS_AND_OPEN_QUESTIONS.md) and [docs/26](docs/26_SPECIFICATION_REVIEW.md) for the full, dated implementation log — including every material deviation from the original spec and the exact state of each live-provider gate.
 
 Fixi maintains a repair case across calls, appointments and contractor reports. It interprets new evidence, proposes the next action, executes only policy-approved actions, and waits durably for the next real-world event.
 
@@ -33,7 +33,25 @@ cp .env.example .env          # optional -- fixture mode works with no keys at a
 uv run uvicorn app.main:app --port 8000
 ```
 
-Run uvicorn from inside `backend/` (or point `--app-dir` at it) so `app` is importable. Demo reference data (one property, one tenant, two approved fictional contractors) is seeded automatically and idempotently on startup — no separate seed step needed.
+Run uvicorn from inside `backend/` (or point `--app-dir` at it) so `app` is importable.
+
+**Nothing is seeded on boot.** The application starts against whatever is in
+the database, including nothing at all. Two optional, idempotent commands
+populate it:
+
+```
+python -m app.seed                    # sample portfolio: properties, tenants, approved contractors
+python -m app.archive --apply         # ~60 closed archival cases across 8 sample properties, 2021-2026
+python -m app.archive --validate      # 11 integrity checks over that import
+python -m app.archive --remove        # removes exactly that batch, nothing else
+python -m app.legacy_demo_purge --dry-run   # count the scripted demo cases an older build seeded
+python -m app.legacy_demo_purge --apply     # remove exactly those nine cases
+```
+
+Archival cases are marked with an `archive_batch_id` and are excluded from
+every current-workload count, notification and agent wake. They exist so
+charts and property history have something to show; they can never be
+actioned, and the application works normally without them.
 
 ### Frontend
 
@@ -64,16 +82,41 @@ cd backend
 uv run pytest tests/ -q
 ```
 
-52 tests, real on-disk SQLite, zero external network calls. Provider-specific tests (`test_voice.py`, `test_research.py`) exercise real signature/mapping logic against synthetic or stubbed data, never a live API — see docs/22 for the testing strategy and docs/23 for exactly which live-provider checks were never run.
+Real on-disk SQLite, zero external network calls, and no outreach is
+physically possible (see *No-contact guarantee*). Provider-specific tests
+(`test_voice.py`, `test_research.py`, `test_no_contact_harness.py`)
+exercise real signature, parsing and state-transition logic against
+synthetic or stubbed data, never a live API — see docs/22 for the testing
+strategy and docs/23 for which live-provider checks have never been run.
 
-### Resetting demo data
+### No-contact guarantee
 
-`POST /api/v1/demo/reset?confirm_reset=true` (operator auth) clears all non-LIVE cases — any case containing a real recorded call is preserved.
+`backend/app/integrations/no_contact.py` is a process-local kill switch,
+independent of `Settings` (which is `lru_cache`d and could go stale). It
+reads the environment on every call and self-enables whenever
+`FIXI_NO_CONTACT` is set **or** the process is running under pytest, so the
+default test suite cannot dial, message or email anyone. The guard sits
+inside `place_outbound_call()` — the one function in the codebase that
+makes a phone ring — so it covers every caller.
+
+A verification harness (`backend/tests/test_no_contact_harness.py`) proves
+the downstream call path end-to-end by injecting a deterministic substitute
+at the transport boundary: request acceptance, later completion, retrieval,
+transcript parsing, outcome mapping, duplicate delivery and failure. It
+arms a `provider_substitute()` flag so the job body proceeds, but the real
+transport still refuses — arming the flag without patching the transport
+raises rather than dialling. There is no path where a missing fixture falls
+through to the real client.
+
+To make a genuine call, unset `FIXI_NO_CONTACT`, set
+`OUTBOUND_CALLS_ENABLED=true`, and put the recipient on
+`OUTBOUND_CALL_ALLOWLIST`. All three are required.
 
 ## Known gaps
 
-- **`frontend-fixi` (the UI actually served at `/`) has no approval UI, dependency graph, or voice panel.** It covers case list/detail/timeline/calls/property/files/costs against real backend data, but there is currently no way to approve/reject an `AWAITING_APPROVAL` action, inject a simulated contractor observation, or start a browser voice session from this UI — all of which the hero demo path above depends on. `frontend` (the original build) has this functionality; use it for a live demo of the full hero path until it's ported over. See docs/26 for tracking.
-- Both frontends have been exercised live against a real running backend (real HTTP, real clicks) during development, not just `npm run build` type-checking.
+- **No browser voice panel.** The original `frontend`'s `VoicePanel` was never functional (its own docstring describes it as a disabled placeholder), so there was nothing to port. Signed session creation exists server-side; no UI starts one.
+- **Email and SMS have no delivery transport.** Composing an outward message persists a **draft** and says so on screen. Nothing is ever displayed as sent on the strength of a saved row.
+- See `docs/UI2_IMPLEMENTATION_HANDOFF.md` for the current, dated status of the full-application migration, including remaining work.
 - **ElevenLabs live voice** is code-complete but its acceptance gate (real audio, real transcript, real webhook delivery) was not run — see the table above.
 - **Tavily** is code-complete but untested against the real API.
 
@@ -93,6 +136,7 @@ uv run pytest tests/ -q
 | Execution | [20 Demo](docs/20_DEMO_SCRIPT.md), [21 Build plan](docs/21_IMPLEMENTATION_PLAN.md), [22 Testing](docs/22_TESTING_STRATEGY.md) |
 | Due diligence | [23 Risks](docs/23_RISKS_AND_OPEN_QUESTIONS.md), [24 Sources](docs/24_RESEARCH_SOURCES.md) |
 | Review | [25 Questions answered](docs/25_RESEARCH_QUESTIONS_ANSWERED.md), [26 Implementation log](docs/26_SPECIFICATION_REVIEW.md) |
+| Full-application migration | [Handoff](docs/UI2_IMPLEMENTATION_HANDOFF.md), [Interaction inventory](docs/UI2_INTERACTION_CHECKLIST.md), [Working checkpoint](docs/UI2_CHECKPOINT.md) |
 
 ## MVP acceptance
 

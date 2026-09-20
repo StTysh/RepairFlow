@@ -126,11 +126,9 @@ async def search(
             items=[
                 SearchResultItem(
                     type="tenant", id=t.id, label=t.display_name, sublabel=t.email or address_line,
-                    # No dedicated tenant-detail page exists yet -- link to
-                    # the property's history view, the closest real record.
-                    route=f"/properties/{property_id}/history",
+                    route=f"/tenants/{t.id}",
                 )
-                for t, address_line, property_id in tenant_rows[:GROUP_CAP]
+                for t, address_line, _property_id in tenant_rows[:GROUP_CAP]
             ],
         )
     )

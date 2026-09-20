@@ -92,6 +92,17 @@ function formatMonthLabel(month: string): string {
   return format(parsed, "MMM yyyy");
 }
 
+/** Short axis label: just "Jan", or "Jan '26" for the first bar of each
+ * year -- a full "MMM yyyy" under every one of up to 24 narrow bars
+ * overflows its column, so the year is only spelled out where it changes
+ * (the full month + year is always in the button's title/aria-label and
+ * the sr-only list above). */
+function formatMonthAxisLabel(month: string, showYear: boolean): string {
+  const parsed = parse(month, "yyyy-MM", new Date());
+  if (Number.isNaN(parsed.getTime())) return month;
+  return showYear ? format(parsed, "MMM ''yy") : format(parsed, "MMM");
+}
+
 function CardHead({ title, description }: { title: string; description?: string }) {
   return (
     <div>
@@ -136,8 +147,9 @@ export function CaseVolumeChart({
             ))}
           </ul>
           <div className="mt-3 flex h-32 items-end gap-1.5 overflow-x-auto border-b border-border px-1 pb-1">
-            {data.map((d) => {
+            {data.map((d, index) => {
               const active = selectedMonth === d.month;
+              const showYear = index === 0 || d.month.slice(0, 4) !== data[index - 1]?.month.slice(0, 4);
               return (
                 <button
                   key={d.month}
@@ -161,7 +173,7 @@ export function CaseVolumeChart({
                       active ? "font-semibold text-foreground" : "text-muted-foreground",
                     )}
                   >
-                    {formatMonthLabel(d.month).replace(" ", "\n")}
+                    {formatMonthAxisLabel(d.month, showYear)}
                   </span>
                 </button>
               );

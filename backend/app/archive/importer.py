@@ -7,15 +7,17 @@ is a no-op -- the dataset is never even regenerated. This is what makes
 
 Traceability: every table that has a `provenance` and/or `archive_batch_id`
 column gets it set on every row this module writes (Provenance.FIXTURE /
-this run's batch id). A handful of tables the archive must still populate
-have neither column (`TenantModel`, `RepairIssueModel`, `WorkOrderModel`,
-`ActionRecordModel` -- see NEEDS_FROM_ROOT.md), because those columns don't
-exist on them at all in the current schema. Those rows are instead scoped
-structurally: a tenant belongs to the batch if its `property_id` is one of
-the batch's properties; an issue/work-order/appointment/action-record
-belongs to the batch if its `case_id` is one of the batch's cases. Removal
-uses exactly that same traversal, so it can never touch a row with no path
-back to the batch.
+this run's batch id) -- that now includes `PropertyModel`, `RepairCaseModel`,
+`TenantModel`, `ContractorModel`, `CostEntryModel`, `NoteModel`,
+`DocumentModel` and `MessageModel`. A few tables the archive must still
+populate have neither column (`RepairIssueModel`, `WorkOrderModel`,
+`AppointmentModel`, `ActionRecordModel` -- see NEEDS_FROM_ROOT.md), because
+those columns don't exist on them at all in the current schema. Those rows
+are instead scoped structurally: they belong to the batch if their `case_id`
+is one of the batch's cases (found via `RepairCaseModel.archive_batch_id`).
+Removal uses exactly that same traversal for those four tables, and a plain
+`archive_batch_id ==` delete for everything else, so it can never touch a
+row with no path back to the batch.
 """
 from __future__ import annotations
 
@@ -181,7 +183,7 @@ async def _import_with_session(session: AsyncSession, *, label: str, seed: int) 
                 id=tenant.id, property_id=dataset.property_id(tenant.property_key),
                 display_name=tenant.display_name, phone_e164=None, email=None,
                 preferred_channel=tenant.preferred_channel, contact_allowed=False,
-                accessibility_notes=None,
+                accessibility_notes=None, archive_batch_id=batch_id,
             )
         )
         counts["tenants"] += 1
@@ -193,7 +195,7 @@ async def _import_with_session(session: AsyncSession, *, label: str, seed: int) 
                 service_postcodes=contractor.service_postcodes,
                 approval_status=ContractorApprovalStatus.PENDING, connector=ConnectorType.MOCK,
                 contact_reference=None, verification_note=contractor.verification_note,
-                provenance=Provenance.FIXTURE, workers=[],
+                provenance=Provenance.FIXTURE, workers=[], archive_batch_id=batch_id,
             )
         )
         counts["contractors"] += 1
@@ -381,13 +383,9 @@ async def remove_archive(label: str = DEFAULT_LABEL) -> RemovalResult:
             return RemovalResult(label=label, found=False)
 
         batch_id = batch.id
-        random_seed = batch.random_seed
 
         case_ids = (
             await session.execute(sa.select(RepairCaseModel.id).where(RepairCaseModel.archive_batch_id == batch_id))
-        ).scalars().all()
-        property_ids = (
-            await session.execute(sa.select(PropertyModel.id).where(PropertyModel.archive_batch_id == batch_id))
         ).scalars().all()
 
         settings = get_settings()
@@ -417,25 +415,14 @@ async def remove_archive(label: str = DEFAULT_LABEL) -> RemovalResult:
 
         counts["cases"] = await _delete_where(session, RepairCaseModel, RepairCaseModel.archive_batch_id == batch_id)
 
-        if property_ids:
-            counts["tenants"] = await _delete_where(session, TenantModel, TenantModel.property_id.in_(property_ids))
-        else:
-            counts["tenants"] = 0
+        # TenantModel and ContractorModel both carry archive_batch_id directly
+        # (added alongside PropertyModel's), so these are plain, exact deletes --
+        # no traversal or id-regeneration needed. Order still respects FK
+        # direction: Tenant is RepairCaseModel's parent (deleted above),
+        # Contractor is WorkOrderModel/AppointmentModel's parent (deleted above).
+        counts["tenants"] = await _delete_where(session, TenantModel, TenantModel.archive_batch_id == batch_id)
         counts["properties"] = await _delete_where(session, PropertyModel, PropertyModel.archive_batch_id == batch_id)
-
-        # ContractorModel has no archive_batch_id/case_id path back to the batch --
-        # regenerate the same deterministic ids from the batch's own recorded
-        # seed/label and delete exactly those, with a provenance belt-and-braces
-        # check so this can never touch a non-archival contractor.
-        dataset = build_dataset(seed=random_seed, label=label)
-        contractor_ids = [c.id for c in dataset.contractors]
-        if contractor_ids:
-            counts["contractors"] = await _delete_where(
-                session, ContractorModel,
-                sa.and_(ContractorModel.id.in_(contractor_ids), ContractorModel.provenance == Provenance.FIXTURE),
-            )
-        else:
-            counts["contractors"] = 0
+        counts["contractors"] = await _delete_where(session, ContractorModel, ContractorModel.archive_batch_id == batch_id)
 
         counts["archive_batches"] = await _delete_where(session, ArchiveBatchModel, ArchiveBatchModel.id == batch_id)
 
@@ -565,18 +552,13 @@ async def validate(session: AsyncSession, *, label: str = DEFAULT_LABEL, seed: i
 
     check("no_open_or_pending_work", _no_open_pending_check)
 
-    def _no_jobs_check():
-        # Whole-table check: this archive never writes JobModel rows at all.
-        return None
-
-    async def _no_jobs_async() -> tuple[bool, str]:
-        count = (
-            await session.execute(sa.select(sa.func.count()).select_from(JobModel))
-        ).scalar_one()
-        return (count == 0, f"{count} job row(s) in DB" if count else "clean")
-
-    ok, detail = await _no_jobs_async()
-    report.checks.append(CheckResult(name="no_jobs", passed=ok, detail=detail))
+    job_count = (await session.execute(sa.select(sa.func.count()).select_from(JobModel))).scalar_one()
+    report.checks.append(
+        CheckResult(
+            name="no_jobs", passed=job_count == 0,
+            detail=f"{job_count} job row(s) in DB" if job_count else "clean",
+        )
+    )
 
     def _no_future_appointments_check():
         problems = [a.id for a in appointments if a.start_at >= now or a.end_at >= now]
@@ -589,6 +571,51 @@ async def validate(session: AsyncSession, *, label: str = DEFAULT_LABEL, seed: i
         return (len(problems) == 0, f"{len(problems)} unread message(s)" if problems else "clean")
 
     check("no_unread_messages", _no_unread_messages_check)
+
+    tenants = (
+        await session.execute(sa.select(TenantModel).where(TenantModel.archive_batch_id == batch_id))
+    ).scalars().all()
+    contractors = (
+        await session.execute(sa.select(ContractorModel).where(ContractorModel.archive_batch_id == batch_id))
+    ).scalars().all()
+
+    def _batch_tagging_check():
+        problems: list[str] = []
+        if not tenants:
+            problems.append("no tenants tagged with this batch")
+        if not contractors:
+            problems.append("no contractors tagged with this batch")
+        tenant_ids_in_batch = {t.id for t in tenants}
+        used_tenant_ids = {c.tenant_id for c in cases}
+        if not used_tenant_ids <= tenant_ids_in_batch:
+            problems.append("a case's tenant is not tagged with this batch")
+        contractor_ids_in_batch = {c.id for c in contractors}
+        used_contractor_ids = {wo.contractor_id for wo in work_orders if wo.contractor_id} | {
+            a.contractor_id for a in appointments
+        }
+        if not used_contractor_ids <= contractor_ids_in_batch:
+            problems.append("a work order/appointment contractor is not tagged with this batch")
+        return (len(problems) == 0, "; ".join(problems) or "clean")
+
+    check("tenants_and_contractors_tagged", _batch_tagging_check)
+
+    def _not_dialable_check():
+        # These two properties are what actually stop the archive from ever
+        # being dialled/booked -- assert them, don't just trust construction.
+        problems: list[str] = []
+        for c in contractors:
+            if c.approval_status == ContractorApprovalStatus.APPROVED:
+                problems.append(f"contractor {c.id} is APPROVED")
+            if c.contact_reference is not None:
+                problems.append(f"contractor {c.id} has a contact_reference")
+        for t in tenants:
+            if t.contact_allowed:
+                problems.append(f"tenant {t.id} contact_allowed=True")
+            if t.phone_e164 is not None or t.email is not None:
+                problems.append(f"tenant {t.id} has a phone/email on file")
+        return (len(problems) == 0, "; ".join(problems[:5]) or "clean")
+
+    check("archival_contacts_not_dialable", _not_dialable_check)
 
     def _recurrence_check():
         by_property: dict[str, dict[str, int]] = {}

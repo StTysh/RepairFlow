@@ -1055,3 +1055,25 @@ async def test_notifications_empty_when_nothing_pending(app_db):
     assert body["items"] == []
     assert body["unread_count"] == 0
 
+
+
+@pytest.mark.asyncio
+async def test_every_appended_event_type_is_declared_in_the_enum():
+    """A missing EventType does not fail where it is written -- CaseEventModel
+    stores a plain string -- it fails much later, when load_case_snapshot
+    validates the case's own history and 500s the entire ticket page. Three
+    event types had already drifted out of the enum before this test
+    existed, so the drift is checked mechanically rather than by eye."""
+    import re
+    from pathlib import Path
+
+    from app.schemas import EventType
+
+    declared = {member.value for member in EventType}
+    appended: set[str] = set()
+    app_dir = Path(__file__).resolve().parent.parent / "app"
+    for source in app_dir.rglob("*.py"):
+        appended |= set(re.findall(r'event_type="([A-Z_]+)"', source.read_text(encoding="utf-8")))
+
+    missing = sorted(appended - declared)
+    assert not missing, f"event types appended but not declared in EventType: {missing}"

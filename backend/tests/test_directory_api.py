@@ -11,7 +11,7 @@ from httpx import ASGITransport, AsyncClient
 
 import app.main as main_module
 from app.db import session_scope
-from app.models import ArchiveBatchModel, PropertyModel, RepairCaseModel, TenantModel
+from app.models import ArchiveBatchModel, ContractorModel, PropertyModel, RepairCaseModel, TenantModel
 
 AUTH = ("operator", "repairflow-demo")
 
@@ -61,6 +61,22 @@ async def _seed_archival_property_and_tenant() -> tuple[str, str, str]:
             )
         )
     return batch_id, property_id, tenant_id
+
+
+async def _seed_archival_contractor() -> tuple[str, str]:
+    batch_id, contractor_id = uid(), uid()
+    async with session_scope() as session:
+        session.add(
+            ArchiveBatchModel(id=batch_id, label=f"batch-{batch_id[:8]}", generator_version="1", random_seed=1)
+        )
+        session.add(
+            ContractorModel(
+                id=contractor_id, display_name="Archived Roofers Ltd", trades=["ROOFING"],
+                service_postcodes=["BS1"], approval_status="APPROVED", connector="MOCK",
+                provenance="SIMULATED", archive_batch_id=batch_id,
+            )
+        )
+    return batch_id, contractor_id
 
 
 # --------------------------------------------------------------------------
@@ -236,6 +252,28 @@ async def test_contractor_validation_rejections(app_db):
             auth=AUTH,
         )
         assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_archival_contractors_excluded_by_default_and_refuse_patch(app_db):
+    _batch_id, contractor_id = await _seed_archival_contractor()
+
+    async with await _client() as client:
+        r = await client.get("/api/v1/contractors", auth=AUTH)
+        assert r.status_code == 200
+        assert all(item["id"] != contractor_id for item in r.json()["items"])
+
+        r = await client.get("/api/v1/contractors", params={"include_archived": "true"}, auth=AUTH)
+        assert r.status_code == 200
+        item = next(i for i in r.json()["items"] if i["id"] == contractor_id)
+        assert item["is_archived"] is True
+
+        r = await client.get(f"/api/v1/contractors/{contractor_id}", auth=AUTH)
+        assert r.status_code == 200
+        assert r.json()["is_archived"] is True
+
+        r = await client.patch(f"/api/v1/contractors/{contractor_id}", json={"display_name": "New Name"}, auth=AUTH)
+        assert r.status_code == 409, r.text
 
 
 @pytest.mark.asyncio

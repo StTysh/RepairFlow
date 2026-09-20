@@ -3,15 +3,17 @@
 Request/response Pydantic models live in this file rather than
 app.schemas -- see the module docstring in app/api/properties.py for why.
 
-Archival note: unlike PropertyModel/RepairCaseModel, ContractorModel has
-no `archive_batch_id` column, so a contractor row cannot honestly be
-marked archival today. `is_archived` is exposed on every row for shape
-stability but is hard-coded False; see
-backend/app/api/NEEDS_FROM_ROOT_directories.md for the schema gap this
-leaves. This is *not* the same axis as `approval_status`: an
-un-APPROVED contractor is a research candidate rather than a bookable
-one (enforced by whatever assignment endpoint exists elsewhere), which
-this router does not implement and so cannot violate.
+Archival note: `ContractorModel.archive_batch_id` marks a row created by
+the synthetic archive import. Such rows exist only to give historical
+work orders a named contractor; they are never contactable, never
+assignable, and read-only. They are excluded from the directory unless
+`include_archived=true` is passed.
+
+That is a different axis from `approval_status`. An un-APPROVED
+contractor is a *research candidate* -- a real company someone found but
+nobody has verified -- which is neither archival nor bookable. Both
+distinctions have to survive into the UI, so both are exposed
+separately.
 """
 from __future__ import annotations
 
@@ -137,7 +139,7 @@ def _list_item(contractor: ContractorModel, assigned: int, completed: int) -> Co
         connector=contractor.connector, contact_reference=contractor.contact_reference,
         verification_note=contractor.verification_note, provenance=contractor.provenance,
         assigned_work_order_count=assigned, completed_work_order_count=completed,
-        is_archived=False,
+        is_archived=contractor.archive_batch_id is not None,
     )
 
 
@@ -176,9 +178,12 @@ async def list_contractors(
     q: str | None = None,
     trade: Trade | None = None,
     approval_status: ContractorApprovalStatus | None = None,
+    include_archived: bool = Query(default=False),
     session: AsyncSession = Depends(get_session),
 ) -> ContractorListResponse:
     filters = []
+    if not include_archived:
+        filters.append(ContractorModel.archive_batch_id.is_(None))
     if q:
         filters.append(ContractorModel.display_name.like(f"%{q}%"))
     if approval_status is not None:
@@ -224,6 +229,10 @@ async def update_contractor(
     contractor = await session.get(ContractorModel, contractor_id)
     if contractor is None:
         raise NotFoundError(f"contractor {contractor_id} not found")
+    if contractor.archive_batch_id is not None:
+        raise ConflictError(
+            "this contractor is an archival sample record; archival records are read-only"
+        )
 
     updates = request.model_dump(exclude_unset=True)
     if updates.get("approval_status") == ContractorApprovalStatus.APPROVED:

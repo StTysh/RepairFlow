@@ -46,7 +46,11 @@ function ContractorsPage() {
   const [searchInput, setSearchInput] = useState(qParam);
   const debouncedSearch = useDebouncedValue(searchInput, 300);
 
-  function updateUrl(patch: Record<string, string | undefined>) {
+  // `replace` defaults to false (push) so a filter change is a real,
+  // back-navigable step -- the debounced search-box write below is the one
+  // exception, using `replace: true` so every keystroke's settled value
+  // doesn't spam a fresh history entry per pause.
+  function updateUrl(patch: Record<string, string | undefined>, options?: { replace?: boolean }) {
     const next = new URLSearchParams(searchStr);
     for (const [k, v] of Object.entries(patch)) {
       if (!v || v === "ALL") next.delete(k);
@@ -56,7 +60,7 @@ function ContractorsPage() {
     next.forEach((v, k) => {
       nextSearch[k] = v;
     });
-    navigate({ search: nextSearch, replace: true });
+    navigate({ search: nextSearch, replace: options?.replace ?? false });
   }
 
   // Keep the input in sync when the URL changes from outside typing (back/
@@ -69,7 +73,7 @@ function ContractorsPage() {
 
   useEffect(() => {
     if (debouncedSearch === qParam) return;
-    updateUrl({ q: debouncedSearch || undefined });
+    updateUrl({ q: debouncedSearch || undefined }, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
 
@@ -149,7 +153,7 @@ function ContractorsPage() {
                 <tr>
                   <td colSpan={7} className="p-4">
                     <ErrorState
-                      detail={(contractors.error as Error).message}
+                      detail={errorMessage(contractors.error)}
                       onRetry={() => void contractors.refetch()}
                     />
                   </td>
@@ -235,6 +239,13 @@ function ContractorsPage() {
       </PageContainer>
     </AppShell>
   );
+}
+
+/** Avoids `(error as Error).message` -- a rejection isn't guaranteed to be
+ * an Error instance (ApiError is one, but a network failure or thrown
+ * non-Error value isn't), so this checks rather than assumes. */
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Something went wrong.";
 }
 
 /** Same shape as maintenance.index.tsx's FilterDropdown -- kept local rather

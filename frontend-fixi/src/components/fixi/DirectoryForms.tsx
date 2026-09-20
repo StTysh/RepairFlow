@@ -138,6 +138,11 @@ export function ContractorFormDialog({
   const [contactReference, setContactReference] = useState("");
   const [verificationNote, setVerificationNote] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  // Gates the "Required." / "Select at least one trade." hints so a fresh
+  // create dialog doesn't open already showing validation errors against
+  // fields the operator hasn't touched yet.
+  const [nameTouched, setNameTouched] = useState(false);
+  const [tradesTouched, setTradesTouched] = useState(false);
 
   const create = useCreateContractor();
   const update = useUpdateContractor(contractor?.id ?? "");
@@ -162,9 +167,12 @@ export function ContractorFormDialog({
       setVerificationNote("");
     }
     setFormError(null);
+    setNameTouched(false);
+    setTradesTouched(false);
   }, [open, mode, contractor]);
 
   function toggleTrade(t: Trade) {
+    setTradesTouched(true);
     setTrades((prev) => {
       const next = new Set(prev);
       if (next.has(t)) next.delete(t);
@@ -181,6 +189,8 @@ export function ContractorFormDialog({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setNameTouched(true);
+    setTradesTouched(true);
     if (!canSubmit) return;
     setFormError(null);
     const body = {
@@ -224,18 +234,19 @@ export function ContractorFormDialog({
           className={inputClass}
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
+          onBlur={() => setNameTouched(true)}
           placeholder="e.g. Apex Roofing Ltd"
           autoFocus
           required
         />
-        {displayName.trim().length === 0 && (
-          <p className="mt-1 text-[11px] text-muted-foreground">Required.</p>
+        {nameTouched && displayName.trim().length === 0 && (
+          <p className="mt-1 text-[11px] text-destructive">Required.</p>
         )}
 
         <span className="mt-3 block text-xs font-medium text-muted-foreground">Trades</span>
         <TradeToggleRow selected={trades} onToggle={toggleTrade} />
-        {trades.size === 0 && (
-          <p className="mt-1 text-[11px] text-muted-foreground">Select at least one trade.</p>
+        {tradesTouched && trades.size === 0 && (
+          <p className="mt-1 text-[11px] text-destructive">Select at least one trade.</p>
         )}
 
         <FieldLabel htmlFor="contractor-postcodes">Service postcodes</FieldLabel>

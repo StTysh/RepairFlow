@@ -417,6 +417,15 @@ async def resume_case(case_id: str, request: ResumeCaseRequest, session: AsyncSe
         from app.domain.errors import StaleVersionError
 
         raise StaleVersionError("stale case version", current_version=case.version)
+    # assert_case_transition treats a self-transition as a permitted
+    # no-op, which is right for an internal retry but wrong for an
+    # operator action: "resume" on a case that was never paused is a
+    # mistake, and letting it through bumps the version and appends a
+    # CASE_RESUMED event describing something that did not happen.
+    if case.status != CaseStatus.ESCALATED:
+        raise PolicyRejectedError(
+            f"only an ESCALATED case can be resumed; this case is {case.status.value}"
+        )
     target = case.resume_status or CaseStatus.ACTIVE
     assert_case_transition(case.status, target)
     case.status = target
@@ -458,6 +467,13 @@ async def cancel_case(case_id: str, request: CancelCaseRequest, session: AsyncSe
         from app.domain.errors import StaleVersionError
 
         raise StaleVersionError("stale case version", current_version=case.version)
+    # Same reasoning as resume_case above: a self-transition is a legal
+    # internal no-op but not a legal operator action. Re-cancelling an
+    # already-cancelled case would record a second CASE_CANCELLED event
+    # with a different reason, so the history would show it closed twice
+    # for two different reasons.
+    if case.status == CaseStatus.CANCELLED:
+        raise PolicyRejectedError("this case is already cancelled")
     assert_case_transition(case.status, CaseStatus.CANCELLED)
     case.status = CaseStatus.CANCELLED
     services.bump_version(case)

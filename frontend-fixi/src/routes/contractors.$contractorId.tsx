@@ -75,7 +75,7 @@ function ContractorProfilePage() {
                 ? "It may have been removed, or the link is out of date."
                 : contractor.error.message
             }
-            onRetry={notFound ? undefined : () => void contractor.refetch()}
+            {...(notFound ? {} : { onRetry: () => void contractor.refetch() })}
           />
         </PageContainer>
       </AppShell>
@@ -83,6 +83,7 @@ function ContractorProfilePage() {
   }
 
   const c = contractor.data;
+  if (!c) return null;
   const hasNote = !!c.verification_note && c.verification_note.trim().length > 0;
   const canApprove = c.approval_status !== "APPROVED";
 

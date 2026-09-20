@@ -106,18 +106,20 @@ function InsightsPage() {
 
   function patchSearch(patch: Record<string, string | undefined>) {
     void navigate({
-      // Route has no validateSearch (see comment above), so its search
-      // type is effectively unvalidated -- this app has no existing
-      // precedent for a navigating route's search updater, so the object
-      // shape is asserted rather than inferred.
-      search: ((prev: Record<string, string>) => {
+      // Route has no validateSearch (see comment above), so TanStack
+      // Router treats its search schema as unvalidated/untyped -- this app
+      // has no existing precedent for a navigating route's search updater,
+      // so this is a plain updater function (a standard NavigateOptions
+      // pattern: (prevSearch) => nextSearch) built and verified against
+      // `npx tsc --noEmit` rather than a typed route helper.
+      search: (prev: Record<string, string>) => {
         const next: Record<string, string> = { ...prev };
         for (const [key, value] of Object.entries(patch)) {
           if (value === undefined || value === "") delete next[key];
           else next[key] = value;
         }
         return next;
-      }) as unknown as Record<string, string>,
+      },
       replace: true,
     });
   }
@@ -143,6 +145,10 @@ function InsightsPage() {
 
   const properties = useAnalyticsProperties();
   const insights = useInsights(filters);
+
+  function retryInsights() {
+    void insights.refetch();
+  }
 
   const [drilldown, setDrilldown] = useState<Drilldown | null>(null);
 
@@ -309,8 +315,8 @@ function InsightsPage() {
         ) : insights.isError ? (
           <ErrorState
             className="mt-4"
-            detail={insights.error instanceof Error ? insights.error.message : undefined}
-            onRetry={() => void insights.refetch()}
+            {...(insights.error instanceof Error ? { detail: insights.error.message } : {})}
+            onRetry={retryInsights}
           />
         ) : !data ||
           ((data.case_volume_by_month ?? []).length === 0 &&
@@ -382,6 +388,10 @@ function DrilldownPanel({ drilldown, onClose }: { drilldown: Drilldown; onClose:
   const cases = useInsightsCases(drilldown.filters);
   const allItems = cases.data?.items ?? [];
 
+  function retryCases() {
+    void cases.refetch();
+  }
+
   const bucketKnown =
     drilldown.bucket !== undefined &&
     drilldown.bucket.minHours !== null &&
@@ -427,8 +437,8 @@ function DrilldownPanel({ drilldown, onClose }: { drilldown: Drilldown; onClose:
       ) : cases.isError ? (
         <ErrorState
           className="mt-3"
-          detail={cases.error instanceof Error ? cases.error.message : undefined}
-          onRetry={() => void cases.refetch()}
+          {...(cases.error instanceof Error ? { detail: cases.error.message } : {})}
+          onRetry={retryCases}
         />
       ) : items.length === 0 ? (
         <EmptyState

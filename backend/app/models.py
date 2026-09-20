@@ -121,6 +121,12 @@ class TenantModel(Base):
     preferred_channel: Mapped[str] = mapped_column(sa.String(32))
     contact_allowed: Mapped[bool] = mapped_column(sa.Boolean, default=True)
     accessibility_notes: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    # Non-null marks this as a synthetic archival sample record from a
+    # named import batch: not a real directory entry, never a
+    # contactable or assignable target, and read-only.
+    archive_batch_id: Mapped[str | None] = mapped_column(
+        sa.ForeignKey("archive_batches.id"), nullable=True, index=True
+    )
 
 
 class ContractorModel(Base):
@@ -141,6 +147,12 @@ class ContractorModel(Base):
     # may name a preferred contact in its own decision_summary text; no
     # domain write (appointment, work order) ever references a worker.
     workers: Mapped[list[dict]] = mapped_column(sa.JSON, default=list)
+    # Non-null marks this as a synthetic archival sample record from a
+    # named import batch: not a real directory entry, never a
+    # contactable or assignable target, and read-only.
+    archive_batch_id: Mapped[str | None] = mapped_column(
+        sa.ForeignKey("archive_batches.id"), nullable=True, index=True
+    )
 
 
 class RepairCaseModel(Base):

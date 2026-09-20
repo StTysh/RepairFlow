@@ -171,12 +171,12 @@ function normalizeContractorProfile(raw: unknown): ContractorProfile {
 }
 
 export interface ContractorListParams {
-  q?: string;
-  trade?: Trade | "ALL";
-  approval_status?: ContractorApprovalStatus | "ALL";
-  limit?: number;
-  offset?: number;
-  include_archived?: boolean;
+  q?: string | undefined;
+  trade?: Trade | "ALL" | undefined;
+  approval_status?: ContractorApprovalStatus | "ALL" | undefined;
+  limit?: number | undefined;
+  offset?: number | undefined;
+  include_archived?: boolean | undefined;
 }
 
 export interface DirectoryPage<T> {
@@ -404,11 +404,11 @@ function normalizeTenantProfile(raw: unknown): TenantProfile {
 }
 
 export interface TenantListParams {
-  q?: string;
-  property_id?: string | "ALL";
-  limit?: number;
-  offset?: number;
-  include_archived?: boolean;
+  q?: string | undefined;
+  property_id?: string | "ALL" | undefined;
+  limit?: number | undefined;
+  offset?: number | undefined;
+  include_archived?: boolean | undefined;
 }
 
 async function listTenants(
