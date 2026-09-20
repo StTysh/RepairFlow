@@ -2,9 +2,9 @@
 
 Assignment: `prompts/UI2_FULL_APPLICATION_MIGRATION.md`. Worked 2026-09-20 in
 one unattended session. Companion files: `docs/UI2_CHECKPOINT.md` (working
-notes, carried-forward knowledge, inherited bugs) and
+notes, carried-forward knowledge, inherited bugs),
 `docs/UI2_INTERACTION_CHECKLIST.md` (every control, what backs it, how it
-was verified).
+was verified) and **`docs/UI2_TODO.md`** (the queued follow-up work).
 
 **Nothing was pushed, merged or deployed. No call, message or email was
 sent. `liza.UI2` was not modified.**
@@ -358,16 +358,31 @@ Honest list. None of these is hidden behind a "coming soon" screen.
 
 ### Known rough edges
 
-9. The **Reports** screen does not read its filters from the URL, so a
+9. **The Insights category donut shows a meaningless 100% wedge when
+   nothing is categorised**, because the UI casts a null category to a
+   `Trade` and renders it unlabelled. `category` is a new column and is
+   NULL on all 14 cases in `backend/data/repairflow.db`, so this is the
+   state that database is actually in. Queued as
+   `docs/UI2_TODO.md` #1, with the `category` backfill as #2.
+10. **Two money sources disagree.** Insights and Reports read
+   `cost_entries`; property stats read `work_orders.quote_pence`. On the
+   real data that is £0.00 on one screen and £200.00 on another for the
+   same property. This contradicts the claim in §1 that `analytics.py`
+   is the single source of every metric — that is true within Insights
+   and Reports, not across the whole app. Left open deliberately: it is
+   a definition question (does spend mean quoted or invoiced, and should
+   one fall back to the other?), not a patch. See the tail of
+   `docs/UI2_TODO.md`.
+11. The **Reports** screen does not read its filters from the URL, so a
    reports view is not linkable the way Insights, Properties, Contractors,
    Tenants and Messages are. Its own controls work.
-10. The **Insights property filter** lists operational properties only, so
+12. The **Insights property filter** lists operational properties only, so
    an archival sample property cannot be singled out there even with
    archival history included.
-11. **Insights chart drill-downs** open an inline panel; they do not push
+13. **Insights chart drill-downs** open an inline panel; they do not push
     filters onto the Maintenance list. Both were acceptable per the brief;
     only one is implemented.
-12. The **property-history trade drill-down** filters the table but its
+14. The **property-history trade drill-down** filters the table but its
     total is computed from the filtered rows rather than asserted equal to
     the donut segment — the donut sums work orders by trade while a history
     row carries the case's single primary trade, so the two genuinely
@@ -378,16 +393,16 @@ Honest list. None of these is hidden behind a "coming soon" screen.
 
 These predate the migration and are recorded in `docs/UI2_CHECKPOINT.md`:
 
-13. ESCALATED / CANCELLED cases do not halt automatic execution. Reachable
+15. ESCALATED / CANCELLED cases do not halt automatic execution. Reachable
     only with a hazard flag; every existing case carries `risk = UNKNOWN`.
-14. `RESOLVED → ESCALATED` is broken, so a hazard reported after resolution
+16. `RESOLVED → ESCALATED` is broken, so a hazard reported after resolution
     cannot re-escalate.
-15. `execute_action` can stick at `RUNNING` if the executor raises between
+17. `execute_action` can stick at `RUNNING` if the executor raises between
     lease and terminal write.
-16. Some service paths commit rows written before a `DomainError` is
+18. Some service paths commit rows written before a `DomainError` is
     raised.
-17. A lost-update race remains on double-submitted approvals.
-18. `create_voice_session` returns 202 even when the provider call failed.
+19. A lost-update race remains on double-submitted approvals.
+20. `create_voice_session` returns 202 even when the provider call failed.
 
 ### One judgement call worth re-checking
 
