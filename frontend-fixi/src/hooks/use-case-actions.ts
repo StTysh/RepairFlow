@@ -6,6 +6,7 @@ import {
   decideActionApproval,
   reopenCase,
   resumeCase,
+  retryRecording,
   submitFieldUpdate,
 } from "@/api/endpoints";
 import type {
@@ -136,5 +137,29 @@ export function useSubmitFieldUpdate(caseId: string) {
       toast.success("Update recorded on the case");
     },
     onError: (error: Error) => toast.error(`Could not record that update: ${error.message}`),
+  });
+}
+
+/** Re-queue the audio/transcript fetch for a call whose recording failed.
+ *
+ * `POST /communications/{id}/retry-recording` existed with no caller, so a
+ * failed fetch was a dead end on screen: the UI said "Recording: failed"
+ * and offered nothing. The endpoint buckets its dedupe key by 10s, so a
+ * double-click collapses into one job while a genuine retry a moment later
+ * still goes through. */
+export function useRetryRecording(caseId: string) {
+  const creds = useAuthedCreds();
+  const invalidate = useInvalidateAfterAction(caseId);
+  return useMutation({
+    mutationFn: (communicationId: string) => retryRecording(creds, communicationId),
+    onSuccess: (res) => {
+      invalidate();
+      toast.success(
+        res.queued
+          ? "Fetching the recording again — this can take a moment."
+          : "A fetch is already in progress for this call.",
+      );
+    },
+    onError: (error: Error) => toast.error(`Could not retry the recording: ${error.message}`),
   });
 }

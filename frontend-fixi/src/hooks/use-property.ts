@@ -10,9 +10,13 @@ import { useAuthedCreds } from "@/lib/auth-context";
 // building as another (CLAUDE.md-adjacent: no fabricated evidence).
 import houseExterior from "@/assets/house-exterior.jpg";
 import birchLane from "@/assets/property-birch-lane.jpg";
+import cathedralWalk from "@/assets/property-cathedral-walk.jpg";
 import churchRoad from "@/assets/property-church-road.jpg";
+import elmCourt from "@/assets/property-elm-court.jpg";
+import gloucesterRoad from "@/assets/property-gloucester-road.jpg";
 import mapleRoad from "@/assets/property-maple-road.jpg";
 import oakAvenue from "@/assets/property-oak-avenue.jpg";
+import redcliffeParade from "@/assets/property-redcliffe-parade.jpg";
 import riverdaleRoad from "@/assets/property-riverdale-road.jpg";
 import stationView from "@/assets/property-station-view.jpg";
 import wellingtonClose from "@/assets/property-wellington-close.jpg";
@@ -174,9 +178,13 @@ export interface DocumentsResponse {
 const PROPERTY_PHOTOS: Record<string, string> = {
   "house-exterior.jpg": houseExterior,
   "property-birch-lane.jpg": birchLane,
+  "property-cathedral-walk.jpg": cathedralWalk,
   "property-church-road.jpg": churchRoad,
+  "property-elm-court.jpg": elmCourt,
+  "property-gloucester-road.jpg": gloucesterRoad,
   "property-maple-road.jpg": mapleRoad,
   "property-oak-avenue.jpg": oakAvenue,
+  "property-redcliffe-parade.jpg": redcliffeParade,
   "property-riverdale-road.jpg": riverdaleRoad,
   "property-station-view.jpg": stationView,
   "property-wellington-close.jpg": wellingtonClose,

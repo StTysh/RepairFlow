@@ -85,6 +85,14 @@ function MaintenancePage() {
   const [urgencyFilter, setUrgencyFilter] = useState<Urgency | "ALL">("ALL");
   const [propertyFilter, setPropertyFilter] = useState<string | "ALL">("ALL");
   const [contractorFilter, setContractorFilter] = useState<string | "ALL">("ALL");
+  // Off by default, matching the API and every other directory screen:
+  // archival sample history must never walk into an operational queue
+  // uninvited. But with it permanently off there was no route from this
+  // list to the ~60 closed sample cases at all -- they exist, they carry
+  // full histories, and the only ways in were Insights, Reports, a
+  // property's history or global search. Every archival row this returns
+  // is badged, so one can't be mistaken for work to do.
+  const [includeArchived, setIncludeArchived] = useState(false);
 
   // Global search box lives in UtilityBar (rendered once, inside AppShell,
   // above every page) -- its value comes through CaseSearchContext rather
@@ -99,6 +107,8 @@ function MaintenancePage() {
     status: statusFilter === "ALL" ? undefined : statusFilter,
     property_id: propertyFilter === "ALL" ? undefined : propertyFilter,
     q: debouncedSearch.trim() || undefined,
+    include_archived: includeArchived || undefined,
+    limit: includeArchived ? 100 : undefined,
   });
 
   // Contractor filter has no honest server-side id to filter on: the case
@@ -272,6 +282,16 @@ function MaintenancePage() {
               allLabel="All contractors"
               options={contractorOptions.map((name) => ({ value: name, label: name }))}
             />
+            <label className="flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent">
+              <input
+                type="checkbox"
+                className="accent-primary"
+                checked={includeArchived}
+                aria-label="Include archival sample history"
+                onChange={(e) => setIncludeArchived(e.target.checked)}
+              />
+              Include archival sample history
+            </label>
           </div>
         </section>
 

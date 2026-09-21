@@ -13,6 +13,7 @@ import {
   Phone,
   PhoneCall,
 } from "lucide-react";
+import { AgentActivity } from "@/components/fixi/AgentActivity";
 import { AppShell, Card } from "@/components/fixi/AppShell";
 import { Pill, StatusBadge, UrgencyBadge } from "@/components/fixi/Badge";
 import { CaseLifecycleActions } from "@/components/fixi/CaseLifecycleActions";
@@ -26,13 +27,14 @@ import { WorkGraph } from "@/components/fixi/WorkGraph";
 import { RecordFieldUpdateDialog } from "@/components/fixi/RecordFieldUpdateDialog";
 import { MessagesPanel } from "@/components/fixi/MessagesPanel";
 import { authHeader, BASE_URL } from "@/api/client";
+import { useRetryRecording } from "@/hooks/use-case-actions";
 import { useCaseDetail } from "@/hooks/use-case-detail";
 import { useCaseEvents } from "@/hooks/use-case-events";
 import { usePropertyHistory } from "@/hooks/use-property-history";
 import { useAuthedCreds } from "@/lib/auth-context";
-import type { Appointment, CaseSnapshot, Communication } from "@/api/types";
+import type { Appointment, CaseSnapshot, Communication, Recording } from "@/api/types";
 import { statusTone } from "@/lib/fixi-data";
-import { formatDateRange, formatRelative, initials, titleCase } from "@/lib/format";
+import { formatDateRange, formatPence, formatRelative, initials, titleCase } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 // "property"/"files"/"costs" used to be a second, dead button row above
@@ -55,6 +57,7 @@ import { cn } from "@/lib/utils";
 const sections = [
   "summary",
   "timeline",
+  "agent",
   "calls",
   "work",
   "property",
@@ -69,7 +72,7 @@ export const Route = createFileRoute("/maintenance/tickets/$ticketId/{-$section}
     if (params.section && !sections.includes(params.section as Section)) throw notFound();
     return { section: (params.section as Section | undefined) ?? null };
   },
-  head: ({ params, loaderData }) => {
+  head: ({ loaderData }) => {
     // params.ticketId is the case UUID, which makes a useless browser-tab
     // label. `head` runs before the snapshot loads, so the real
     // "#42 – Slipped tiles" title is set from the component once the
@@ -175,6 +178,12 @@ function CasePage() {
                 <Copy className="ml-1 h-3.5 w-3.5 cursor-pointer hover:text-foreground" />
               </button>
             </div>
+            {/* docs/18 line 34 lists "last updated" as part of the case
+             * header. The field was always on the snapshot and never
+             * rendered, so nothing on the page said how fresh it was. */}
+            <div className="mt-1 text-xs text-muted-foreground">
+              Updated {formatRelative(c.updated_at)} · version {c.version}
+            </div>
           </div>
           <div className="flex flex-col items-end gap-2">
             <CaseToolbar snapshot={snapshot} />
@@ -206,7 +215,7 @@ function CasePage() {
           />
         </div>
 
-        <DecisionCard caseId={c.id} pendingActions={snapshot.pending_actions} />
+        <DecisionCard caseId={c.id} pendingActions={snapshot.pending_actions} snapshot={snapshot} />
 
         <div className="mt-5 flex flex-wrap items-center gap-1.5">
           <SectionLink ticketId={ticketId} section={undefined} active={section === null}>
@@ -217,6 +226,9 @@ function CasePage() {
           </SectionLink>
           <SectionLink ticketId={ticketId} section="timeline" active={section === "timeline"}>
             Timeline
+          </SectionLink>
+          <SectionLink ticketId={ticketId} section="agent" active={section === "agent"}>
+            Agent
           </SectionLink>
           <SectionLink ticketId={ticketId} section="calls" active={section === "calls"}>
             Calls
@@ -250,9 +262,16 @@ function CasePage() {
               showViewAll={section === null}
             />
           )}
-          {show("calls") && <CallsColumn communications={snapshot.communications} />}
+          {show("agent") && <AgentActivity snapshot={snapshot} />}
+          {show("calls") && (
+            <CallsColumn caseId={snapshot.case.id} communications={snapshot.communications} />
+          )}
           {section === "work" && (
-            <WorkGraph workOrders={snapshot.work_orders} dependencies={snapshot.dependencies} />
+            <WorkGraph
+              workOrders={snapshot.work_orders}
+              dependencies={snapshot.dependencies}
+              appointments={snapshot.appointments}
+            />
           )}
           {section === "property" && <PropertyColumn snapshot={snapshot} />}
           {section === "files" && (
@@ -281,7 +300,13 @@ const outcomeTone: Record<string, "green" | "amber" | "red" | "gray"> = {
   UNKNOWN: "gray",
 };
 
-function CallsColumn({ communications }: { communications: Communication[] }) {
+function CallsColumn({
+  caseId,
+  communications,
+}: {
+  caseId: string;
+  communications: Communication[];
+}) {
   const calls = [...communications].sort((a, b) => {
     const at = a.started_at ?? a.ended_at ?? "";
     const bt = b.started_at ?? b.ended_at ?? "";
@@ -299,14 +324,66 @@ function CallsColumn({ communications }: { communications: Communication[] }) {
       )}
       <ul className="mt-4 space-y-3">
         {calls.map((comm) => (
-          <CallRow key={comm.id} comm={comm} />
+          <CallRow key={comm.id} caseId={caseId} comm={comm} />
         ))}
       </ul>
     </Card>
   );
 }
 
-function CallRow({ comm }: { comm: Communication }) {
+/** What to show when there is no playable audio.
+ *
+ * Previously this was one line -- "Recording: failed" -- which threw away
+ * the two things that make it actionable: `recording.error_code`, which is
+ * captured and says WHY, and the retry endpoint, which existed with no
+ * caller. CLAUDE.md requires call recordings be persisted, correlated and
+ * playable, so a failed fetch being a dead end on screen was a real gap.
+ *
+ * PENDING is a normal in-flight state, not a failure, and is worded as
+ * such -- retry is still offered because a job can be lost. */
+function RecordingUnavailable({
+  caseId,
+  communicationId,
+  recording,
+}: {
+  caseId: string;
+  communicationId: string;
+  recording: Recording;
+}) {
+  const retry = useRetryRecording(caseId);
+  const failed = recording.status === "FAILED";
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground">
+          {recording.status === "PENDING"
+            ? "Recording: still being fetched."
+            : failed
+              ? "Recording: the fetch failed."
+              : "Recording: not available for this call."}
+        </p>
+        {recording.error_code && (
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Reason: <span className="font-mono">{recording.error_code}</span>
+          </p>
+        )}
+      </div>
+      {recording.status !== "UNAVAILABLE" && (
+        <button
+          type="button"
+          onClick={() => retry.mutate(communicationId)}
+          disabled={retry.isPending}
+          className="shrink-0 rounded-lg border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-accent disabled:opacity-50"
+        >
+          {retry.isPending ? "Retrying…" : "Retry fetch"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function CallRow({ caseId, comm }: { caseId: string; comm: Communication }) {
   const [open, setOpen] = useState(false);
   // direction=BROWSER + no transcript is not a phone call at all -- it's
   // the agent asking the operator (not the tenant) to do something, which
@@ -361,9 +438,11 @@ function CallRow({ comm }: { comm: Communication }) {
           ) : comm.recording.status === "AVAILABLE" ? (
             <RecordingPlayer communicationId={comm.id} />
           ) : (
-            <p className="text-xs text-muted-foreground">
-              Recording: {comm.recording.status.toLowerCase()}
-            </p>
+            <RecordingUnavailable
+              caseId={caseId}
+              communicationId={comm.id}
+              recording={comm.recording}
+            />
           )}
           {!isOperatorNote &&
             (comm.transcript.length > 0 ? (
@@ -384,6 +463,16 @@ function CallRow({ comm }: { comm: Communication }) {
             ) : (
               <p className="mt-3 text-xs text-muted-foreground">No transcript recorded.</p>
             ))}
+          {/* docs/18 line 38 asks the communication drawer to show the
+           * provider's conversation id. It is captured on every real call
+           * and was never rendered, so a LIVE call could not be matched
+           * against the provider's own dashboard when something went
+           * wrong. */}
+          {comm.provider_conversation_id && (
+            <p className="mt-3 border-t border-border pt-2 text-[10px] text-muted-foreground">
+              Conversation <span className="font-mono">{comm.provider_conversation_id}</span>
+            </p>
+          )}
         </div>
       )}
     </li>
@@ -644,8 +733,40 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
     next_appointment,
     property,
     latest_reports,
+    appointments,
+    work_orders,
+    approved_contractors,
+    availability,
+    policy_snapshot,
   } = snapshot;
   const propertyHistory = usePropertyHistory(property.id);
+
+  // "No appointment scheduled yet" is only true if none was EVER booked.
+  // next_appointment is filtered to CONFIRMED/PENDING visits still in the
+  // future (services.py), so a case whose only visit has already happened
+  // -- the common "attended, didn't fix it, now blocked" shape -- was being
+  // described as never booked. That reads as nothing happening when in fact
+  // the visit is the reason the case is stuck.
+  const pastAppointments = [...appointments].sort((a, b) =>
+    a.start_at < b.start_at ? 1 : a.start_at > b.start_at ? -1 : 0,
+  );
+  const lastAppointment = next_appointment ? null : (pastAppointments[0] ?? null);
+
+  // The roster is portfolio-wide, not per-case: with 18 approved
+  // contractors, listing all of them buries everything below it. Rank by
+  // relevance to THIS case -- whoever is assigned, then anyone qualified
+  // for a trade this case actually needs -- and keep the rest behind a
+  // count rather than dropping them silently.
+  const neededTrades = new Set(work_orders.map((w) => w.trade));
+  const rankedContractors = [...approved_contractors].sort((a, b) => {
+    const score = (x: (typeof approved_contractors)[number]) =>
+      (assigned_contractor?.id === x.id ? 2 : 0) +
+      (x.trades.some((t) => neededTrades.has(t as (typeof work_orders)[number]["trade"])) ? 1 : 0);
+    return score(b) - score(a);
+  });
+  const RELEVANT_CONTRACTOR_LIMIT = 5;
+  const shownContractors = rankedContractors.slice(0, RELEVANT_CONTRACTOR_LIMIT);
+  const hiddenContractorCount = rankedContractors.length - shownContractors.length;
 
   // Real mailto:/tel: targets off the tenant's actual contact fields --
   // gated on contact_allowed (a real field, not assumed) so a tenant who
@@ -718,8 +839,75 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
         <Label>Next appointment</Label>
         {next_appointment ? (
           <NextAppointmentRow caseId={c.id} appointment={next_appointment} />
+        ) : lastAppointment ? (
+          <div className="mt-2 space-y-1">
+            <p className="text-xs text-muted-foreground">
+              Nothing upcoming. Last visit {formatRelative(lastAppointment.start_at)}
+              {lastAppointment.attempt_number > 1
+                ? ` (attempt ${lastAppointment.attempt_number})`
+                : ""}
+              .
+            </p>
+            <p className="text-xs">
+              <span className="text-muted-foreground">Outcome: </span>
+              <span className="font-medium">
+                {lastAppointment.visit_outcome
+                  ? titleCase(lastAppointment.visit_outcome)
+                  : titleCase(lastAppointment.status)}
+              </span>
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              {appointments.length} visit{appointments.length === 1 ? "" : "s"} on this case.
+            </p>
+          </div>
         ) : (
           <p className="mt-2 text-xs text-muted-foreground">No appointment scheduled yet.</p>
+        )}
+      </div>
+
+      <div className="mt-4 border-t border-border pt-4">
+        <Label>Approved contractors</Label>
+        {/* The roster the coordinator is allowed to choose from. Distinct
+         * from "Assigned contractor" above: a case routinely has several
+         * approved suppliers and nobody assigned, which previously looked
+         * like the system knew nobody. The API has always sent this; it was
+         * typed `unknown[]` and rendered nowhere until 2026-09-21. */}
+        {approved_contractors.length === 0 ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            No approved contractor covers this case yet.
+          </p>
+        ) : (
+          <ul className="mt-2 space-y-1.5">
+            {shownContractors.map((ac) => (
+              <li key={ac.id} className="flex items-start justify-between gap-2 text-xs">
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">{ac.display_name}</span>
+                  <span className="block text-muted-foreground">
+                    {ac.trades.map(titleCase).join(", ") || "—"}
+                    {ac.service_postcodes.length > 0 && ` · ${ac.service_postcodes.join(", ")}`}
+                  </span>
+                </span>
+                {assigned_contractor?.id === ac.id && <Pill tone="green">Assigned</Pill>}
+              </li>
+            ))}
+          </ul>
+        )}
+        {hiddenContractorCount > 0 && (
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
+            + {hiddenContractorCount} more approved for other trades or areas.
+          </p>
+        )}
+        {typeof policy_snapshot.ordinary_authority_limit_pence === "number" && (
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Auto-approval limit {formatPence(policy_snapshot.ordinary_authority_limit_pence)} —
+            above this, an action waits for a human.
+          </p>
+        )}
+        {availability.length > 0 && (
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {availability.length} tenant availability window
+            {availability.length === 1 ? "" : "s"} on file.
+          </p>
         )}
       </div>
 

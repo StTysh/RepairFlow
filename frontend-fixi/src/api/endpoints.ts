@@ -13,7 +13,7 @@ import type {
   CaseDetailResponse,
   CaseEventsResponse,
   CaseListResponse,
-  CaseMessagesResponse,
+  CaseRunsResponse,
   CaseVersionResponse,
   DashboardMetrics,
   FieldUpdateRequest,
@@ -26,6 +26,8 @@ import type {
   PropertyStatsResponse,
   ReopenCaseRequest,
   ResumeCaseRequest,
+  RetryRecordingResponse,
+  SearchResponse,
   UpcomingAppointmentsResponse,
 } from "@/api/types";
 // CaseStatus is a UI-facing display concept as much as a wire type (see
@@ -38,6 +40,10 @@ export interface ListCasesParams {
   q?: string | undefined;
   limit?: number | undefined;
   cursor?: string | undefined;
+  /** Off by default, matching the API: archival sample history must never
+   * enter an operational queue uninvited. On, every archival row is
+   * badged so it can't be mistaken for work to do. */
+  include_archived?: boolean | undefined;
 }
 
 export function fetchCaseList(
@@ -50,6 +56,7 @@ export function fetchCaseList(
   if (params.q) search.set("q", params.q);
   search.set("limit", String(params.limit ?? 100));
   if (params.cursor) search.set("cursor", params.cursor);
+  if (params.include_archived) search.set("include_archived", "true");
   return request<CaseListResponse>(creds, `/api/v1/cases?${search.toString()}`);
 }
 
@@ -68,16 +75,6 @@ export function fetchCaseEvents(
   if (params.after_seq) search.set("after_seq", String(params.after_seq));
   search.set("limit", String(params.limit ?? 50));
   return request<CaseEventsResponse>(creds, `/api/v1/cases/${caseId}/events?${search.toString()}`);
-}
-
-/** Read-only tenant/contractor/operator message thread for a case -- display
- * only, never fed to the coordinator (CLAUDE.md: chat history is not
- * authoritative state). No write/send endpoint exists yet. */
-export function fetchCaseMessages(
-  creds: OperatorCredentials,
-  caseId: string,
-): Promise<CaseMessagesResponse> {
-  return request<CaseMessagesResponse>(creds, `/api/v1/cases/${caseId}/messages`);
 }
 
 export function fetchDashboardMetrics(creds: OperatorCredentials): Promise<DashboardMetrics> {
@@ -209,4 +206,37 @@ export function cancelAppointment(
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+/** Global cross-entity search. The backend has served this since the
+ * migration; until 2026-09-21 nothing in the UI called it, so the search box
+ * only client-filtered the already-loaded ticket list while its placeholder
+ * promised tenants and contractors too. */
+export function fetchGlobalSearch(creds: OperatorCredentials, q: string): Promise<SearchResponse> {
+  return request<SearchResponse>(creds, `/api/v1/search?q=${encodeURIComponent(q)}`);
+}
+
+/** Re-queue the audio/transcript fetch for a call whose recording failed or
+ * is still pending. The endpoint has existed since the migration with no UI
+ * caller, so a failed fetch was a dead end on screen even though CLAUDE.md
+ * requires recordings be persisted and playable. */
+export function retryRecording(
+  creds: OperatorCredentials,
+  communicationId: string,
+): Promise<RetryRecordingResponse> {
+  return request<RetryRecordingResponse>(
+    creds,
+    `/api/v1/communications/${communicationId}/retry-recording`,
+    { method: "POST" },
+  );
+}
+
+/** The coordinator's reasoning history for a case: one row per wake, with
+ * the tools it read, what it proposed and what policy decided. */
+export function fetchCaseRuns(
+  creds: OperatorCredentials,
+  caseId: string,
+  limit = 50,
+): Promise<CaseRunsResponse> {
+  return request<CaseRunsResponse>(creds, `/api/v1/cases/${caseId}/runs?limit=${limit}`);
 }

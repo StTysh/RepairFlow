@@ -1,49 +1,104 @@
-import { useState } from "react";
-import { MessageSquare } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { ArrowRight, MessageSquare } from "lucide-react";
 import { Card } from "@/components/fixi/AppShell";
 import { Pill } from "@/components/fixi/Badge";
-import { useCaseMessages } from "@/hooks/use-case-messages";
+import {
+  normalizeAttachment,
+  useMessageThread,
+  type DeliveryState,
+  type MessageChannel,
+  type ThreadMessage,
+} from "@/hooks/use-messaging";
 import { formatRelative } from "@/lib/format";
-import type { Message, MessageSenderType } from "@/api/types";
 
-const senderTone: Record<MessageSenderType, "gray" | "green" | "purple"> = {
+const senderTone: Record<string, "gray" | "green" | "purple"> = {
   TENANT: "gray",
   CONTRACTOR: "green",
   OPERATOR: "purple",
 };
 
-const senderLabel: Record<MessageSenderType, string> = {
+const senderLabel: Record<string, string> = {
   TENANT: "Tenant",
   CONTRACTOR: "Contractor",
   OPERATOR: "Operator",
 };
 
-/** Read-only tenant/contractor/operator message thread -- GET
- * /api/v1/cases/{id}/messages (backend/app/schemas.py Message). Display
- * only: chat history is never authoritative state and the AI coordinator
- * never reads it (CLAUDE.md). There's also no write/send endpoint yet, so
- * this renders only what the API returns -- no composer with nothing to
- * call behind it. */
+/** How a message actually ended up, in the operator's words.
+ *
+ * Saving is not sending -- an outward message with no transport behind it
+ * persists as DRAFT and must never be shown as though it went out. This
+ * is the one place on the ticket page that can misrepresent that, so the
+ * label is derived from `delivery_state` and nothing else. */
+const DELIVERY_LABEL: Record<DeliveryState, string> = {
+  DRAFT: "Draft — not sent",
+  INTERNAL_NOTE: "Internal note",
+  QUEUED: "Queued",
+  SENT: "Sent",
+  DELIVERED: "Delivered",
+  FAILED: "Failed to send",
+  RECEIVED: "Received",
+};
+
+const DELIVERY_TONE: Record<DeliveryState, "gray" | "green" | "amber" | "red" | "blue"> = {
+  DRAFT: "amber",
+  INTERNAL_NOTE: "gray",
+  QUEUED: "blue",
+  SENT: "green",
+  DELIVERED: "green",
+  FAILED: "red",
+  RECEIVED: "gray",
+};
+
+const CHANNEL_LABEL: Record<MessageChannel, string> = {
+  INTERNAL: "Internal",
+  EMAIL: "Email",
+  SMS: "SMS",
+  VOICE: "Voice",
+};
+
+/** The conversation on this ticket.
+ *
+ * Reads the real thread (`GET /messages/threads/{case_id}`) rather than
+ * the older read-only `GET /cases/{id}/messages`. That older endpoint
+ * returns no channel and no delivery state, so this panel could not tell
+ * a sent message from an unsent draft -- on the one screen where that
+ * distinction matters most. Its previous docstring also claimed no
+ * send endpoint existed; one has existed since the migration, and the
+ * Messages destination uses it.
+ *
+ * Composing deliberately lives on that full conversation page rather than
+ * being duplicated here: this panel is context while you work the ticket,
+ * and one composer with one set of delivery semantics is easier to keep
+ * honest than two. The link goes there. */
 export function MessagesPanel({ caseId }: { caseId: string }) {
-  const messages = useCaseMessages(caseId);
-  const items = messages.data?.items ?? [];
+  const thread = useMessageThread(caseId);
+  const items = thread.data?.items ?? [];
 
   return (
     <Card className="p-5">
-      <div>
-        <h2 className="text-[15px] font-semibold">Messages</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Tenant, contractor and operator messages on this ticket -- display only, not read by the
-          AI agent.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-[15px] font-semibold">Messages</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Tenant, contractor and operator messages on this ticket. Not read by the AI agent — chat
+            history is never authoritative state.
+          </p>
+        </div>
+        <Link
+          to="/messages/$caseId"
+          params={{ caseId }}
+          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-accent"
+        >
+          Open conversation <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
       </div>
-      {messages.isLoading && <p className="mt-4 text-xs text-muted-foreground">Loading…</p>}
-      {messages.isError && (
-        <p className="mt-4 text-xs text-destructive">Could not load messages.</p>
+
+      {thread.isLoading && <p className="mt-4 text-xs text-muted-foreground">Loading…</p>}
+      {thread.isError && <p className="mt-4 text-xs text-destructive">Could not load messages.</p>}
+      {!thread.isLoading && !thread.isError && items.length === 0 && (
+        <p className="mt-4 text-xs text-muted-foreground">No messages on this ticket yet.</p>
       )}
-      {!messages.isLoading && !messages.isError && items.length === 0 && (
-        <p className="mt-4 text-xs text-muted-foreground">No messages yet.</p>
-      )}
+
       <ul className="mt-4 space-y-3">
         {items.map((m) => (
           <MessageRow key={m.id} message={m} />
@@ -53,7 +108,9 @@ export function MessagesPanel({ caseId }: { caseId: string }) {
   );
 }
 
-function MessageRow({ message }: { message: Message }) {
+function MessageRow({ message }: { message: ThreadMessage }) {
+  const attachments = (message.attachments ?? []).map(normalizeAttachment);
+
   return (
     <li className="rounded-lg border border-border p-3">
       <div className="flex items-start justify-between gap-3">
@@ -62,12 +119,33 @@ function MessageRow({ message }: { message: Message }) {
             <MessageSquare className="h-3.5 w-3.5" />
           </span>
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[13px] font-semibold">
+            <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold">
               {message.sender_name}
-              <Pill tone={senderTone[message.sender_type]}>{senderLabel[message.sender_type]}</Pill>
+              <Pill tone={senderTone[message.sender_type] ?? "gray"}>
+                {senderLabel[message.sender_type] ?? message.sender_type}
+              </Pill>
+              <Pill tone={DELIVERY_TONE[message.delivery_state] ?? "gray"}>
+                {DELIVERY_LABEL[message.delivery_state] ?? message.delivery_state}
+              </Pill>
+              {message.channel !== "INTERNAL" && (
+                <span className="text-[11px] font-normal text-muted-foreground">
+                  {CHANNEL_LABEL[message.channel] ?? message.channel}
+                </span>
+              )}
             </div>
             <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{message.text}</p>
-            {message.photo_url && <MessagePhoto url={message.photo_url} />}
+            {attachments.length > 0 && (
+              <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                {attachments.map((a) => (
+                  <li
+                    key={a.id}
+                    className="rounded-md border border-border px-1.5 py-px text-[10px] text-muted-foreground"
+                  >
+                    {a.label}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
         <span className="shrink-0 text-[11px] text-muted-foreground">
@@ -75,27 +153,5 @@ function MessageRow({ message }: { message: Message }) {
         </span>
       </div>
     </li>
-  );
-}
-
-/** No message-photo upload path or media-serving route exists yet
- * (backend: photo_url is a plain nullable column with nothing that writes
- * to it in this phase -- see backend/app/models.py MessageModel), so
- * whatever shape a future producer puts there is untested here. Rendered
- * as a direct <img src>, same as any other URL field, but with a graceful
- * fallback rather than a broken-image icon if it 404s/401s. */
-function MessagePhoto({ url }: { url: string }) {
-  const [failed, setFailed] = useState(false);
-  if (failed) {
-    return <p className="mt-2 text-[11px] text-muted-foreground">Photo unavailable.</p>;
-  }
-  return (
-    <img
-      src={url}
-      alt="Message attachment"
-      loading="lazy"
-      onError={() => setFailed(true)}
-      className="mt-2 h-16 w-24 rounded-md border border-border object-cover"
-    />
   );
 }

@@ -192,14 +192,30 @@ async def list_contractors(
         filters.append(ContractorModel.display_name.like(f"%{q}%"))
     if approval_status is not None:
         filters.append(ContractorModel.approval_status == approval_status)
-
-    query = select(ContractorModel).where(*filters).order_by(ContractorModel.display_name, ContractorModel.id)
-    rows = (await session.execute(query)).scalars().all()
     if trade is not None:
-        rows = [c for c in rows if trade.value in (c.trades or [])]
+        # `trades` is a JSON column (list[str]); the generic sa.JSON type
+        # has no array-containment operator on SQLite the way
+        # postgresql.JSONB does, but SQLite stores the column as its JSON
+        # text encoding, so a LIKE against the quoted value is an exact
+        # element match. Safe because Trade's five members (schemas.py)
+        # are short and fixed and none is a substring of another's quoted
+        # form, unlike the free-text `q` search above.
+        filters.append(ContractorModel.trades.like(f'%"{trade.value}"%'))
 
-    total = len(rows)
-    page = rows[offset: offset + limit]
+    total = (
+        await session.execute(
+            select(func.count()).select_from(select(ContractorModel.id).where(*filters).subquery())
+        )
+    ).scalar_one()
+
+    query = (
+        select(ContractorModel)
+        .where(*filters)
+        .order_by(ContractorModel.display_name, ContractorModel.id)
+        .limit(limit)
+        .offset(offset)
+    )
+    page = (await session.execute(query)).scalars().all()
     counts = await _work_order_counts(session, [c.id for c in page])
     items = [_list_item(c, *counts.get(c.id, (0, 0))) for c in page]
     return ContractorListResponse(

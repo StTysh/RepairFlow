@@ -103,15 +103,53 @@ export class ApiError extends Error {
   }
 }
 
+/** Turn an error response into a sentence a human can read.
+ *
+ * The API speaks three shapes and this used to understand only one:
+ *
+ *   {"error":{"code","message","retryable","correlation_id"}}  DomainError
+ *   {"detail":[{loc,msg,type},...]}                            FastAPI validation
+ *   {"detail":"..."}                                           raw HTTPException
+ *
+ * Only `detail` was unwrapped, so every DomainError -- the common case, and
+ * the one behind every stale-version conflict and policy rejection -- fell
+ * through to `JSON.stringify(body)` and reached the operator as a raw blob
+ * in a toast: `Could not resume case: {"error":{"code":"STALE_VERSION",...`.
+ * Fixed here rather than in each of the six mutation hooks that hit it, so
+ * a shape the API already sends can never surface unparsed again.
+ */
 async function readErrorDetail(res: Response): Promise<string> {
   try {
     const body: unknown = await res.json();
-    if (body && typeof body === "object" && "detail" in body) {
+    if (!body || typeof body !== "object") return res.statusText;
+
+    // DomainError envelope.
+    const envelope = (body as { error?: unknown }).error;
+    if (envelope && typeof envelope === "object") {
+      const message = (envelope as { message?: unknown }).message;
+      if (typeof message === "string" && message) return message;
+    }
+
+    if ("detail" in body) {
       const detail = (body as { detail: unknown }).detail;
       if (typeof detail === "string") return detail;
+      // FastAPI validation: [{loc:["body","field"], msg:"Field required"}, ...]
+      if (Array.isArray(detail)) {
+        const parts = detail
+          .map((d) => {
+            if (!d || typeof d !== "object") return null;
+            const msg = (d as { msg?: unknown }).msg;
+            if (typeof msg !== "string") return null;
+            const loc = (d as { loc?: unknown }).loc;
+            const field = Array.isArray(loc) ? loc[loc.length - 1] : undefined;
+            return typeof field === "string" && field !== "body" ? `${field}: ${msg}` : msg;
+          })
+          .filter((p): p is string => Boolean(p));
+        if (parts.length) return parts.join("; ");
+      }
       if (detail !== undefined) return JSON.stringify(detail);
     }
-    return JSON.stringify(body);
+    return res.statusText;
   } catch {
     return res.statusText;
   }

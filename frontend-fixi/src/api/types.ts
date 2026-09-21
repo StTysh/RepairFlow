@@ -323,15 +323,52 @@ export interface Communication {
   provenance: Provenance;
 }
 
-// availability / approved_contractors are still explicitly out of scope
-// for this phase (VoicePanel/provenance badges would build on them, but
-// VoicePanel was never a working feature even in the old frontend -- see
-// its own docstring -- so this is deferred, not blocked) -- typed as
-// unknown[] here so CaseSnapshot is complete and nothing needs `as any`
-// when reading the other fields. work_orders, dependencies, appointments,
-// latest_reports and pending_actions ARE typed (WorkGraph / Costs tab /
-// DecisionCard approval card / RecordFieldUpdateDialog appointment
-// picker).
+/** A person on a contractor's crew, as the roster records them. */
+export interface ContractorWorker {
+  name: string;
+  role: string;
+}
+
+/** One approved supplier from the case's roster.
+ *
+ * Distinct from `assigned_contractor`, which is whoever is working the
+ * active work order: a case can have six approved contractors and nobody
+ * assigned. The API has always sent this; until 2026-09-21 it was typed
+ * `unknown[]` and no component read it, so the operator could not see who
+ * the coordinator was allowed to choose between. */
+export interface ApprovedContractor {
+  id: string;
+  display_name: string;
+  trades: string[];
+  service_postcodes: string[];
+  approval_status: string;
+  connector: string;
+  contact_reference: string | null;
+  verification_note: string | null;
+  provenance: Provenance;
+  workers: ContractorWorker[];
+}
+
+/** A window the tenant actually stated they are available, with provenance.
+ * The coordinator books against these; nothing may invent one. */
+export interface AvailabilityWindow {
+  id: string;
+  case_id: string;
+  person_type: string;
+  person_id: string;
+  start_at: string;
+  end_at: string;
+  timezone: string;
+  confirmed_at: string;
+  expires_at: string;
+}
+
+/** The deterministic policy state the coordinator reasoned against on this
+ * snapshot -- notably the spend limit above which an action needs a human. */
+export interface PolicySnapshot {
+  ordinary_authority_limit_pence?: number;
+  policy_version?: number;
+}
 export interface CaseSnapshot {
   case: RepairCase;
   issue: RepairIssue;
@@ -344,11 +381,11 @@ export interface CaseSnapshot {
   appointments: Appointment[];
   latest_reports: ContractorReport[];
   communications: Communication[];
-  availability: unknown[];
-  approved_contractors: unknown[];
+  availability: AvailabilityWindow[];
+  approved_contractors: ApprovedContractor[];
   pending_actions: ActionRecord[];
   recent_events: CaseEvent[];
-  policy_snapshot: Record<string, unknown>;
+  policy_snapshot: PolicySnapshot;
   snapshot_version: number;
   agent_active: boolean;
 }
@@ -706,4 +743,90 @@ export interface Message {
 export interface CaseMessagesResponse {
   case_id: string;
   items: Message[];
+}
+
+// ---------------------------------------------------------------------------
+// Global search (GET /api/v1/search)
+// ---------------------------------------------------------------------------
+
+/** One hit. `route` is a ready-to-use in-app path computed server-side
+ * (backend/app/api/search.py), so the UI never has to rebuild a URL per
+ * result type. `is_archived` is only ever true for a case or property from
+ * the synthetic archive batch -- tenants and contractors carry no
+ * archive_batch_id, so it is always false for those. */
+export interface SearchResultItem {
+  type: "case" | "property" | "tenant" | "contractor";
+  id: string;
+  label: string;
+  sublabel: string;
+  route: string;
+  is_archived: boolean;
+}
+
+export interface SearchGroup {
+  type: string;
+  items: SearchResultItem[];
+  has_more: boolean;
+}
+
+export interface SearchResponse {
+  query: string;
+  groups: SearchGroup[];
+}
+
+/** POST /api/v1/communications/{id}/retry-recording — re-queues a
+ * FETCH_RECORDING job. `queued` is false if one was already in flight. */
+export interface RetryRecordingResponse {
+  queued: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Agent activity (GET /api/v1/cases/{id}/runs)
+// ---------------------------------------------------------------------------
+
+export type ToolTraceOutcome = "SUCCEEDED" | "FAILED";
+
+/** One scoped read the coordinator performed while deciding. These are the
+ * only things it looked at, which is what makes a proposal auditable. */
+export interface ToolTrace {
+  id: string;
+  run_id: string;
+  name: string;
+  started_at: string;
+  finished_at: string | null;
+  outcome: ToolTraceOutcome | null;
+  input_resource_ids: string[];
+  output_resource_ids: string[];
+  error_code: string | null;
+}
+
+export type OrchestrationRunState = "RUNNING" | "SUCCEEDED" | "FAILED" | "SUPERSEDED";
+
+/** One coordinator wake: what triggered it, what the model read, what it
+ * proposed, and what the deterministic policy did with that.
+ *
+ * The backend has recorded these since the migration and `GET
+ * /cases/{id}/runs` has always served them, but nothing in the UI called it
+ * until 2026-09-21 — so the reasoning behind every decided or executed
+ * action was invisible, and only the single currently-pending proposal was
+ * ever shown. docs/18 lines 37 and 52 ask for exactly this. */
+export interface OrchestrationRun {
+  id: string;
+  case_id: string;
+  trigger_event_id: string;
+  snapshot_version: number;
+  model_id: string;
+  started_at: string;
+  finished_at: string | null;
+  state: OrchestrationRunState;
+  usage: Record<string, unknown>;
+  proposal: ActionRecordProposal | null;
+  tool_calls: ToolTrace[];
+  policy_result: string | null;
+  error_code: string | null;
+}
+
+export interface CaseRunsResponse {
+  items: OrchestrationRun[];
+  next_cursor: string | null;
 }

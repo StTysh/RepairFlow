@@ -12,7 +12,6 @@ import { Toaster } from "sonner";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
-import { LoginGate } from "../components/fixi/LoginGate";
 import { CaseSearchContext } from "../lib/case-search-context";
 
 function NotFoundComponent() {
@@ -142,10 +141,9 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <CaseSearchContext.Provider value={{ search: caseSearch, setSearch: setCaseSearch }}>
-        <LoginGate>
-          {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-          <Outlet />
-        </LoginGate>
+        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+        {/* No auth gate: operator sign-in was removed 2026-09-21 (see lib/auth-context.ts). */}
+        <Outlet />
         <Toaster position="bottom-right" richColors closeButton />
       </CaseSearchContext.Provider>
     </QueryClientProvider>

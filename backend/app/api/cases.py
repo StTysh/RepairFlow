@@ -189,7 +189,7 @@ async def get_case(case_id: str, known_version: int | None = Query(default=None)
 
 
 @router.get("/cases/{case_id}/events")
-async def get_case_events(case_id: str, after_seq: int = 0, limit: int = Query(default=50, le=100), session: AsyncSession = Depends(get_session)) -> CaseEventsResponse:
+async def get_case_events(case_id: str, after_seq: int = 0, limit: int = Query(default=50, ge=1, le=100), session: AsyncSession = Depends(get_session)) -> CaseEventsResponse:
     from app.models import CaseEventModel
     from app.schemas import CaseEvent
 
@@ -202,7 +202,7 @@ async def get_case_events(case_id: str, after_seq: int = 0, limit: int = Query(d
 
 
 @router.get("/cases/{case_id}/runs")
-async def get_case_runs(case_id: str, cursor: str | None = None, limit: int = Query(default=20, le=100), session: AsyncSession = Depends(get_session)) -> CaseRunsResponse:
+async def get_case_runs(case_id: str, cursor: str | None = None, limit: int = Query(default=20, ge=1, le=100), session: AsyncSession = Depends(get_session)) -> CaseRunsResponse:
     rows = (
         await session.execute(
             select(OrchestrationRunModel).where(OrchestrationRunModel.case_id == case_id).order_by(OrchestrationRunModel.started_at.desc()).limit(limit)
@@ -693,10 +693,12 @@ async def get_property_history(
     prop = await session.get(PropertyModel, property_id)
     if prop is None:
         raise NotFoundError(f"property {property_id} not found")
-    # analytics.property_history_items, not services.load_property_history:
-    # the latter still sums WorkOrderModel.quote_pence directly and now
-    # disagrees with Insights/Reports/CSV -- see analytics.py's "QUOTED
-    # MONEY RECONCILIATION RULE" and docs/26 2026-09-20.
+    # analytics.property_history_items is the single reader of this
+    # money. A second implementation in domain.services once summed
+    # WorkOrderModel.quote_pence directly and disagreed with
+    # Insights/Reports/CSV; it went unused after the reconciliation fix
+    # and was deleted on 2026-09-21. See analytics.py's "QUOTED MONEY
+    # RECONCILIATION RULE" and docs/26 2026-09-20.
     items = await analytics.property_history_items(session, property_id, include_archived=include_archived)
     return PropertyHistoryResponse(
         property_id=property_id, items=items,
@@ -714,8 +716,8 @@ async def get_property_stats(
     prop = await session.get(PropertyModel, property_id)
     if prop is None:
         raise NotFoundError(f"property {property_id} not found")
-    # analytics.property_stats, not services.load_property_stats -- see the
-    # comment on get_property_history above.
+    # analytics.property_stats -- see the comment on get_property_history
+    # above for why this has one implementation and not two.
     return await analytics.property_stats(session, property_id, prop.build_year, include_archived=include_archived)
 
 

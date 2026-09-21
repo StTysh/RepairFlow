@@ -50,7 +50,23 @@ async def search(
     q: str = Query(default=""), session: AsyncSession = Depends(get_session),
 ) -> SearchResponse:
     query_text = q.strip()
-    if len(query_text) < MIN_QUERY_LENGTH:
+
+    # Every case number is rendered "#4" -- page titles, list rows, the
+    # notification feed -- so "#4" is the obvious thing to type, and it used
+    # to match nothing: it cleared the length guard, but "#4".isdigit() is
+    # False, so it fell through to LIKE '%#4%' against a column holding "4".
+    # Strip the marker the UI itself taught the user to type.
+    if query_text.startswith("#"):
+        query_text = query_text[1:].strip()
+
+    # A bare number is an exact case-number lookup, not a prefix sweep, so it
+    # is exempt from the minimum length: cases #1-#9 were unreachable by
+    # number otherwise. The exemption is narrow on purpose -- a one-character
+    # numeric query runs ONLY the exact case_number match below, never the
+    # LIKE, so it still cannot dump the dataset, which is what the guard is
+    # for.
+    exact_case_number = query_text.isdigit() and len(query_text) < MIN_QUERY_LENGTH
+    if len(query_text) < MIN_QUERY_LENGTH and not exact_case_number:
         # Below the minimum length: return empty, not the whole dataset --
         # a stray keystroke must never dump every case/property/tenant.
         return SearchResponse(query=query_text, groups=[])
@@ -58,11 +74,18 @@ async def search(
     like = f"%{query_text}%"
     groups: list[SearchGroup] = []
 
-    case_filter = RepairCaseModel.title.like(like)
-    if query_text.isdigit():
-        case_filter = or_(case_filter, RepairCaseModel.case_number == int(query_text))
+    if exact_case_number:
+        case_filter = RepairCaseModel.case_number == int(query_text)
+    elif query_text.isdigit():
+        case_filter = or_(
+            RepairCaseModel.title.like(like),
+            RepairCaseModel.case_number == int(query_text),
+        )
     else:
-        case_filter = or_(case_filter, cast(RepairCaseModel.case_number, String).like(like))
+        case_filter = or_(
+            RepairCaseModel.title.like(like),
+            cast(RepairCaseModel.case_number, String).like(like),
+        )
     case_rows = (
         await session.execute(
             select(RepairCaseModel)
@@ -86,6 +109,13 @@ async def search(
             ],
         )
     )
+
+    if exact_case_number:
+        # A single digit is an exact case-number lookup and nothing else.
+        # Running the address/name LIKEs with '%4%' below would sweep most of
+        # the portfolio, which is precisely what MIN_QUERY_LENGTH exists to
+        # prevent -- so the exemption stops here.
+        return SearchResponse(query=query_text, groups=groups)
 
     property_rows = (
         await session.execute(

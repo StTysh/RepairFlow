@@ -11,9 +11,15 @@ import "@xyflow/react/dist/style.css";
 import { useMemo } from "react";
 import { Card } from "@/components/fixi/AppShell";
 import { Pill } from "@/components/fixi/Badge";
-import type { Dependency, WorkOrder, WorkOrderKind, WorkOrderStatus } from "@/api/types";
+import type {
+  Appointment,
+  Dependency,
+  WorkOrder,
+  WorkOrderKind,
+  WorkOrderStatus,
+} from "@/api/types";
 import type { StatusTone } from "@/lib/fixi-data";
-import { formatPence, titleCase } from "@/lib/format";
+import { formatPence, formatRelative, titleCase } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 // Fixed columns by kind, not an auto-layout library: the domain only ever
@@ -57,13 +63,25 @@ const nodeBorderClasses: Record<StatusTone, string> = {
   gray: "border-border",
 };
 
-type WorkOrderNodeData = { workOrder: WorkOrder };
+/** `visits` are the appointments booked against THIS work order. docs/18
+ * line 35 asks the graph to show the active attempt; it previously drew
+ * work orders and dependency edges only, so a node could read "Scheduled"
+ * with nothing saying when, or how many attempts had already failed. */
+type WorkOrderNodeData = { workOrder: WorkOrder; visits: Appointment[] };
 type WorkOrderNodeType = Node<WorkOrderNodeData, "workOrder">;
 
 function WorkOrderNode({ data }: NodeProps<WorkOrderNodeType>) {
   const wo = data.workOrder;
   const tone = STATUS_TONE[wo.status];
   const quote = formatPence(wo.quote_pence);
+  const visits = data.visits;
+  const now = new Date().toISOString();
+  const upcoming = visits.find(
+    (a) => (a.status === "CONFIRMED" || a.status === "PENDING") && a.end_at >= now,
+  );
+  const lastFinished = visits
+    .filter((a) => a.status === "FINISHED")
+    .sort((a, b) => (a.start_at < b.start_at ? 1 : -1))[0];
   return (
     <div
       className={cn(
@@ -89,6 +107,21 @@ function WorkOrderNode({ data }: NodeProps<WorkOrderNodeType>) {
           Required for resolution
         </div>
       )}
+      {upcoming ? (
+        <div className="mt-1.5 border-t border-border pt-1.5 text-[10px] text-muted-foreground">
+          Visit {formatRelative(upcoming.start_at)}
+          {upcoming.attempt_number > 1 && ` · attempt ${upcoming.attempt_number}`}
+        </div>
+      ) : lastFinished ? (
+        <div className="mt-1.5 border-t border-border pt-1.5 text-[10px] text-muted-foreground">
+          Last visit {formatRelative(lastFinished.start_at)}
+          {lastFinished.visit_outcome && ` · ${titleCase(lastFinished.visit_outcome)}`}
+        </div>
+      ) : visits.length === 0 ? (
+        <div className="mt-1.5 border-t border-border pt-1.5 text-[10px] text-muted-foreground">
+          No visit booked
+        </div>
+      ) : null}
       <Handle
         type="source"
         position={Position.Right}
@@ -101,6 +134,10 @@ function WorkOrderNode({ data }: NodeProps<WorkOrderNodeType>) {
 // Stable reference -- passing a fresh object here every render is a React
 // Flow anti-pattern (it warns and re-mounts node types on every render).
 const nodeTypes = { workOrder: WorkOrderNode };
+
+// A fresh `[]` default would be a new reference every render, busting the
+// useMemo below on every poll tick.
+const NO_APPOINTMENTS: Appointment[] = [];
 
 const depEdgeColor: Record<Dependency["status"], string> = {
   OPEN: "var(--status-red-foreground)",
@@ -130,9 +167,11 @@ const depEdgeLabel: Record<Dependency["status"], string> = {
 export function WorkGraph({
   workOrders,
   dependencies,
+  appointments = NO_APPOINTMENTS,
 }: {
   workOrders: WorkOrder[];
   dependencies: Dependency[];
+  appointments?: Appointment[];
 }) {
   const { nodes, edges } = useMemo(() => {
     const presentKinds = KIND_ORDER.filter((kind) => workOrders.some((wo) => wo.kind === kind));
@@ -147,7 +186,7 @@ export function WorkGraph({
         id: wo.id,
         type: "workOrder",
         position: { x: col * COLUMN_WIDTH, y: row * ROW_HEIGHT },
-        data: { workOrder: wo },
+        data: { workOrder: wo, visits: appointments.filter((a) => a.work_order_id === wo.id) },
         draggable: false,
         selectable: false,
       };
@@ -176,7 +215,7 @@ export function WorkGraph({
       }));
 
     return { nodes, edges };
-  }, [workOrders, dependencies]);
+  }, [workOrders, dependencies, appointments]);
 
   return (
     <Card className="p-5">
@@ -198,6 +237,35 @@ export function WorkGraph({
           </div>
         )}
       </div>
+
+      {/* docs/audit/08 flags this canvas as the one visual in the app with
+       * no accessible alternative: Charts.tsx and PropertyStatsCharts.tsx
+       * each pair their chart with an sr-only data list, and a
+       * keyboard/screen-reader operator could not learn which work order
+       * blocks which -- the single thing this component exists to show.
+       * Same list, in words. */}
+      {workOrders.length > 0 && (
+        <ul className="sr-only">
+          {workOrders.map((wo) => {
+            const blockedBy = dependencies
+              .filter((d) => d.dependent_work_order_id === wo.id && d.status === "OPEN")
+              .map((d) => workOrders.find((w) => w.id === d.prerequisite_work_order_id))
+              .filter((w): w is WorkOrder => Boolean(w));
+            return (
+              <li key={`sr-${wo.id}`}>
+                {workOrderKindLabel[wo.kind]}, {titleCase(wo.trade)}, status {titleCase(wo.status)}
+                {wo.required_for_resolution ? ", required for resolution" : ""}
+                {blockedBy.length > 0
+                  ? `. Blocked by: ${blockedBy
+                      .map((w) => `${workOrderKindLabel[w.kind]} (${titleCase(w.trade)})`)
+                      .join(", ")}`
+                  : ""}
+                .
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       {workOrders.length === 0 ? (
         <p className="mt-4 text-xs text-muted-foreground">No work orders on this case yet.</p>

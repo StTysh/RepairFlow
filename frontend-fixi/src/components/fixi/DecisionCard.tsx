@@ -1,8 +1,9 @@
+import { Fragment } from "react";
 import { AlertTriangle } from "lucide-react";
 import { Card } from "@/components/fixi/AppShell";
 import { Pill } from "@/components/fixi/Badge";
 import { useDecideApproval } from "@/hooks/use-case-actions";
-import type { ActionRecord } from "@/api/types";
+import type { ActionRecord, ActionRecordAction, CaseSnapshot } from "@/api/types";
 import { titleCase } from "@/lib/format";
 
 /** Renders every ActionRecord on this case sitting in AWAITING_APPROVAL as
@@ -17,9 +18,11 @@ import { titleCase } from "@/lib/format";
 export function DecisionCard({
   caseId,
   pendingActions,
+  snapshot,
 }: {
   caseId: string;
   pendingActions: ActionRecord[];
+  snapshot: CaseSnapshot;
 }) {
   const awaiting = pendingActions.filter((a) => a.state === "AWAITING_APPROVAL");
   if (awaiting.length === 0) return null;
@@ -41,14 +44,22 @@ export function DecisionCard({
       </div>
       <ul className="mt-4 space-y-3">
         {awaiting.map((action) => (
-          <DecisionRow key={action.id} caseId={caseId} action={action} />
+          <DecisionRow key={action.id} caseId={caseId} action={action} snapshot={snapshot} />
         ))}
       </ul>
     </Card>
   );
 }
 
-function DecisionRow({ caseId, action }: { caseId: string; action: ActionRecord }) {
+function DecisionRow({
+  caseId,
+  action,
+  snapshot,
+}: {
+  caseId: string;
+  action: ActionRecord;
+  snapshot: CaseSnapshot;
+}) {
   const decide = useDecideApproval(caseId);
 
   // expected_case_version comes from THIS proposal (the version the
@@ -72,7 +83,10 @@ function DecisionRow({ caseId, action }: { caseId: string; action: ActionRecord 
   }
 
   async function handleReject() {
-    const reason = window.prompt("Reason for rejecting this action?");
+    const reason = window.prompt("Reason for rejecting this action?")?.trim();
+    // A rejection is recorded permanently against the case, so a reason of
+    // three spaces is not a reason. Without the trim, whitespace passed
+    // the truthiness check and was stored as the justification.
     if (!reason) return;
     try {
       await decide.mutateAsync({
@@ -92,6 +106,8 @@ function DecisionRow({ caseId, action }: { caseId: string; action: ActionRecord 
       <div className="min-w-0">
         <Pill tone="amber">{titleCase(action.proposal.action.kind)}</Pill>
         <p className="mt-1.5 text-[13px] leading-relaxed">{action.proposal.decision_summary}</p>
+        <ProposalScope action={action.proposal.action} snapshot={snapshot} />
+        <EvidenceCount refs={action.proposal.evidence_refs} />
       </div>
       <div className="mt-3 flex items-center gap-2">
         <button
@@ -112,5 +128,77 @@ function DecisionRow({ caseId, action }: { caseId: string; action: ActionRecord 
         </button>
       </div>
     </li>
+  );
+}
+
+/** The proposal's own typed fields, not just its prose summary.
+ *
+ * docs/18 line 66 asks the approval panel to show the action's scope. The
+ * card showed `decision_summary` alone -- the model's sentence about what
+ * it wants -- while the structured fields it will actually execute against
+ * (which contractor, which trade, which work order, what reason) sat in
+ * the payload unrendered. Approving on the prose while the machine acts on
+ * the fields is exactly the gap an approval step exists to close.
+ *
+ * Rendered generically: the NextAction union has ~10 variants and this
+ * deliberately does not hardcode them, so a new variant's fields show up
+ * here without a UI change. Long values and object/array fields are
+ * skipped -- they belong in the payload, not in a decision summary. */
+function ProposalScope({
+  action,
+  snapshot,
+}: {
+  action: ActionRecordAction;
+  snapshot: CaseSnapshot;
+}) {
+  // A raw UUID in an approval dialog tells the operator nothing. Resolve
+  // the ids the proposal references against the snapshot it was made from,
+  // and fall back to the id when we genuinely cannot name it -- never to a
+  // guess.
+  function label(key: string, value: string): string {
+    if (key === "contractor_id") {
+      const c = snapshot.approved_contractors.find((x) => x.id === value);
+      return c ? c.display_name : value;
+    }
+    if (key === "work_order_id") {
+      const wo = snapshot.work_orders.find((x) => x.id === value);
+      return wo ? `${titleCase(wo.trade)} — ${wo.scope}` : value;
+    }
+    return value;
+  }
+
+  const entries = Object.entries(action).filter(([key, value]) => {
+    if (key === "kind") return false;
+    if (value === null || value === undefined || value === "") return false;
+    if (typeof value === "object") return false;
+    return String(value).length <= 80;
+  });
+  if (entries.length === 0) return null;
+
+  return (
+    <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-0.5 text-[11px]">
+      {entries.map(([key, value]) => (
+        <Fragment key={key}>
+          <dt className="text-muted-foreground">{titleCase(key.replace(/_/g, " "))}</dt>
+          <dd className="min-w-0 truncate font-medium" title={String(value)}>
+            {label(key, String(value))}
+          </dd>
+        </Fragment>
+      ))}
+    </dl>
+  );
+}
+
+/** How much the proposal is standing on. `evidence_refs` each point at a
+ * real record (a report, a transcript turn, an event) with its own
+ * provenance -- an empty list means the model proposed this from the
+ * snapshot alone, which is worth knowing before approving it. */
+function EvidenceCount({ refs }: { refs: unknown[] }) {
+  return (
+    <p className="mt-1.5 text-[11px] text-muted-foreground">
+      {refs.length === 0
+        ? "No cited evidence — proposed from the case snapshot alone."
+        : `Cites ${refs.length} piece${refs.length === 1 ? "" : "s"} of evidence.`}
+    </p>
   );
 }
