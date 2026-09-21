@@ -116,18 +116,33 @@ function TenantsPage() {
           </label>
         </section>
 
-        <Card className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[860px] text-[12px]">
+        <Card className="mt-4 max-w-[1100px] overflow-x-auto">
+          {/* Same treatment as Contractors. The distance from a tenant's
+           * name to their "Total cases" figure was 1201px; with these
+           * tracks and the card cap it is roughly half that. The avatar
+           * column stays -- unlike the contractor hard-hat glyph, the
+           * initials differ per row, so it carries information. */}
+          <table className="w-full min-w-[820px] table-fixed text-body">
+            <colgroup>
+              <col className="w-[52px]" />
+              <col className="w-[220px]" />
+              <col />
+              <col className="w-[140px]" />
+              <col className="w-[140px]" />
+              <col className="w-[104px]" />
+              <col className="w-[104px]" />
+              <col className="w-[44px]" />
+            </colgroup>
             <thead>
               <tr className="border-b border-border text-left text-muted-foreground">
-                <th className="w-11 px-2 py-2" />
-                <th className="px-2 py-2 font-medium">Tenant</th>
-                <th className="px-2 py-2 font-medium">Property</th>
-                <th className="px-2 py-2 font-medium">Preferred channel</th>
-                <th className="px-2 py-2 font-medium">Contact allowed</th>
-                <th className="px-2 py-2 font-medium">Open cases</th>
-                <th className="px-2 py-2 font-medium">Total cases</th>
-                <th className="w-8" />
+                <th className="px-3 py-2" />
+                <th className="px-3 py-2 font-medium">Tenant</th>
+                <th className="px-3 py-2 font-medium">Property</th>
+                <th className="px-3 py-2 font-medium">Preferred channel</th>
+                <th className="px-3 py-2 font-medium">Contact allowed</th>
+                <th className="px-3 py-2 text-right font-medium">Open cases</th>
+                <th className="px-3 py-2 text-right font-medium">Total cases</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -177,7 +192,7 @@ function TenantsPage() {
                   className="group border-b border-border last:border-0 transition-colors hover:bg-muted/60"
                 >
                   <td className="px-2 py-1.5">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-status-purple text-[11px] font-semibold text-status-purple-foreground">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-status-purple text-micro font-semibold text-status-purple-foreground">
                       {t.display_name
                         .trim()
                         .split(/\s+/)
@@ -187,7 +202,7 @@ function TenantsPage() {
                         .toUpperCase() || "?"}
                     </span>
                   </td>
-                  <td className="px-2 py-2">
+                  <td className="px-3 py-2">
                     <Link
                       to="/tenants/$tenantId"
                       params={{ tenantId: t.id }}
@@ -204,17 +219,21 @@ function TenantsPage() {
                   <td className="max-w-[200px] truncate px-2 py-2 text-muted-foreground">
                     {t.property_address}
                   </td>
-                  <td className="px-2 py-2 text-muted-foreground">
+                  <td className="px-3 py-2 text-muted-foreground">
                     {t.preferred_channel ? titleCase(t.preferred_channel) : "—"}
                   </td>
-                  <td className="px-2 py-2">
+                  <td className="px-3 py-2">
                     <Pill tone={t.contact_allowed ? "green" : "red"}>
                       {t.contact_allowed ? "Allowed" : "Not allowed"}
                     </Pill>
                   </td>
-                  <td className="px-2 py-2 text-muted-foreground">{t.open_case_count}</td>
-                  <td className="px-2 py-2 text-muted-foreground">{t.total_case_count}</td>
-                  <td className="px-2 py-2 text-right">
+                  <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                    {t.open_case_count}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                    {t.total_case_count}
+                  </td>
+                  <td className="px-3 py-2 text-right">
                     <Link
                       to="/tenants/$tenantId"
                       params={{ tenantId: t.id }}

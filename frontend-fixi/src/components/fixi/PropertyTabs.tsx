@@ -72,7 +72,7 @@ export function PropertyTabs({
       : {};
 
   return (
-    <div className="mx-auto max-w-[1510px] px-6 py-4 xl:px-7">
+    <div className="mx-auto max-w-page px-6 py-4 xl:px-7">
       <Link
         to="/properties"
         className="flex w-fit items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
@@ -86,8 +86,8 @@ export function PropertyTabs({
         </div>
       ) : property.isError || !p ? (
         <div className="mt-3">
-          <h1 className="text-[28px] font-bold leading-tight">Property</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="text-title font-bold leading-tight">Property</h1>
+          <p className="text-strong text-muted-foreground">
             {fallbackAddress
               ? `${fallbackAddress}${fallbackPostcode ? `, ${fallbackPostcode}` : ""}`
               : propertyId}
@@ -106,10 +106,10 @@ export function PropertyTabs({
             <PropertyPhoto photoKey={p.photo_key} className="h-[72px] w-32 shrink-0 rounded-lg" />
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-[28px] font-bold leading-tight">{p.address_line}</h1>
+                <h1 className="text-title font-bold leading-tight">{p.address_line}</h1>
                 {p.is_archived && <Pill tone="gray">Sample history</Pill>}
               </div>
-              <p className="text-sm text-muted-foreground">{p.postcode}</p>
+              <p className="text-strong text-muted-foreground">{p.postcode}</p>
               <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                 {p.property_type && (
                   <span className="flex items-center gap-1">

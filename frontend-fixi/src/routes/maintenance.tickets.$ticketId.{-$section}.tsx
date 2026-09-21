@@ -23,6 +23,7 @@ import { CostsPanel } from "@/components/fixi/CostsPanel";
 import { DecisionCard } from "@/components/fixi/DecisionCard";
 import { DocumentsPanel } from "@/components/fixi/DocumentsPanel";
 import { RescheduleDialog } from "@/components/fixi/RescheduleDialog";
+import { SkeletonCards } from "@/components/fixi/Skeleton";
 import { WorkGraph } from "@/components/fixi/WorkGraph";
 import { RecordFieldUpdateDialog } from "@/components/fixi/RecordFieldUpdateDialog";
 import { MessagesPanel } from "@/components/fixi/MessagesPanel";
@@ -33,7 +34,7 @@ import { useCaseEvents } from "@/hooks/use-case-events";
 import { usePropertyHistory } from "@/hooks/use-property-history";
 import { useAuthedCreds } from "@/lib/auth-context";
 import type { Appointment, CaseSnapshot, Communication, Recording } from "@/api/types";
-import { statusTone } from "@/lib/fixi-data";
+import { statusTone, STATUS_LABEL } from "@/lib/fixi-data";
 import { formatDateRange, formatPence, formatRelative, initials, titleCase } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -121,7 +122,9 @@ function CasePage() {
   if (detail.isLoading) {
     return (
       <AppShell>
-        <div className="px-8 py-6 text-sm text-muted-foreground">Loading ticket…</div>
+        <div className="mx-auto w-full max-w-page px-6 py-5 text-strong text-muted-foreground xl:px-7">
+          Loading ticket…
+        </div>
       </AppShell>
     );
   }
@@ -129,10 +132,10 @@ function CasePage() {
   if (detail.isError || !detail.data) {
     return (
       <AppShell>
-        <div className="px-8 py-6">
+        <div className="mx-auto w-full max-w-page px-6 py-5 xl:px-7">
           <Link
             to="/maintenance"
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+            className="flex items-center gap-1.5 text-strong text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="h-4 w-4" /> Back to tickets
           </Link>
@@ -151,107 +154,126 @@ function CasePage() {
 
   return (
     <AppShell>
-      <div className="px-8 py-6">
-        <Link
-          to="/maintenance"
-          className="flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-4 w-4" /> Back to tickets
-        </Link>
-
-        <div className="mt-4 flex flex-wrap items-start justify-between gap-6">
-          <div>
-            <UrgencyBadge urgency={c.risk.urgency} />
-            <h1
-              className="mt-2 line-clamp-2 max-w-2xl text-2xl font-bold tracking-tight"
-              title={c.title}
-            >
-              #{c.case_number} – {c.title}
-            </h1>
-            <div className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
-              <MapPin className="h-3.5 w-3.5" /> {address}
+      <div className="mx-auto w-full max-w-page px-6 py-5 xl:px-7">
+        {/* Header budget (docs/27 section 4.5). This used to be five
+         * stacked rows -- back link, badge, title, address, updated --
+         * plus a two-row action cluster and a row holding one button,
+         * which cost 526px before any content on a 1226px viewport (43%
+         * of the window, on all ten tabs). It is now two rows: the back
+         * arrow and badge join the title line, address and freshness
+         * share one meta line, and every action sits in a single
+         * wrapping cluster. */}
+        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <Link
+                to="/maintenance"
+                aria-label="Back to tickets"
+                title="Back to tickets"
+                className="-ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-fast ease-fixi hover:bg-accent hover:text-foreground"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+              <UrgencyBadge urgency={c.risk.urgency} />
+              <h1
+                className="line-clamp-1 min-w-0 text-title font-bold tracking-tight"
+                title={c.title}
+              >
+                #{c.case_number} – {c.title}
+              </h1>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pl-8 text-strong text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <MapPin className="h-3.5 w-3.5 shrink-0" /> {address}
+              </span>
               <button
                 type="button"
                 onClick={() => void navigator.clipboard?.writeText(address)}
                 title="Copy address"
+                aria-label="Copy address"
               >
-                <Copy className="ml-1 h-3.5 w-3.5 cursor-pointer hover:text-foreground" />
+                <Copy className="h-3.5 w-3.5 cursor-pointer transition-colors duration-fast hover:text-foreground" />
               </button>
-            </div>
-            {/* docs/18 line 34 lists "last updated" as part of the case
-             * header. The field was always on the snapshot and never
-             * rendered, so nothing on the page said how fresh it was. */}
-            <div className="mt-1 text-xs text-muted-foreground">
-              Updated {formatRelative(c.updated_at)} · version {c.version}
+              <span aria-hidden="true">·</span>
+              {/* docs/18 line 34 lists "last updated" as part of the case
+               * header. The field was always on the snapshot and never
+               * rendered, so nothing on the page said how fresh it was. */}
+              <span>
+                Updated {formatRelative(c.updated_at)} · version {c.version}
+              </span>
             </div>
           </div>
-          <div className="flex flex-col items-end gap-2">
+          {/* One wrapping cluster instead of two stacked rows. The
+           * "Record an update" trigger moved in here from its own
+           * full-width row below the progress rail. */}
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {snapshot.agent_active && (
+              <span className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-body font-medium text-muted-foreground shadow-card">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Agent thinking…
+              </span>
+            )}
+            <StatusBadge status={c.status} />
+            <CaseLifecycleActions caseId={c.id} status={c.status} version={c.version} />
             <CaseToolbar snapshot={snapshot} />
-            <div className="flex items-center gap-2">
-              {snapshot.agent_active && (
-                <span className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground shadow-card">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Agent thinking…
-                </span>
-              )}
-              <StatusBadge status={c.status} className="h-9 px-3.5 text-sm" />
-              <CaseLifecycleActions caseId={c.id} status={c.status} version={c.version} />
-            </div>
+            {/* There's no live contractor/tenant phone channel in this MVP
+             * -- this is how the hero demo path (contractor reports
+             * scaffolding needed, tenant confirms a repair) gets driven
+             * from the UI at all: an operator manually feeds in what a
+             * real call would have reported. See
+             * RecordFieldUpdateDialog.tsx. */}
+            <RecordFieldUpdateDialog
+              caseId={c.id}
+              appointments={snapshot.appointments}
+              workOrders={snapshot.work_orders}
+            />
           </div>
         </div>
 
         <CaseProgress snapshot={snapshot} />
 
-        {/* There's no live contractor/tenant phone channel in this MVP --
-         * this is how the hero demo path (contractor reports scaffolding
-         * needed, tenant confirms a repair) gets driven from the UI at all:
-         * an operator manually feeds in what a real call would have
-         * reported. See RecordFieldUpdateDialog.tsx. */}
-        <div className="mt-3 flex justify-end">
-          <RecordFieldUpdateDialog
-            caseId={c.id}
-            appointments={snapshot.appointments}
-            workOrders={snapshot.work_orders}
-          />
-        </div>
-
         <DecisionCard caseId={c.id} pendingActions={snapshot.pending_actions} snapshot={snapshot} />
 
-        <div className="mt-5 flex flex-wrap items-center gap-1.5">
-          <SectionLink ticketId={ticketId} section={undefined} active={section === null}>
-            Overview
-          </SectionLink>
-          <SectionLink ticketId={ticketId} section="summary" active={section === "summary"}>
-            Summary
-          </SectionLink>
-          <SectionLink ticketId={ticketId} section="timeline" active={section === "timeline"}>
-            Timeline
-          </SectionLink>
-          <SectionLink ticketId={ticketId} section="agent" active={section === "agent"}>
-            Agent
-          </SectionLink>
-          <SectionLink ticketId={ticketId} section="calls" active={section === "calls"}>
-            Calls
-          </SectionLink>
-          <SectionLink ticketId={ticketId} section="work" active={section === "work"}>
-            Work
-          </SectionLink>
-          <SectionLink ticketId={ticketId} section="property" active={section === "property"}>
-            Property
-          </SectionLink>
-          <SectionLink ticketId={ticketId} section="files" active={section === "files"}>
-            Files
-          </SectionLink>
-          <SectionLink ticketId={ticketId} section="costs" active={section === "costs"}>
-            Costs
-          </SectionLink>
-          <SectionLink ticketId={ticketId} section="messages" active={section === "messages"}>
-            Messages
-          </SectionLink>
+        {/* Sticky: the header above is ~300px, so on a long tab the tabs
+         * would otherwise scroll out of reach. `-mx-6` lets the border
+         * run full-bleed inside the padded container. */}
+        <div className="sticky top-0 z-30 -mx-6 mt-4 border-b border-border bg-background/85 px-6 backdrop-blur xl:-mx-7 xl:px-7">
+          <div className="flex flex-wrap items-center gap-0.5">
+            <SectionLink ticketId={ticketId} section={undefined} active={section === null}>
+              Overview
+            </SectionLink>
+            <SectionLink ticketId={ticketId} section="summary" active={section === "summary"}>
+              Summary
+            </SectionLink>
+            <SectionLink ticketId={ticketId} section="timeline" active={section === "timeline"}>
+              Timeline
+            </SectionLink>
+            <SectionLink ticketId={ticketId} section="agent" active={section === "agent"}>
+              Agent
+            </SectionLink>
+            <SectionLink ticketId={ticketId} section="calls" active={section === "calls"}>
+              Calls
+            </SectionLink>
+            <SectionLink ticketId={ticketId} section="work" active={section === "work"}>
+              Work
+            </SectionLink>
+            <SectionLink ticketId={ticketId} section="property" active={section === "property"}>
+              Property
+            </SectionLink>
+            <SectionLink ticketId={ticketId} section="files" active={section === "files"}>
+              Files
+            </SectionLink>
+            <SectionLink ticketId={ticketId} section="costs" active={section === "costs"}>
+              Costs
+            </SectionLink>
+            <SectionLink ticketId={ticketId} section="messages" active={section === "messages"}>
+              Messages
+            </SectionLink>
+          </div>
         </div>
 
         <div
-          className={cn("mt-3 grid gap-4", section === null ? "xl:grid-cols-2" : "xl:grid-cols-1")}
+          className={cn("mt-4 grid gap-4", section === null ? "xl:grid-cols-2" : "xl:grid-cols-1")}
         >
           {show("summary") && <SummaryColumn snapshot={snapshot} />}
           {show("timeline") && (
@@ -364,7 +386,7 @@ function RecordingUnavailable({
               : "Recording: not available for this call."}
         </p>
         {recording.error_code && (
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
+          <p className="mt-0.5 text-micro text-muted-foreground">
             Reason: <span className="font-mono">{recording.error_code}</span>
           </p>
         )}
@@ -413,7 +435,7 @@ function CallRow({ caseId, comm }: { caseId: string; comm: Communication }) {
             <PhoneCall className="h-3.5 w-3.5" />
           </span>
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[13px] font-semibold">
+            <div className="flex items-center gap-2 text-strong font-semibold">
               {label}
               {comm.outcome && (
                 <Pill tone={outcomeTone[comm.outcome.outcome] ?? "gray"}>
@@ -425,7 +447,7 @@ function CallRow({ caseId, comm }: { caseId: string; comm: Communication }) {
             <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{summary}</p>
           </div>
         </div>
-        <span className="shrink-0 text-[11px] text-muted-foreground">
+        <span className="shrink-0 text-micro text-muted-foreground">
           {comm.started_at ? formatRelative(comm.started_at) : ""}
         </span>
       </button>
@@ -469,7 +491,7 @@ function CallRow({ caseId, comm }: { caseId: string; comm: Communication }) {
            * against the provider's own dashboard when something went
            * wrong. */}
           {comm.provider_conversation_id && (
-            <p className="mt-3 border-t border-border pt-2 text-[10px] text-muted-foreground">
+            <p className="mt-3 border-t border-border pt-2 text-micro text-muted-foreground">
               Conversation <span className="font-mono">{comm.provider_conversation_id}</span>
             </p>
           )}
@@ -531,10 +553,14 @@ function SectionLink({
       to="/maintenance/tickets/$ticketId/{-$section}"
       params={{ ticketId, section }}
       className={cn(
-        "h-8 rounded-lg border px-3 text-xs font-medium leading-8 transition-colors",
+        // Underline, not a pill: the pill was identical to the date-range
+        // filter buttons on Insights and Reports, so navigation and
+        // filtering were indistinguishable. PropertyTabs already uses an
+        // underline -- this makes it the one navigation idiom (docs/27).
+        "relative h-11 px-3 text-strong font-medium leading-[44px] transition-colors duration-fast ease-fixi",
         active
-          ? "border-foreground bg-foreground text-background"
-          : "border-border bg-card text-foreground hover:bg-accent",
+          ? "text-foreground after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full after:bg-foreground"
+          : "text-muted-foreground hover:text-foreground",
       )}
     >
       {children}
@@ -566,7 +592,7 @@ function SectionHeader({
   return (
     <div className="flex items-start justify-between gap-3">
       <div>
-        <h2 className="text-[15px] font-semibold">{title}</h2>
+        <h2 className="text-section font-semibold">{title}</h2>
         {subtitle && <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>}
       </div>
       {action}
@@ -575,7 +601,7 @@ function SectionHeader({
 }
 
 function Label({ children }: { children: React.ReactNode }) {
-  return <div className="text-[13px] font-semibold">{children}</div>;
+  return <div className="text-strong font-semibold">{children}</div>;
 }
 
 function Avatar({ initials: text, tone }: { initials: string; tone: "gray" | "green" | "purple" }) {
@@ -648,7 +674,7 @@ function NextAppointmentRow({ caseId, appointment }: { caseId: string; appointme
           <Calendar className="h-4 w-4" />
         </div>
         <div className="leading-tight">
-          <div className="text-[13px] font-medium">{date}</div>
+          <div className="text-strong font-medium">{date}</div>
           <div className="text-xs text-muted-foreground">{time}</div>
           <div className="mt-1 flex flex-wrap items-center gap-1">
             <Pill tone={appointmentStatusTone[appointment.status]}>
@@ -785,9 +811,9 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
   return (
     <Card className="p-5">
       <SectionHeader title="Case overview" />
-      <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">{issue.description}</p>
+      <p className="mt-2 text-strong leading-relaxed text-muted-foreground">{issue.description}</p>
       {c.last_decision_summary && (
-        <p className="mt-2 rounded-lg bg-muted px-3 py-2 text-[13px] leading-relaxed text-muted-foreground">
+        <p className="mt-2 rounded-lg bg-muted px-3 py-2 text-strong leading-relaxed text-muted-foreground">
           {c.last_decision_summary}
         </p>
       )}
@@ -798,7 +824,7 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
           <div className="flex items-center gap-3">
             <Avatar initials={initials(tenant.display_name)} tone="gray" />
             <div className="leading-tight">
-              <div className="text-[13px] font-medium">{tenant.display_name}</div>
+              <div className="text-strong font-medium">{tenant.display_name}</div>
               <div className="text-xs text-muted-foreground">
                 {tenant.phone_e164 ?? tenant.email ?? "No contact on file"}
               </div>
@@ -819,7 +845,7 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
             <div className="flex items-center gap-3">
               <Avatar initials={initials(assigned_contractor.display_name)} tone="green" />
               <div className="leading-tight">
-                <div className="text-[13px] font-medium">{assigned_contractor.display_name}</div>
+                <div className="text-strong font-medium">{assigned_contractor.display_name}</div>
                 <div className="text-xs text-muted-foreground">
                   {assigned_contractor.trade ?? "—"}
                 </div>
@@ -856,7 +882,7 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
                   : titleCase(lastAppointment.status)}
               </span>
             </p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-micro text-muted-foreground">
               {appointments.length} visit{appointments.length === 1 ? "" : "s"} on this case.
             </p>
           </div>
@@ -893,18 +919,18 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
           </ul>
         )}
         {hiddenContractorCount > 0 && (
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
+          <p className="mt-1.5 text-micro text-muted-foreground">
             + {hiddenContractorCount} more approved for other trades or areas.
           </p>
         )}
         {typeof policy_snapshot.ordinary_authority_limit_pence === "number" && (
-          <p className="mt-2 text-[11px] text-muted-foreground">
+          <p className="mt-2 text-micro text-muted-foreground">
             Auto-approval limit {formatPence(policy_snapshot.ordinary_authority_limit_pence)} —
             above this, an action waits for a human.
           </p>
         )}
         {availability.length > 0 && (
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          <p className="mt-1 text-micro text-muted-foreground">
             {availability.length} tenant availability window
             {availability.length === 1 ? "" : "s"} on file.
           </p>
@@ -925,7 +951,11 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
           <ul className="mt-2 space-y-2">
             {latest_reports.map((r) => (
               <li key={r.id} className="rounded-lg border border-border p-2.5 text-xs">
-                <div className="flex items-center justify-between gap-2">
+                {/* Adjacent, not justify-between: the provenance badge
+                 * and the time it was observed are two facts about the
+                 * same report, and pinning the timestamp to the card's
+                 * right edge put 657px of nothing between them. */}
+                <div className="flex items-center gap-2">
                   <Pill tone={r.provenance === "LIVE" ? "blue" : "gray"}>{r.provenance}</Pill>
                   <span className="text-muted-foreground">{formatRelative(r.observed_at)}</span>
                 </div>
@@ -938,9 +968,7 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
 
       <div className="mt-4 border-t border-border pt-4">
         <Label>Property history</Label>
-        {propertyHistory.isLoading && (
-          <p className="mt-2 text-xs text-muted-foreground">Loading…</p>
-        )}
+        {propertyHistory.isLoading && <SkeletonCards className="mt-2" count={3} height="h-9" />}
         {propertyHistory.data && (
           <ul className="mt-2 divide-y divide-border rounded-lg border border-border">
             {propertyHistory.data.items.slice(0, 4).map((h) => (
@@ -952,7 +980,7 @@ function SummaryColumn({ snapshot }: { snapshot: CaseSnapshot }) {
                   {formatRelative(h.created_at)}
                 </span>
                 <span className="flex-1 truncate font-medium">{h.title}</span>
-                <Pill tone={statusTone(h.status)}>{h.status}</Pill>
+                <Pill tone={statusTone(h.status)}>{STATUS_LABEL[h.status] ?? h.status}</Pill>
               </li>
             ))}
             {propertyHistory.data.items.length === 0 && (
@@ -999,7 +1027,7 @@ function TimelineColumn({
             <div className="flex items-center gap-3">
               {agentActive && (
                 <span
-                  className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground"
+                  className="flex items-center gap-1.5 text-micro font-medium text-muted-foreground"
                   title="The coordinator is actively working on this case right now"
                 >
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1010,7 +1038,7 @@ function TimelineColumn({
                 <Link
                   to="/maintenance/tickets/$ticketId/{-$section}"
                   params={{ ticketId, section: "timeline" }}
-                  className="text-[11px] font-medium text-primary hover:underline"
+                  className="text-micro font-medium text-primary hover:underline"
                 >
                   View all
                 </Link>
@@ -1019,7 +1047,7 @@ function TimelineColumn({
           ) : undefined
         }
       />
-      {events.isLoading && <p className="mt-4 text-xs text-muted-foreground">Loading…</p>}
+      {events.isLoading && <SkeletonCards className="mt-4" count={4} height="h-16" />}
       {events.isError && (
         <p className="mt-4 text-xs text-destructive">Could not load the timeline.</p>
       )}
@@ -1038,14 +1066,17 @@ function TimelineColumn({
                 <span className="absolute left-[9px] top-5 h-full w-0.5 bg-timeline-done" />
               )}
               <StepDot tone="done" />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="text-[13px] font-semibold">{item.display_title}</div>
-                  <span className="shrink-0 text-[11px] text-muted-foreground">
-                    {formatRelative(item.occurred_at)}
-                  </span>
-                </div>
-                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+              {/* A two-track grid rather than `justify-between` across the
+               * whole row: at 2552px that flung the timestamp 2073px away
+               * from the title it belongs to. The first track caps at the
+               * longest sensible title, so the timestamp lands just past
+               * it instead of at the far wall (docs/27 section 4.4). */}
+              <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,68ch)_auto] items-baseline gap-x-6">
+                <div className="text-strong font-semibold">{item.display_title}</div>
+                <span className="justify-self-start whitespace-nowrap text-micro text-muted-foreground">
+                  {formatRelative(item.occurred_at)}
+                </span>
+                <p className="col-span-2 mt-0.5 max-w-prose-fixi text-body leading-relaxed text-muted-foreground">
                   {item.display_description}
                 </p>
               </div>
@@ -1058,7 +1089,7 @@ function TimelineColumn({
               <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
             </span>
             <div className="min-w-0 flex-1 pt-0.5">
-              <div className="text-[13px] font-semibold text-muted-foreground">
+              <div className="text-strong font-semibold text-muted-foreground">
                 Deciding next step…
               </div>
             </div>
@@ -1071,7 +1102,7 @@ function TimelineColumn({
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-2 text-[13px]">
+    <div className="flex items-start justify-between gap-4 py-2 text-strong">
       <span className="shrink-0 text-muted-foreground">{label}</span>
       <span className="text-right font-medium">{value}</span>
     </div>

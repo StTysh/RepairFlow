@@ -146,13 +146,13 @@ function NoteRow({
   return (
     <Card className="p-4">
       <div className="flex items-start gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-status-purple text-[11px] font-semibold text-status-purple-foreground">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-status-purple text-micro font-semibold text-status-purple-foreground">
           {initials(note.author)}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-[13px] font-semibold">{note.author}</div>
-            <div className="text-[11px] text-muted-foreground">
+            <div className="text-strong font-semibold">{note.author}</div>
+            <div className="text-micro text-muted-foreground">
               {formatDateTime(note.created_at)}
               {edited && " (edited)"}
             </div>
@@ -194,7 +194,7 @@ function NoteRow({
               </div>
             </div>
           ) : (
-            <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed">{note.body}</p>
+            <p className="mt-1.5 whitespace-pre-wrap text-strong leading-relaxed">{note.body}</p>
           )}
 
           {!editing && (
@@ -202,7 +202,7 @@ function NoteRow({
               <button
                 type="button"
                 onClick={() => setEditing(true)}
-                className="text-[11px] font-medium text-primary hover:underline"
+                className="text-micro font-medium text-primary hover:underline"
               >
                 Edit
               </button>
@@ -212,14 +212,14 @@ function NoteRow({
                     type="button"
                     onClick={onDelete}
                     disabled={deleting}
-                    className="text-[11px] font-medium text-destructive hover:underline disabled:opacity-50"
+                    className="text-micro font-medium text-destructive hover:underline disabled:opacity-50"
                   >
                     {deleting ? "Deleting…" : "Confirm delete"}
                   </button>
                   <button
                     type="button"
                     onClick={() => setConfirmingDelete(false)}
-                    className="text-[11px] font-medium text-muted-foreground hover:underline"
+                    className="text-micro font-medium text-muted-foreground hover:underline"
                   >
                     Cancel
                   </button>
@@ -228,7 +228,7 @@ function NoteRow({
                 <button
                   type="button"
                   onClick={() => setConfirmingDelete(true)}
-                  className="text-[11px] font-medium text-muted-foreground hover:text-destructive hover:underline"
+                  className="text-micro font-medium text-muted-foreground hover:text-destructive hover:underline"
                 >
                   Delete
                 </button>

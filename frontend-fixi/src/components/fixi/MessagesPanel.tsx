@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowRight, MessageSquare } from "lucide-react";
 import { Card } from "@/components/fixi/AppShell";
 import { Pill } from "@/components/fixi/Badge";
+import { SkeletonCards } from "@/components/fixi/Skeleton";
 import {
   normalizeAttachment,
   useMessageThread,
@@ -78,7 +79,7 @@ export function MessagesPanel({ caseId }: { caseId: string }) {
     <Card className="p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-[15px] font-semibold">Messages</h2>
+          <h2 className="text-section font-semibold">Messages</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             Tenant, contractor and operator messages on this ticket. Not read by the AI agent — chat
             history is never authoritative state.
@@ -93,7 +94,7 @@ export function MessagesPanel({ caseId }: { caseId: string }) {
         </Link>
       </div>
 
-      {thread.isLoading && <p className="mt-4 text-xs text-muted-foreground">Loading…</p>}
+      {thread.isLoading && <SkeletonCards className="mt-4" count={3} height="h-14" />}
       {thread.isError && <p className="mt-4 text-xs text-destructive">Could not load messages.</p>}
       {!thread.isLoading && !thread.isError && items.length === 0 && (
         <p className="mt-4 text-xs text-muted-foreground">No messages on this ticket yet.</p>
@@ -119,7 +120,7 @@ function MessageRow({ message }: { message: ThreadMessage }) {
             <MessageSquare className="h-3.5 w-3.5" />
           </span>
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold">
+            <div className="flex flex-wrap items-center gap-2 text-strong font-semibold">
               {message.sender_name}
               <Pill tone={senderTone[message.sender_type] ?? "gray"}>
                 {senderLabel[message.sender_type] ?? message.sender_type}
@@ -128,7 +129,7 @@ function MessageRow({ message }: { message: ThreadMessage }) {
                 {DELIVERY_LABEL[message.delivery_state] ?? message.delivery_state}
               </Pill>
               {message.channel !== "INTERNAL" && (
-                <span className="text-[11px] font-normal text-muted-foreground">
+                <span className="text-micro font-normal text-muted-foreground">
                   {CHANNEL_LABEL[message.channel] ?? message.channel}
                 </span>
               )}
@@ -139,7 +140,7 @@ function MessageRow({ message }: { message: ThreadMessage }) {
                 {attachments.map((a) => (
                   <li
                     key={a.id}
-                    className="rounded-md border border-border px-1.5 py-px text-[10px] text-muted-foreground"
+                    className="rounded-md border border-border px-1.5 py-px text-micro text-muted-foreground"
                   >
                     {a.label}
                   </li>
@@ -148,7 +149,7 @@ function MessageRow({ message }: { message: ThreadMessage }) {
             )}
           </div>
         </div>
-        <span className="shrink-0 text-[11px] text-muted-foreground">
+        <span className="shrink-0 text-micro text-muted-foreground">
           {formatRelative(message.created_at)}
         </span>
       </div>

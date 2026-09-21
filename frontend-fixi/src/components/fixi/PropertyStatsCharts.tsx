@@ -1,4 +1,5 @@
 import { Wrench } from "lucide-react";
+import type { CSSProperties } from "react";
 import { Card } from "@/components/fixi/AppShell";
 import type { RecurringIssue, Trade, TradeQuoteBreakdown, YearlyQuoteTotal } from "@/api/types";
 import type { StatusTone } from "@/lib/fixi-data";
@@ -61,8 +62,48 @@ const TRADE_CSS_VAR: Record<StatusTone, string> = {
   gray: "var(--status-gray-foreground)",
 };
 
+/* Bar geometry and the mount animation, duplicated from Charts.tsx for
+ * the same reason the trade maps above are: that file doesn't export
+ * them, and these two files own independent charts that happen to share
+ * a visual language. The rules themselves are explained there in full --
+ * in short, `--fill` carries the length, `@starting-style` gives the
+ * element a zero length on its *first* render only, and the transition
+ * covers both that and any later change in the value. The 5s poll behind
+ * these props re-renders the component without replaying anything,
+ * because the element is not new; nothing keys off `isFetching`. */
+const GROW_WIDTH =
+  "w-[var(--fill)] transition-[width] duration-slow ease-fixi-out motion-safe:starting:w-0";
+const GROW_HEIGHT =
+  "h-[var(--fill)] transition-[height] duration-slow ease-fixi-out motion-safe:starting:h-0";
+
+function fillVar(length: string): CSSProperties {
+  return { "--fill": length } as CSSProperties;
+}
+
+/** Below this many years the bars are drawn horizontally: three columns
+ * in a ~440px plot are hairlines surrounded by dead space, and the width
+ * is the one dimension these cards have to spare. */
+const HORIZONTAL_AT_OR_BELOW = 3;
+
+/** A bar's length as a share of the largest value in the series; a real
+ * but tiny value is floored so it stays visible, a true zero stays at
+ * zero. Same rule as Charts.tsx. */
+function barPercent(value: number, max: number): number {
+  if (value <= 0 || max <= 0) return 0;
+  return Math.max(1.5, (value / max) * 100);
+}
+
+/** The same rule in pixels, where `plot` is the usable column height
+ * (the container less the axis label and its gap). */
+function barPixels(value: number, max: number, plot: number): number {
+  if (value <= 0 || max <= 0) return 0;
+  return Math.max(3, Math.round((value / max) * plot));
+}
+
 function CardHead({ title }: { title: string }) {
-  return <h2 className="text-xs font-semibold">{title}</h2>;
+  // text-section rather than the old text-xs -- see Charts.tsx's
+  // CardHead; these are card titles, not captions.
+  return <h2 className="text-section font-semibold">{title}</h2>;
 }
 
 /** Donut breakdown of quoted work by trade. Every segment's angle comes
@@ -94,16 +135,24 @@ export function QuotedByTradeDonut({ data }: { data: TradeQuoteBreakdown[] }) {
         <p className="mt-6 py-6 text-center text-xs text-muted-foreground">No quoted work yet.</p>
       ) : (
         <div className="mt-3 flex items-center gap-5">
+          {/* 160px, up from 96px: the segment angles are what this mark
+           * exists to compare, and they were being compared at favicon
+           * size in a ~440px card. The hub total stays at text-section
+           * rather than the text-metric used for a plain count in
+           * Charts.tsx -- "£12,345.00" is three times as wide as "37"
+           * and would not fit the ~112px well at 26px. */}
           <div
-            className="relative h-24 w-24 shrink-0 rounded-full"
+            className="relative h-40 w-40 shrink-0 rounded-full motion-safe:animate-in motion-safe:fade-in motion-safe:duration-slow"
             style={{ background: `conic-gradient(${stops.join(", ")})` }}
           >
-            <div className="absolute inset-4 flex flex-col items-center justify-center rounded-full bg-card text-center">
-              <b className="text-sm font-bold leading-tight">{formatPence(total)}</b>
-              <span className="text-[9px] text-muted-foreground">Total quoted</span>
+            <div className="absolute inset-6 flex flex-col items-center justify-center rounded-full bg-card px-2 text-center">
+              <b className="text-section font-bold leading-tight tabular-nums">
+                {formatPence(total)}
+              </b>
+              <span className="text-micro text-muted-foreground">Total quoted</span>
             </div>
           </div>
-          <ul className="flex-1 space-y-1.5 text-[11px]">
+          <ul className="flex-1 space-y-1.5 text-micro">
             {data.map((d, index) => (
               <li key={d.trade} className="flex items-center">
                 <span
@@ -113,7 +162,7 @@ export function QuotedByTradeDonut({ data }: { data: TradeQuoteBreakdown[] }) {
                   )}
                 />
                 <span>{titleCase(d.trade)}</span>
-                <b className="ml-auto shrink-0">{displayPercentages[index]}%</b>
+                <b className="ml-auto shrink-0 tabular-nums">{displayPercentages[index]}%</b>
               </li>
             ))}
           </ul>
@@ -123,39 +172,100 @@ export function QuotedByTradeDonut({ data }: { data: TradeQuoteBreakdown[] }) {
   );
 }
 
-/** Simple CSS bar chart of quoted totals per year. Labelled "Quoted total"
- * (not "Spend"/"Cost") to match this app's Costs-tab convention -- these
- * are quoted amounts, not money actually paid. */
+/** Quoted totals per year. Labelled "Quoted total" (not "Spend"/"Cost")
+ * to match this app's Costs-tab convention -- these are quoted amounts,
+ * not money actually paid.
+ *
+ * Three shapes, by how many years there are to compare:
+ *
+ *  - One year is not a chart. The old code drew it as a bar whose height
+ *    was `(quoted / max) * 46` -- with a single data point `quoted ===
+ *    max`, so the bar was always exactly 46px tall no matter what the
+ *    number was. It encoded nothing, and it printed a figure that was
+ *    already the card's headline and already in the donut hub beside it:
+ *    the same number three times in one row. It is now one sentence.
+ *  - Two or three years go horizontal, where the width is.
+ *  - Four or more earn columns.
+ */
 export function QuotedByYearBars({ data }: { data: YearlyQuoteTotal[] }) {
   const total = data.reduce((sum, d) => sum + d.quoted_pence, 0);
   const max = Math.max(1, ...data.map((d) => d.quoted_pence));
+  const only = data.length === 1 ? data[0] : undefined;
 
   return (
     <Card className="p-4">
       <CardHead title="Quoted by year" />
       {data.length === 0 ? (
         <p className="mt-6 py-6 text-center text-xs text-muted-foreground">No quoted work yet.</p>
+      ) : only ? (
+        <p className="mt-3 text-strong text-muted-foreground">
+          <b className="text-section font-bold tracking-tight tabular-nums text-foreground">
+            {formatPence(only.quoted_pence)}
+          </b>{" "}
+          quoted in {only.year}. There is nothing to compare it against yet.
+        </p>
       ) : (
         <>
-          <div className="mt-1 text-xl font-bold tracking-tight">{formatPence(total)}</div>
-          <div className="text-[10px] text-muted-foreground">Quoted total</div>
-          {/* Bars scale to a 46px max, not the container's full 64px --
-           * leaves room for the year label below each bar (~13px with its
-           * margin) so the tallest column still sits inside the h-16 box
-           * instead of overflowing past its top edge into "Quoted total"
-           * above. */}
-          <div className="mt-3 flex h-16 items-end gap-3 border-b border-border px-1">
-            {data.map((d) => (
-              <div key={d.year} className="flex flex-1 flex-col items-center">
-                <div
-                  className="w-full max-w-7 rounded-t-sm bg-primary/35"
-                  style={{ height: `${Math.max(4, Math.round((d.quoted_pence / max) * 46))}px` }}
-                  title={formatPence(d.quoted_pence) ?? undefined}
-                />
-                <span className="mt-1 text-[8px] text-muted-foreground">{d.year}</span>
-              </div>
-            ))}
+          {/* The sum across years, which is a different number from any
+           * one bar -- unlike the single-year case above, where it was
+           * the same number wearing a headline. */}
+          <div className="mt-1 text-metric font-bold tracking-tight tabular-nums">
+            {formatPence(total)}
           </div>
+          <div className="text-micro text-muted-foreground">Quoted total</div>
+          <ul className="sr-only">
+            {data.map((d) => (
+              <li key={d.year}>
+                {d.year}: {formatPence(d.quoted_pence)} quoted
+              </li>
+            ))}
+          </ul>
+          {data.length <= HORIZONTAL_AT_OR_BELOW ? (
+            <div className="mt-3 grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2">
+              {data.map((d) => (
+                <div
+                  key={d.year}
+                  className="col-span-2 grid grid-cols-subgrid items-center gap-x-3"
+                >
+                  <span className="text-micro tabular-nums text-muted-foreground">{d.year}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="h-3 min-w-0 flex-1 overflow-hidden rounded-sm bg-muted">
+                      <span
+                        className={cn("block h-full rounded-sm bg-primary/45", GROW_WIDTH)}
+                        style={fillVar(`${barPercent(d.quoted_pence, max)}%`)}
+                      />
+                    </span>
+                    <span className="w-20 shrink-0 text-right text-micro tabular-nums text-muted-foreground">
+                      {formatPence(d.quoted_pence)}
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            /* Bars scale to 148px inside an h-44 box, leaving the ~20px
+             * the year label and its gap need below them -- so the
+             * tallest column lands on the top of the plot rather than
+             * overflowing into "Quoted total" above it. 176px against a
+             * ~524px plot is a 3:1 card; the old h-16 box was 8:1. */
+            <div className="mt-3 flex h-44 items-end justify-start gap-3 border-b border-border px-1 pb-1">
+              {data.map((d) => (
+                <div
+                  key={d.year}
+                  className="flex min-w-[56px] max-w-[96px] flex-1 flex-col items-center gap-1"
+                >
+                  <div
+                    className={cn("w-full max-w-12 rounded-t-sm bg-primary/35", GROW_HEIGHT)}
+                    style={fillVar(`${barPixels(d.quoted_pence, max, 148)}px`)}
+                    title={formatPence(d.quoted_pence) ?? undefined}
+                  />
+                  <span className="h-4 text-micro leading-4 tabular-nums text-muted-foreground">
+                    {d.year}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
     </Card>
@@ -186,13 +296,13 @@ export function RecurringIssuesList({ data }: { data: RecurringIssue[] }) {
                 <Wrench className="h-4 w-4" />
               </span>
               <div className="min-w-0">
-                <div className="text-xs font-semibold">{titleCase(issue.trade)}</div>
-                <div className="text-[10px] text-muted-foreground">
+                <div className="text-strong font-semibold">{titleCase(issue.trade)}</div>
+                <div className="text-micro text-muted-foreground">
                   {issue.occurrence_count}{" "}
                   {issue.occurrence_count === 1 ? "occurrence" : "occurrences"}
                 </div>
               </div>
-              <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+              <span className="ml-auto shrink-0 text-micro text-muted-foreground">
                 Last: {formatDate(issue.last_occurred_at)}
               </span>
             </li>

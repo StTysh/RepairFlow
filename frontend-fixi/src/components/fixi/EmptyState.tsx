@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { Card } from "@/components/fixi/AppShell";
+import { Skeleton } from "@/components/fixi/Skeleton";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,7 +35,7 @@ export function EmptyState({
       <span className="flex h-11 w-11 items-center justify-center rounded-full bg-accent text-muted-foreground">
         <Icon className="h-5 w-5" strokeWidth={1.8} />
       </span>
-      <h3 className="mt-3 text-sm font-semibold">{title}</h3>
+      <h3 className="mt-3 text-section font-semibold">{title}</h3>
       <p className="mt-1 max-w-sm text-xs leading-relaxed text-muted-foreground">{description}</p>
       {action ? <div className="mt-4">{action}</div> : null}
     </Card>
@@ -58,7 +59,7 @@ export function ErrorState({
 }) {
   return (
     <Card className={cn("px-6 py-10 text-center", className)}>
-      <h3 className="text-sm font-semibold text-destructive">{title}</h3>
+      <h3 className="text-section font-semibold text-destructive">{title}</h3>
       {detail ? (
         <p className="mx-auto mt-1 max-w-md break-words text-xs text-muted-foreground">{detail}</p>
       ) : null}
@@ -75,7 +76,14 @@ export function ErrorState({
   );
 }
 
-/** Skeleton rows, sized to the list they stand in for. */
+/**
+ * Skeleton rows, sized to the list they stand in for.
+ *
+ * Kept as its own export because a dozen call sites already use it, but
+ * it now draws with the shared `Skeleton` so the app has exactly one
+ * loading treatment -- an opacity pulse next to a shimmer sweep read as
+ * two different kinds of "waiting".
+ */
 export function LoadingRows({
   rows = 4,
   className,
@@ -87,7 +95,7 @@ export function LoadingRows({
     <div className={cn("space-y-2", className)} aria-busy="true" aria-live="polite">
       <span className="sr-only">Loading…</span>
       {Array.from({ length: rows }).map((_, index) => (
-        <div key={index} className="h-12 animate-pulse rounded-xl bg-muted/60" />
+        <Skeleton key={index} className="h-12 rounded-xl" />
       ))}
     </div>
   );

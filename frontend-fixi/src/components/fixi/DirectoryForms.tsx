@@ -46,7 +46,9 @@ function FormDialogShell({
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85vh] w-full max-w-md -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-6 shadow-panel">
           <div className="flex items-start justify-between">
             <div>
-              <Dialog.Title className="text-sm font-semibold text-foreground">{title}</Dialog.Title>
+              <Dialog.Title className="text-section font-semibold text-foreground">
+                {title}
+              </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs text-muted-foreground">
                 {description}
               </Dialog.Description>
@@ -238,13 +240,13 @@ export function ContractorFormDialog({
           required
         />
         {nameTouched && displayName.trim().length === 0 && (
-          <p className="mt-1 text-[11px] text-destructive">Required.</p>
+          <p className="mt-1 text-micro text-destructive">Required.</p>
         )}
 
         <span className="mt-3 block text-xs font-medium text-muted-foreground">Trades</span>
         <TradeToggleRow selected={trades} onToggle={toggleTrade} />
         {tradesTouched && trades.size === 0 && (
-          <p className="mt-1 text-[11px] text-destructive">Select at least one trade.</p>
+          <p className="mt-1 text-micro text-destructive">Select at least one trade.</p>
         )}
 
         <FieldLabel htmlFor="contractor-postcodes">Service postcodes</FieldLabel>
@@ -255,7 +257,7 @@ export function ContractorFormDialog({
           onChange={(e) => setPostcodes(e.target.value)}
           placeholder="e.g. SW1A, EC1, N1"
         />
-        <p className="mt-1 text-[11px] text-muted-foreground">Comma-separated.</p>
+        <p className="mt-1 text-micro text-muted-foreground">Comma-separated.</p>
 
         <FieldLabel htmlFor="contractor-contact">Contact reference</FieldLabel>
         <input
@@ -438,7 +440,7 @@ export function TenantFormDialog({
           ))}
         </select>
         {properties.isError && (
-          <p className="mt-1 text-[11px] text-destructive">Could not load properties.</p>
+          <p className="mt-1 text-micro text-destructive">Could not load properties.</p>
         )}
 
         <FieldLabel htmlFor="tenant-phone">Phone</FieldLabel>
@@ -451,7 +453,7 @@ export function TenantFormDialog({
           inputMode="tel"
         />
         {!phoneValid && (
-          <p className="mt-1 text-[11px] text-destructive">
+          <p className="mt-1 text-micro text-destructive">
             Enter a valid E.164 number: + followed by 8–15 digits.
           </p>
         )}
@@ -465,7 +467,7 @@ export function TenantFormDialog({
           onChange={(e) => setEmail(e.target.value)}
           placeholder="tenant@example.com"
         />
-        {!emailValid && <p className="mt-1 text-[11px] text-destructive">Enter a valid email.</p>}
+        {!emailValid && <p className="mt-1 text-micro text-destructive">Enter a valid email.</p>}
 
         <FieldLabel htmlFor="tenant-channel">Preferred channel</FieldLabel>
         <select
@@ -513,7 +515,7 @@ export function TenantFormDialog({
           </button>
         </div>
         {!contactAllowed && (
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
+          <p className="mt-1.5 text-micro text-muted-foreground">
             No outbound contact will be offered for this tenant anywhere in the app.
           </p>
         )}

@@ -123,7 +123,7 @@ function DocumentsPage() {
           }}
         >
           <Upload className="h-6 w-6 text-muted-foreground" />
-          <p className="text-[13px] font-medium">Drag files here, or</p>
+          <p className="text-strong font-medium">Drag files here, or</p>
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
@@ -155,7 +155,7 @@ function DocumentsPage() {
                     <span className="shrink-0 text-muted-foreground">{formatBytes(p.size)}</span>
                   </div>
                   {p.error ? (
-                    <p className="mt-1 text-[11px] text-destructive">{p.error}</p>
+                    <p className="mt-1 text-micro text-destructive">{p.error}</p>
                   ) : (
                     <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
                       <div
@@ -300,8 +300,8 @@ function DocumentRow({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
-              <div className="truncate text-[13px] font-medium">{doc.display_name}</div>
-              <div className="text-[11px] text-muted-foreground">
+              <div className="truncate text-strong font-medium">{doc.display_name}</div>
+              <div className="text-micro text-muted-foreground">
                 {doc.content_type} · {formatBytes(doc.size_bytes)} · uploaded by {doc.uploaded_by} ·{" "}
                 {formatDateTime(doc.uploaded_at)}
               </div>
@@ -315,7 +315,7 @@ function DocumentRow({
                   type="button"
                   onClick={() => void togglePreview()}
                   disabled={loadingPreview}
-                  className="rounded-lg border border-border bg-card px-2.5 py-1.5 text-[11px] font-medium shadow-card hover:bg-accent disabled:opacity-50"
+                  className="rounded-lg border border-border bg-card px-2.5 py-1.5 text-micro font-medium shadow-card hover:bg-accent disabled:opacity-50"
                 >
                   {loadingPreview ? "Loading…" : previewOpen ? "Hide preview" : "Preview"}
                 </button>
@@ -335,14 +335,14 @@ function DocumentRow({
                     type="button"
                     onClick={onDelete}
                     disabled={deleting}
-                    className="rounded-lg bg-destructive px-2.5 py-1.5 text-[11px] font-medium text-destructive-foreground disabled:opacity-50"
+                    className="rounded-lg bg-destructive px-2.5 py-1.5 text-micro font-medium text-destructive-foreground disabled:opacity-50"
                   >
                     {deleting ? "Deleting…" : "Confirm delete"}
                   </button>
                   <button
                     type="button"
                     onClick={() => setConfirmingDelete(false)}
-                    className="rounded-lg border border-border bg-card px-2.5 py-1.5 text-[11px] font-medium hover:bg-accent"
+                    className="rounded-lg border border-border bg-card px-2.5 py-1.5 text-micro font-medium hover:bg-accent"
                   >
                     Cancel
                   </button>
@@ -359,7 +359,7 @@ function DocumentRow({
               )}
             </div>
           </div>
-          {previewError && <p className="mt-2 text-[11px] text-destructive">{previewError}</p>}
+          {previewError && <p className="mt-2 text-micro text-destructive">{previewError}</p>}
           {previewOpen && previewUrl && (
             <div className="mt-3 overflow-hidden rounded-lg border border-border">
               {isImage ? (

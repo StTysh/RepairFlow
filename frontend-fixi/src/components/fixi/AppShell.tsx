@@ -14,6 +14,7 @@ import {
 import { useEffect, useState } from "react";
 import { UtilityBar } from "@/components/fixi/UtilityBar";
 import { useAgentStatus } from "@/hooks/use-agent-status";
+import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 import { useGlobalUnreadCount } from "@/hooks/use-unread-count";
 import { useAuthedCreds } from "@/lib/auth-context";
 import { initials } from "@/lib/format";
@@ -54,8 +55,8 @@ export function FixiLogo() {
         </svg>
       </div>
       <div className="leading-tight">
-        <div className="text-[17px] font-bold tracking-tight text-foreground">Fixi</div>
-        <div className="text-[10.5px] text-muted-foreground">Properties, solved.</div>
+        <div className="text-section font-bold tracking-tight text-foreground">Fixi</div>
+        <div className="text-micro text-muted-foreground">Properties, solved.</div>
       </div>
     </div>
   );
@@ -88,7 +89,7 @@ function SidebarNav({
             onClick={onNavigate}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "flex h-10 items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition-colors",
+              "flex h-10 items-center gap-3 rounded-lg px-3 text-strong font-medium transition-colors",
               isActive
                 ? "bg-sidebar-primary text-sidebar-primary-foreground"
                 : "text-sidebar-foreground hover:bg-sidebar-accent",
@@ -100,7 +101,7 @@ function SidebarNav({
              * real unread count and disappears at zero rather than
              * advertising unread mail that does not exist. */}
             {item.label === "Messages" && unreadCount > 0 && (
-              <span className="ml-auto rounded-full bg-status-green px-2 py-0.5 text-[10px] font-semibold text-status-green-foreground">
+              <span className="ml-auto rounded-full bg-status-green px-2 py-0.5 text-micro font-semibold text-status-green-foreground">
                 {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             )}
@@ -117,12 +118,12 @@ function SidebarNav({
 function AccountRow({ username }: { username: string }) {
   return (
     <div className="flex items-center gap-2.5 px-1">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-status-purple text-[11px] font-semibold text-status-purple-foreground">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-status-purple text-micro font-semibold text-status-purple-foreground">
         {initials(username)}
       </div>
       <div className="min-w-0 leading-tight">
         <div className="truncate text-xs font-semibold">{username}</div>
-        <div className="text-[11px] text-muted-foreground">Signed in</div>
+        <div className="text-micro text-muted-foreground">Signed in</div>
       </div>
     </div>
   );
@@ -138,17 +139,31 @@ function AccountRow({ username }: { username: string }) {
  * always green tells the operator nothing. */
 function AgentStatusPanel() {
   const status = useAgentStatus();
+  const reducedMotion = usePrefersReducedMotion();
   const active = status.data?.agent_active ?? false;
   const caseCount = status.data?.active;
 
   return (
     <div className="flex items-center gap-2.5 rounded-lg border border-sidebar-border bg-card px-3 py-2.5 shadow-card">
-      <span
-        className={cn(
-          "h-2.5 w-2.5 shrink-0 rounded-full",
-          active ? "bg-timeline-done" : "bg-muted-foreground/40",
+      {/* The ring is gated on the same boolean as the dot's colour, so it
+       * pulses only while a coordinator run or a due job is genuinely in
+       * flight. A permanently animating indicator is the exact dishonesty
+       * this panel was written to avoid -- it would read as "working" on
+       * an idle system. */}
+      <span className="relative flex h-2.5 w-2.5 shrink-0">
+        {active && !reducedMotion && (
+          <span
+            aria-hidden="true"
+            className="absolute inset-0 animate-agent-ring rounded-full bg-timeline-done"
+          />
         )}
-      />
+        <span
+          className={cn(
+            "relative h-2.5 w-2.5 rounded-full",
+            active ? "bg-timeline-done" : "bg-muted-foreground/40",
+          )}
+        />
+      </span>
       <div className="min-w-0 leading-tight">
         <div className="truncate text-xs font-semibold">
           {status.isError
@@ -157,7 +172,7 @@ function AgentStatusPanel() {
               ? "AI agent working"
               : "AI agent idle"}
         </div>
-        <div className="truncate text-[11px] text-muted-foreground">
+        <div className="truncate text-micro text-muted-foreground">
           {caseCount === undefined
             ? status.isError
               ? "Backend unreachable"
@@ -203,7 +218,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
        * print view needs the chrome gone, and a route-scoped stylesheet
        * reaching up into the shell to hide it is the kind of action at a
        * distance that breaks the next time the shell changes. */}
-      <aside className="sticky top-0 hidden h-screen w-[218px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-3.5 py-4 print:hidden lg:flex">
+      <aside
+        className="sticky top-0 hidden h-screen w-[218px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-3.5 py-4 print:hidden lg:flex"
+        style={{ viewTransitionName: "app-sidebar" }}
+      >
         <FixiLogo />
         <SidebarNav pathname={pathname} unreadCount={unreadCount} />
         <div className="mt-auto space-y-3">
@@ -255,13 +273,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <main className="min-w-0 flex-1">
         {/* Hoisted above every page so it is consistent and never
-         * duplicated; matches the max-w-[1510px]/px-6 container the page
-         * content uses so the bar's right edge lines up with the content
-         * below it on a wide screen. */}
-        <div className="mx-auto w-full max-w-[1510px] px-6 pt-4 print:hidden xl:px-7">
+         * duplicated; uses the same `max-w-page` container as the page
+         * content below, so the bar's right edge lines up with it. That
+         * alignment used to be asserted here but was false on the ticket
+         * page, which had no container at all (docs/27). */}
+        <div
+          className="mx-auto w-full max-w-page px-6 pt-4 print:hidden xl:px-7"
+          style={{ viewTransitionName: "app-utility-bar" }}
+        >
           <UtilityBar onOpenMenu={() => setMobileNavOpen(true)} />
         </div>
-        {children}
+        {/* Naming the three chrome regions separately is what keeps a
+         * route change from sliding the whole window. The sidebar and
+         * the utility bar are their own snapshot groups, so they morph
+         * in place (the only visible change being the active nav pill
+         * cross-fading), and only `page-content` actually travels. */}
+        <div style={{ viewTransitionName: "page-content" }}>{children}</div>
       </main>
     </div>
   );
@@ -282,11 +309,15 @@ export function PageContainer({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mx-auto w-full max-w-[1510px] px-6 py-6 xl:px-7">
+    <div className="mx-auto w-full max-w-page px-6 py-6 xl:px-7">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-          {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+          <h1 className="text-title font-bold tracking-tight">{title}</h1>
+          {/* max-w-prose-fixi (70ch): these descriptions ran to ~138
+           * characters on one line at 2552px. */}
+          {description ? (
+            <p className="mt-1 max-w-prose-fixi text-strong text-muted-foreground">{description}</p>
+          ) : null}
         </div>
         {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </div>

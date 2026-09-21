@@ -114,11 +114,11 @@ function ThreadPage() {
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-[1510px] px-6 py-4 xl:px-7">
+      <div className="mx-auto max-w-page px-6 py-4 xl:px-7">
         <Link
           to="/messages"
           search={search}
-          className="flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground lg:hidden"
+          className="flex w-fit items-center gap-1.5 text-strong text-muted-foreground hover:text-foreground lg:hidden"
         >
           <ArrowLeft className="h-4 w-4" /> Back to messages
         </Link>
@@ -179,13 +179,13 @@ function ThreadDetail({
     <>
       <div className="flex items-center justify-between gap-3 border-b border-border p-4">
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold">
+          <div className="truncate text-section font-semibold">
             {case_title ?? `Case ${caseId}`}
             {case_number !== null && (
               <span className="text-muted-foreground"> · #{case_number}</span>
             )}
           </div>
-          <div className="text-[11px] text-muted-foreground">
+          <div className="text-micro text-muted-foreground">
             {items.length} message{items.length === 1 ? "" : "s"}
           </div>
         </div>
@@ -209,7 +209,7 @@ function ThreadDetail({
               <div key={g.key}>
                 <div className="mb-2 flex items-center gap-2">
                   <span className="h-px flex-1 bg-border" />
-                  <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <span className="text-micro font-medium uppercase tracking-wide text-muted-foreground">
                     {g.label}
                   </span>
                   <span className="h-px flex-1 bg-border" />
@@ -242,7 +242,7 @@ function MessageRow({ caseId, message }: { caseId: string; message: ThreadMessag
               <PhoneCall className="h-3.5 w-3.5" />
             </span>
             <div className="min-w-0">
-              <div className="text-[13px] font-semibold">{message.sender_name}</div>
+              <div className="text-strong font-semibold">{message.sender_name}</div>
               <p className="text-xs text-muted-foreground">
                 A recorded phone call, not a chat message — see the transcript and recording.
               </p>
@@ -264,7 +264,7 @@ function MessageRow({ caseId, message }: { caseId: string; message: ThreadMessag
     <li className="group rounded-lg border border-border p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold">
+          <div className="flex flex-wrap items-center gap-1.5 text-strong font-semibold">
             {message.sender_name}
             <Pill tone={senderTone(message.sender_type)}>
               {titleCase(message.sender_type || "unknown")}
@@ -275,7 +275,7 @@ function MessageRow({ caseId, message }: { caseId: string; message: ThreadMessag
           </div>
           <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed">{message.text}</p>
           {message.delivery_detail && (
-            <p className="mt-1 text-[11px] text-muted-foreground">{message.delivery_detail}</p>
+            <p className="mt-1 text-micro text-muted-foreground">{message.delivery_detail}</p>
           )}
           {message.attachments.length > 0 && (
             <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -287,9 +287,7 @@ function MessageRow({ caseId, message }: { caseId: string; message: ThreadMessag
           {message.photo_url && <PhotoThumb url={message.photo_url} />}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <span className="text-[11px] text-muted-foreground">
-            {formatTime(message.created_at)}
-          </span>
+          <span className="text-micro text-muted-foreground">{formatTime(message.created_at)}</span>
           <button
             type="button"
             title="Mark this message unread"
@@ -334,7 +332,7 @@ function AttachmentLink({ attachment }: { attachment: MessageAttachment }) {
       type="button"
       onClick={() => void open()}
       disabled={busy}
-      className="flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-[11px] font-medium hover:bg-accent disabled:opacity-50"
+      className="flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-micro font-medium hover:bg-accent disabled:opacity-50"
     >
       <Paperclip className="h-3 w-3" /> {busy ? "Opening…" : label}
     </button>
@@ -347,7 +345,7 @@ function AttachmentLink({ attachment }: { attachment: MessageAttachment }) {
  * broken-image icon if it 404s/401s. */
 function PhotoThumb({ url }: { url: string }) {
   const [failed, setFailed] = useState(false);
-  if (failed) return <p className="mt-2 text-[11px] text-muted-foreground">Photo unavailable.</p>;
+  if (failed) return <p className="mt-2 text-micro text-muted-foreground">Photo unavailable.</p>;
   return (
     <img
       src={url}
@@ -414,7 +412,7 @@ function Composer({ caseId }: { caseId: string }) {
         ))}
       </div>
       {channel !== "INTERNAL" && (
-        <p className="mt-2 text-[11px] text-muted-foreground">
+        <p className="mt-2 text-micro text-muted-foreground">
           No delivery transport is configured for {channel === "EMAIL" ? "email" : "SMS"} yet — this
           will be saved as a draft, not sent to the tenant.
         </p>
@@ -429,7 +427,7 @@ function Composer({ caseId }: { caseId: string }) {
         className="mt-2 h-20 w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
       />
       <div className="mt-2 flex items-center justify-between gap-2">
-        <span className="text-[10px] text-muted-foreground">Ctrl/Cmd + Enter to submit</span>
+        <span className="text-micro text-muted-foreground">Ctrl/Cmd + Enter to submit</span>
         <button
           type="button"
           onClick={() => void handleSubmit()}

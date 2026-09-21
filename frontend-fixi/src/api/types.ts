@@ -28,6 +28,7 @@ export interface CaseListItem {
   property_address: string;
   urgency: Urgency;
   assigned_contractor_name: string | null;
+  property_photo_key: string | null;
   /** The case's single normalised classification, assigned at intake.
    * Null until triage has run, or on a case raised before the column
    * existed -- the UI shows those as "Uncategorised" rather than

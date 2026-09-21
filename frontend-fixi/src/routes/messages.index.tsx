@@ -56,7 +56,7 @@ function MessagesIndexPage() {
         title="Messages"
         description="Every conversation thread, one per case, across tenants, contractors and operators."
       >
-        <div className="grid h-[75vh] min-h-[560px] gap-4 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+        <div className="grid h-[calc(100dvh-13rem)] min-h-[560px] gap-4 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
           <Card className="flex flex-col overflow-hidden p-0">
             <ThreadFilterBar filters={filters} setFilters={setFilters} />
             <ThreadListBody
@@ -70,13 +70,15 @@ function MessagesIndexPage() {
 
           {/* Wide screens only -- on narrow, picking a thread navigates to
            * /messages/$caseId instead of splitting this same viewport. */}
-          <Card className="hidden min-h-[420px] items-center justify-center lg:flex">
+          {/* Not a Card: this was a bordered box containing EmptyState's
+           * own bordered box, for a placeholder occupying 5% of the pane. */}
+          <div className="hidden items-center justify-center rounded-xl border border-dashed border-border lg:flex">
             <EmptyState
               icon={MessageSquare}
               title="Select a conversation"
               description="Choose a thread from the list to read the full conversation and reply."
             />
-          </Card>
+          </div>
         </div>
       </PageContainer>
     </AppShell>
@@ -150,7 +152,7 @@ function ToggleChip({
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        "flex h-7 items-center gap-1 rounded-md border px-2.5 text-[11px] font-medium transition-colors",
+        "flex h-7 items-center gap-1 rounded-md border px-2.5 text-micro font-medium transition-colors",
         active
           ? "border-foreground bg-foreground text-background"
           : "border-border bg-card text-foreground hover:bg-accent",
@@ -247,20 +249,18 @@ function ThreadRow({
       >
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <div className={cn("truncate text-[13px]", unread ? "font-semibold" : "font-medium")}>
+            <div className={cn("truncate text-strong", unread ? "font-semibold" : "font-medium")}>
               {item.tenant_name}
               <span className="font-normal text-muted-foreground"> · #{item.case_number}</span>
             </div>
-            <div className="truncate text-[11px] text-muted-foreground">
-              {item.property_address}
-            </div>
+            <div className="truncate text-micro text-muted-foreground">{item.property_address}</div>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-micro text-muted-foreground">
               {formatRelative(item.last_message_at)}
             </span>
             {unread && (
-              <span className="rounded-full bg-status-green px-1.5 py-0.5 text-[10px] font-semibold text-status-green-foreground">
+              <span className="rounded-full bg-status-green px-1.5 py-0.5 text-micro font-semibold text-status-green-foreground">
                 {item.unread_count} new
               </span>
             )}

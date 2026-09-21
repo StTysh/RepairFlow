@@ -94,31 +94,31 @@ function WorkOrderNode({ data }: NodeProps<WorkOrderNodeType>) {
         position={Position.Left}
         style={{ background: "var(--muted-foreground)" }}
       />
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="text-micro font-semibold uppercase tracking-wide text-muted-foreground">
         {workOrderKindLabel[wo.kind]}
       </div>
       <div className="mt-0.5 text-xs text-muted-foreground">{titleCase(wo.trade)}</div>
       <div className="mt-1.5">
         <Pill tone={tone}>{titleCase(wo.status)}</Pill>
       </div>
-      {quote && <div className="mt-1.5 text-[11px] text-muted-foreground">Quoted {quote}</div>}
+      {quote && <div className="mt-1.5 text-micro text-muted-foreground">Quoted {quote}</div>}
       {wo.required_for_resolution && (
-        <div className="mt-1 text-[10px] font-medium text-status-amber-foreground">
+        <div className="mt-1 text-micro font-medium text-status-amber-foreground">
           Required for resolution
         </div>
       )}
       {upcoming ? (
-        <div className="mt-1.5 border-t border-border pt-1.5 text-[10px] text-muted-foreground">
+        <div className="mt-1.5 border-t border-border pt-1.5 text-micro text-muted-foreground">
           Visit {formatRelative(upcoming.start_at)}
           {upcoming.attempt_number > 1 && ` · attempt ${upcoming.attempt_number}`}
         </div>
       ) : lastFinished ? (
-        <div className="mt-1.5 border-t border-border pt-1.5 text-[10px] text-muted-foreground">
+        <div className="mt-1.5 border-t border-border pt-1.5 text-micro text-muted-foreground">
           Last visit {formatRelative(lastFinished.start_at)}
           {lastFinished.visit_outcome && ` · ${titleCase(lastFinished.visit_outcome)}`}
         </div>
       ) : visits.length === 0 ? (
-        <div className="mt-1.5 border-t border-border pt-1.5 text-[10px] text-muted-foreground">
+        <div className="mt-1.5 border-t border-border pt-1.5 text-micro text-muted-foreground">
           No visit booked
         </div>
       ) : null}
@@ -221,13 +221,13 @@ export function WorkGraph({
     <Card className="p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-[15px] font-semibold">Work</h2>
+          <h2 className="text-section font-semibold">Work</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             Work orders on this case and any dependency blocking one on another.
           </p>
         </div>
         {dependencies.length > 0 && (
-          <div className="flex shrink-0 items-center gap-3 text-[11px] text-muted-foreground">
+          <div className="flex shrink-0 items-center gap-3 text-micro text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <span className="h-1.5 w-3 rounded-full bg-status-red-foreground/70" /> Blocks
             </span>

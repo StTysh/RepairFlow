@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { AppShell, Card } from "@/components/fixi/AppShell";
 import { Pill } from "@/components/fixi/Badge";
 import { ErrorState, LoadingRows } from "@/components/fixi/EmptyState";
+import { SkeletonCards } from "@/components/fixi/Skeleton";
 import { PropertyPhoto, PropertyTabs } from "@/components/fixi/PropertyTabs";
 import { Button } from "@/components/ui/button";
 import { usePropertyHistory } from "@/hooks/use-property-history";
@@ -16,7 +17,7 @@ import {
   type RoofResponsibility,
   type UpdatePropertyRequest,
 } from "@/hooks/use-property";
-import { statusTone } from "@/lib/fixi-data";
+import { statusTone, STATUS_LABEL } from "@/lib/fixi-data";
 import { titleCase } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -76,7 +77,7 @@ function DetailsPage() {
           <div className="grid gap-3 xl:grid-cols-3">
             <Card className="p-5 xl:col-span-2">
               <div className="flex items-start justify-between gap-3">
-                <h2 className="text-[15px] font-semibold">Property details</h2>
+                <h2 className="text-section font-semibold">Property details</h2>
                 {!editing && (
                   <Button
                     size="sm"
@@ -108,7 +109,7 @@ function DetailsPage() {
 
             <div className="flex flex-col gap-3">
               <Card className="p-5">
-                <h2 className="text-[15px] font-semibold">
+                <h2 className="text-section font-semibold">
                   Tenants ({property.data.tenants.length})
                 </h2>
                 {property.data.tenants.length === 0 ? (
@@ -120,7 +121,7 @@ function DetailsPage() {
                         <Link
                           to="/tenants/$tenantId"
                           params={{ tenantId: t.id }}
-                          className="text-[13px] font-medium hover:underline"
+                          className="text-strong font-medium hover:underline"
                         >
                           {t.display_name}
                         </Link>
@@ -145,10 +146,8 @@ function DetailsPage() {
               </Card>
 
               <Card className="p-5">
-                <h2 className="text-[15px] font-semibold">Open cases ({openCases.length})</h2>
-                {history.isLoading && (
-                  <p className="mt-2 text-xs text-muted-foreground">Loading…</p>
-                )}
+                <h2 className="text-section font-semibold">Open cases ({openCases.length})</h2>
+                {history.isLoading && <SkeletonCards className="mt-2" count={3} height="h-12" />}
                 {history.isError && (
                   <p className="mt-2 text-xs text-destructive">Could not load cases.</p>
                 )}
@@ -167,7 +166,9 @@ function DetailsPage() {
                           className="flex items-center justify-between gap-2 text-xs hover:underline"
                         >
                           <span className="min-w-0 flex-1 truncate font-medium">{c.title}</span>
-                          <Pill tone={statusTone(c.status)}>{c.status}</Pill>
+                          <Pill tone={statusTone(c.status)}>
+                            {STATUS_LABEL[c.status] ?? c.status}
+                          </Pill>
                         </Link>
                       </li>
                     ))}
@@ -184,7 +185,7 @@ function DetailsPage() {
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-2 text-[13px]">
+    <div className="flex items-start justify-between gap-4 py-2 text-strong">
       <span className="shrink-0 text-muted-foreground">{label}</span>
       <span className="text-right font-medium">{value}</span>
     </div>

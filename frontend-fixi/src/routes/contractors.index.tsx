@@ -147,17 +147,31 @@ function ContractorsPage() {
           </label>
         </section>
 
-        <Card className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[860px] text-[12px]">
+        <Card className="mt-4 max-w-[1180px] overflow-x-auto">
+          {/* Explicit budget + a card cap. Auto layout gave "Contractor"
+           * 661px for a ~325px name, leaving ~374px of dead space
+           * before "Service area" on every row, while "Assigned" took
+           * 133px to hold one digit. Capping the card turns the
+           * leftover into margin instead of column padding (docs/27). */}
+          <table className="w-full min-w-[820px] table-fixed text-body">
+            <colgroup>
+              <col className="w-[56px]" />
+              <col />
+              <col className="w-[220px]" />
+              <col className="w-[130px]" />
+              <col className="w-[96px]" />
+              <col className="w-[96px]" />
+              <col className="w-[44px]" />
+            </colgroup>
             <thead>
               <tr className="border-b border-border text-left text-muted-foreground">
-                <th className="w-11 px-2 py-2" />
-                <th className="px-2 py-2 font-medium">Contractor</th>
-                <th className="px-2 py-2 font-medium">Service area</th>
-                <th className="px-2 py-2 font-medium">Approval</th>
-                <th className="px-2 py-2 font-medium">Assigned</th>
-                <th className="px-2 py-2 font-medium">Completed</th>
-                <th className="w-8" />
+                <th className="px-3 py-2" />
+                <th className="px-3 py-2 font-medium">Contractor</th>
+                <th className="px-3 py-2 font-medium">Service area</th>
+                <th className="px-3 py-2 font-medium">Approval</th>
+                <th className="px-3 py-2 text-right font-medium">Assigned</th>
+                <th className="px-3 py-2 text-right font-medium">Completed</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -213,7 +227,7 @@ function ContractorsPage() {
                       <HardHat className="h-4 w-4" />
                     </span>
                   </td>
-                  <td className="px-2 py-2">
+                  <td className="px-3 py-2">
                     <Link
                       to="/contractors/$contractorId"
                       params={{ contractorId: c.id }}
@@ -221,7 +235,7 @@ function ContractorsPage() {
                     >
                       {c.display_name}
                     </Link>
-                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                    <div className="mt-0.5 truncate text-micro text-muted-foreground">
                       {c.trades.length > 0
                         ? c.trades.map(titleCase).join(", ")
                         : "No trades on file"}
@@ -230,19 +244,21 @@ function ContractorsPage() {
                   <td className="max-w-[180px] truncate px-2 py-2 text-muted-foreground">
                     {c.service_postcodes.length > 0 ? c.service_postcodes.join(", ") : "—"}
                   </td>
-                  <td className="px-2 py-2">
+                  <td className="px-3 py-2">
                     <Pill tone={approvalTone(c.approval_status)}>
                       {titleCase(c.approval_status)}
                     </Pill>
                     {c.approval_status !== "APPROVED" && (
-                      <div className="mt-0.5 text-[10px] text-muted-foreground">Not assignable</div>
+                      <div className="mt-0.5 text-micro text-muted-foreground">Not assignable</div>
                     )}
                   </td>
-                  <td className="px-2 py-2 text-muted-foreground">{c.assigned_work_order_count}</td>
-                  <td className="px-2 py-2 text-muted-foreground">
+                  <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                    {c.assigned_work_order_count}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                     {c.completed_work_order_count}
                   </td>
-                  <td className="px-2 py-2 text-right">
+                  <td className="px-3 py-2 text-right">
                     <Link
                       to="/contractors/$contractorId"
                       params={{ contractorId: c.id }}

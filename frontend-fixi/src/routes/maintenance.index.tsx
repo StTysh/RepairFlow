@@ -4,7 +4,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   AlertTriangle,
   BarChart3,
-  Building2,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -17,7 +16,10 @@ import {
 import { useMemo, useState } from "react";
 import houseExterior from "@/assets/house-exterior.jpg";
 import { AppShell, Card } from "@/components/fixi/AppShell";
+import { PropertyPhoto } from "@/components/fixi/PropertyTabs";
 import { StatusBadge, UrgencyBadge } from "@/components/fixi/Badge";
+import { Metric } from "@/components/fixi/Metric";
+import { Skeleton, SkeletonCards, SkeletonKpis } from "@/components/fixi/Skeleton";
 import { Button } from "@/components/ui/button";
 import { useCancelCase } from "@/hooks/use-case-actions";
 import { useCaseList } from "@/hooks/use-case-list";
@@ -36,6 +38,21 @@ import {
 } from "@/lib/fixi-data";
 import { formatDateRange, formatDeltaPct, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+// One entry per <colgroup> column, in order: select, number, issue,
+// property, urgency, status, assignee, updated, menu. `null` means the
+// column carries only an icon or control, so a bar there would be noise.
+const SKELETON_CELLS: readonly (string | null)[] = [
+  null,
+  "w-6",
+  "w-4/5",
+  "w-32",
+  "w-14",
+  "w-24",
+  "w-28",
+  "w-16",
+  null,
+];
 
 export const Route = createFileRoute("/maintenance/")({
   head: () => ({
@@ -188,7 +205,7 @@ function MaintenancePage() {
             metrics.data.avg_resolution_hours !== null
               ? `${metrics.data.avg_resolution_hours.toFixed(1)}h`
               : "—",
-          label: "Avg time to resolve (30d)",
+          label: "Avg resolve (30d)",
           tone: "gray",
           Icon: BarChart3,
           delta: null,
@@ -203,45 +220,49 @@ function MaintenancePage() {
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-[1510px] px-6 py-4 xl:px-7">
+      <div className="mx-auto max-w-page px-6 py-4 xl:px-7">
         <header>
-          <h1 className="text-2xl font-bold tracking-tight">Maintenance</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <h1 className="text-title font-bold tracking-tight">Maintenance</h1>
+          <p className="mt-1 text-strong text-muted-foreground">
             All property issues, from report to resolution.
           </p>
         </header>
 
-        <section className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-          {(kpis.length > 0 ? kpis : Array.from({ length: 6 }, () => null)).map((k, i) => (
-            <Card key={k?.key ?? i} className="flex min-h-[92px] items-center gap-3 px-3.5 py-3">
-              <span
-                className={cn(
-                  "flex h-11 w-11 shrink-0 items-center justify-center rounded-full",
-                  k ? KPI_TONE_CLASS[k.tone] : "bg-muted text-muted-foreground",
-                )}
-              >
-                {k ? <k.Icon className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
-              </span>
-              <div className="min-w-0">
-                <div className="text-xl font-bold tracking-tight">{k?.value ?? "—"}</div>
-                <div className="truncate text-xs text-muted-foreground">
-                  {k?.label ?? "Loading…"}
-                </div>
-                {k?.delta && (
-                  <div
-                    className={cn(
-                      "mt-1.5 text-[10px] font-semibold",
-                      k.tone === "red" ? "text-destructive" : "text-primary",
-                    )}
-                  >
-                    {k.delta}
-                    <span className="ml-1 font-normal text-muted-foreground">vs 7 days ago</span>
+        {kpis.length === 0 ? (
+          <SkeletonKpis className="mt-4" />
+        ) : (
+          <section className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+            {kpis.map((k) => (
+              <Card key={k.key} className="flex min-h-[72px] items-center gap-3 px-4 py-3">
+                <span
+                  className={cn(
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+                    KPI_TONE_CLASS[k.tone],
+                  )}
+                >
+                  <k.Icon className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <div className="text-metric font-bold tracking-tight">
+                    <Metric value={k.value} />
                   </div>
-                )}
-              </div>
-            </Card>
-          ))}
-        </section>
+                  <div className="truncate text-body text-muted-foreground">{k.label}</div>
+                  {k.delta && (
+                    <div
+                      className={cn(
+                        "mt-1 text-micro font-semibold",
+                        k.tone === "red" ? "text-destructive" : "text-primary",
+                      )}
+                    >
+                      {k.delta}
+                      <span className="ml-1 font-normal text-muted-foreground">vs 7 days ago</span>
+                    </div>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </section>
+        )}
 
         <section className="mt-5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -297,28 +318,53 @@ function MaintenancePage() {
 
         <div className="mt-4 grid items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_270px]">
           <Card className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-[12px]">
+            {/* An explicit column budget, not auto layout. Auto layout
+             * distributed width in proportion to content, which meant the
+             * Issue title -- the only column anyone actually reads -- was
+             * the one capped at 320px and truncating, while Address and
+             * "Assigned to" wrapped to two lines and Status took 150px for
+             * one pill. Row heights varied 44-54px as a result. Fixed
+             * tracks let Issue absorb all the slack (docs/27). */}
+            <table className="w-full min-w-[860px] table-fixed text-body">
+              <colgroup>
+                <col className="w-[56px]" />
+                <col className="w-[52px]" />
+                <col />
+                <col className="w-[190px]" />
+                <col className="w-[96px]" />
+                <col className="w-[164px]" />
+                <col className="w-[210px]" />
+                <col className="w-[92px]" />
+                <col className="w-[44px]" />
+              </colgroup>
               <thead>
                 <tr className="border-b border-border text-left text-muted-foreground">
-                  <th className="w-11 px-2 py-2" />
-                  <th className="px-2 py-2 font-medium">#</th>
-                  <th className="px-2 py-2 font-medium">Issue</th>
-                  <th className="px-2 py-2 font-medium">Address</th>
-                  <th className="px-2 py-2 font-medium">Urgency</th>
-                  <th className="px-2 py-2 font-medium">Status</th>
-                  <th className="px-2 py-2 font-medium">Assigned to</th>
-                  <th className="px-2 py-2 font-medium">Updated ↓</th>
-                  <th className="w-8" />
+                  <th className="px-3 py-2" />
+                  <th className="px-3 py-2 font-medium">#</th>
+                  <th className="px-3 py-2 font-medium">Issue</th>
+                  <th className="px-3 py-2 font-medium">Address</th>
+                  <th className="px-3 py-2 font-medium">Urgency</th>
+                  <th className="px-3 py-2 font-medium">Status</th>
+                  <th className="px-3 py-2 font-medium">Assigned to</th>
+                  <th className="px-3 py-2 font-medium">Updated ↓</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
-                {cases.isLoading && (
-                  <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-xs text-muted-foreground">
-                      Loading tickets…
-                    </td>
-                  </tr>
-                )}
+                {cases.isLoading &&
+                  Array.from({ length: 8 }).map((_, r) => (
+                    // Real <tr>/<td>, not one colSpan cell: the table is
+                    // `table-fixed` with a <colgroup>, so placeholders in
+                    // actual cells land on the exact columns the data will
+                    // occupy and nothing shifts sideways on arrival.
+                    <tr key={`skeleton-${r}`} className="h-[45px] border-b border-border">
+                      {SKELETON_CELLS.map((w, c) => (
+                        <td key={c} className="px-3">
+                          {w ? <Skeleton className={cn("h-3", w)} /> : null}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
                 {cases.isError && (
                   <tr>
                     <td colSpan={9} className="px-4 py-8 text-center text-xs text-destructive">
@@ -333,20 +379,35 @@ function MaintenancePage() {
                     </td>
                   </tr>
                 )}
-                {items.map((t) => (
+                {items.map((t, rowIndex) => (
                   <tr
                     key={t.id}
-                    className="group border-b border-border last:border-0 transition-colors hover:bg-muted/60"
+                    // The entrance runs on mount only. Rows are keyed by
+                    // case id, so a poll that returns the same 39 cases
+                    // re-renders without remounting and nothing replays --
+                    // but changing a filter genuinely remounts the list,
+                    // and the cascade is then the confirmation that the
+                    // filter did something.
+                    className="group animate-in fade-in slide-in-from-bottom-1 border-b border-border last:border-0 transition-colors duration-fast ease-fixi fill-mode-both hover:bg-muted/60"
+                    // Capped at ten steps: past that the tail of a long
+                    // list is still arriving after the operator has
+                    // started reading the top of it.
+                    style={{ animationDelay: `${Math.min(rowIndex, 10) * 22}ms` }}
                   >
-                    <td className="px-2 py-1.5">
-                      {/* No property-photo field on the backend -- a
-                       * neutral placeholder icon, not a fabricated photo
-                       * per property. */}
-                      <span className="flex h-8 w-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                        <Building2 className="h-4 w-4" />
-                      </span>
+                    <td className="px-3 py-1.5">
+                      {/* Was an identical <Building2/> on all 39 rows: 56px
+                       * of width carrying zero information. Properties
+                       * gained a `photo_key` and the list endpoint now
+                       * returns it, so this shows which building the job
+                       * is at -- genuinely useful when scanning. Falls
+                       * back to the neutral tile when null; never
+                       * fabricates a photo (docs/27). */}
+                      <PropertyPhoto
+                        photoKey={t.property_photo_key}
+                        className="h-8 w-8 rounded-md"
+                      />
                     </td>
-                    <td className="px-2 py-2 text-muted-foreground">
+                    <td className="px-3 py-2 text-muted-foreground">
                       <Link
                         to="/maintenance/tickets/$ticketId/{-$section}"
                         params={{ ticketId: t.id, section: undefined }}
@@ -355,7 +416,7 @@ function MaintenancePage() {
                         #{t.case_number}
                       </Link>
                     </td>
-                    <td className="max-w-xs px-2 py-2 font-medium">
+                    <td className="px-3 py-2 font-medium">
                       <Link
                         to="/maintenance/tickets/$ticketId/{-$section}"
                         params={{ ticketId: t.id, section: undefined }}
@@ -365,20 +426,28 @@ function MaintenancePage() {
                         {t.title}
                       </Link>
                     </td>
-                    <td className="px-2 py-2 text-muted-foreground">{t.property_address}</td>
-                    <td className="px-2 py-2">
+                    <td
+                      className="truncate px-3 py-2 text-muted-foreground"
+                      title={t.property_address}
+                    >
+                      {t.property_address}
+                    </td>
+                    <td className="px-3 py-2">
                       <UrgencyBadge urgency={t.urgency} />
                     </td>
-                    <td className="px-2 py-2">
+                    <td className="px-3 py-2">
                       <StatusBadge status={t.status} />
                     </td>
-                    <td className="px-2 py-2 text-muted-foreground">
+                    <td
+                      className="truncate px-3 py-2 text-muted-foreground"
+                      title={t.assigned_contractor_name ?? undefined}
+                    >
                       {t.assigned_contractor_name ?? "—"}
                     </td>
-                    <td className="px-2 py-2 text-muted-foreground">
+                    <td className="px-3 py-2 text-muted-foreground">
                       {formatRelative(t.updated_at)}
                     </td>
-                    <td className="px-2 py-2 text-right">
+                    <td className="px-3 py-2 text-right">
                       <RowActions
                         caseId={t.id}
                         caseNumber={t.case_number}
@@ -394,8 +463,8 @@ function MaintenancePage() {
 
           <aside className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-1">
             <Card className="p-3.5">
-              <h2 className="text-sm font-semibold">Upcoming visits</h2>
-              {upcoming.isLoading && <p className="mt-3 text-xs text-muted-foreground">Loading…</p>}
+              <h2 className="text-section font-semibold">Upcoming visits</h2>
+              {upcoming.isLoading && <SkeletonCards className="mt-2" count={3} height="h-[52px]" />}
               {upcoming.isError && (
                 <p className="mt-3 text-xs text-destructive">Could not load visits.</p>
               )}
@@ -417,15 +486,21 @@ function MaintenancePage() {
                       className="-mx-1 flex items-center gap-2 rounded-md px-1 py-2 hover:bg-accent/60"
                     >
                       <div className="flex h-12 w-10 shrink-0 flex-col items-center justify-center rounded-lg border border-border bg-muted">
-                        <span className="text-[8px] font-semibold">{month}</span>
-                        <span className="text-base font-bold">{day}</span>
+                        <span className="text-micro font-semibold">{month}</span>
+                        {/* The last off-scale size in the app: at 16px
+                         * this numeral was larger than the page's own
+                         * h1-adjacent text and the biggest thing in the
+                         * sidebar, for a date the operator reads second.
+                         * text-section keeps the chip legible without
+                         * outranking the contractor name beside it. */}
+                        <span className="text-section font-bold tabular-nums">{day}</span>
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-xs font-semibold">{v.contractor_name}</div>
-                        <div className="truncate text-[10px] text-muted-foreground">
+                        <div className="truncate text-micro text-muted-foreground">
                           {v.property_address}
                         </div>
-                        <div className="text-[10px] text-muted-foreground">
+                        <div className="text-micro text-muted-foreground">
                           {formatDateRange(v.start_at, v.end_at).time}
                         </div>
                       </div>
@@ -448,12 +523,12 @@ function MaintenancePage() {
               />
               <div className="absolute inset-0 bg-foreground/65" />
               <div className="relative flex h-full flex-col justify-end p-4 text-primary-foreground">
-                <h2 className="text-base font-semibold">
+                <h2 className="text-section font-semibold">
                   Keep properties
                   <br />
                   in better shape
                 </h2>
-                <p className="mt-1 text-[10px] opacity-90">
+                <p className="mt-1 text-micro opacity-90">
                   Track history, spot recurring
                   <br />
                   issues and plan ahead.
@@ -561,7 +636,7 @@ function RowActions({
                 Cancel case
               </DropdownMenu.Item>
             ) : (
-              <div className="px-2.5 py-1.5 text-[11px] text-muted-foreground">
+              <div className="px-2.5 py-1.5 text-micro text-muted-foreground">
                 This case is {STATUS_LABEL[status].toLowerCase()} — it cannot be cancelled.
               </div>
             )}
@@ -573,7 +648,7 @@ function RowActions({
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-foreground/25 backdrop-blur-[1px]" />
           <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(26rem,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-card p-5 shadow-panel">
-            <Dialog.Title className="text-sm font-semibold">
+            <Dialog.Title className="text-section font-semibold">
               Cancel ticket #{caseNumber}
             </Dialog.Title>
             <Dialog.Description className="mt-1 text-xs leading-relaxed text-muted-foreground">

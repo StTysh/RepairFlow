@@ -3,6 +3,7 @@ import { format, startOfMonth, startOfYear, subDays } from "date-fns";
 import { Download, FileQuestion, Printer } from "lucide-react";
 import { useMemo } from "react";
 import type { Trade } from "@/api/types";
+import { Metric } from "@/components/fixi/Metric";
 import { AppShell, Card, PageContainer } from "@/components/fixi/AppShell";
 import { EmptyState, ErrorState, LoadingRows } from "@/components/fixi/EmptyState";
 import {
@@ -85,6 +86,11 @@ function presetRange(preset: Preset): { from: string; to: string } {
       return { from: "", to: "" };
   }
 }
+
+/** Columns that hold a quantity and should sit right-aligned. `year` is
+ * deliberately excluded -- it is an identifier, not a measurement. */
+const isNumericKey = (key: string) =>
+  !isYearKey(key) && /count|percentage|pence|hours|_n$|^n$/i.test(key);
 
 const isYearKey = (key: string) => /^year$/i.test(key) || /_year$/i.test(key);
 
@@ -461,15 +467,17 @@ function SectionPanel({
 
   return (
     <Card className="break-inside-avoid p-5 print:border print:shadow-none">
-      <h2 className="text-[15px] font-semibold">{title}</h2>
+      <h2 className="text-section font-semibold">{title}</h2>
       <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>
 
       {totalsEntries.length > 0 && (
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {totalsEntries.map(([key, value]) => (
             <div key={key} className="rounded-lg border border-border bg-muted/40 px-3 py-2.5">
-              <div className="text-lg font-bold tracking-tight">{formatStat(key, value)}</div>
-              <div className="text-[11px] text-muted-foreground">{columnLabel(key)}</div>
+              <div className="text-metric font-bold tracking-tight">
+                <Metric value={formatStat(key, value)} />
+              </div>
+              <div className="text-micro text-muted-foreground">{columnLabel(key)}</div>
             </div>
           ))}
         </div>
@@ -479,11 +487,17 @@ function SectionPanel({
         <p className="mt-4 text-xs text-muted-foreground">No rows for the selected filters.</p>
       ) : (
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[560px] text-[12px]">
+          {/* Capped: three columns stretched across 1454px put "Count"
+           * ~360px from the category it counts. Numerics right-aligned
+           * with tabular figures so they form a readable column. */}
+          <table className="w-full min-w-[560px] max-w-[880px] text-body">
             <thead>
               <tr className="border-b border-border text-left text-muted-foreground">
                 {columns.map((c) => (
-                  <th key={c} className="px-2 py-2 font-medium">
+                  <th
+                    key={c}
+                    className={cn("px-3 py-2 font-medium", isNumericKey(c) && "text-right")}
+                  >
                     {columnLabel(c)}
                   </th>
                 ))}
@@ -493,7 +507,10 @@ function SectionPanel({
               {rows.map((row, i) => (
                 <tr key={i} className="border-b border-border last:border-0">
                   {columns.map((c) => (
-                    <td key={c} className="px-2 py-2">
+                    <td
+                      key={c}
+                      className={cn("px-3 py-2", isNumericKey(c) && "text-right tabular-nums")}
+                    >
                       {formatCell(c, row[c])}
                     </td>
                   ))}
@@ -501,7 +518,7 @@ function SectionPanel({
               ))}
             </tbody>
           </table>
-          <p className="mt-2 text-[11px] text-muted-foreground">
+          <p className="mt-2 text-micro text-muted-foreground">
             {rows.length} row{rows.length === 1 ? "" : "s"} back the totals above.
           </p>
         </div>

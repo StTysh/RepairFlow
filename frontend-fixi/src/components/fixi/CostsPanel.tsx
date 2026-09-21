@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 
 const fieldClass =
   "mt-1.5 w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-50";
-const labelClass = "block text-[11px] font-medium text-muted-foreground";
+const labelClass = "block text-micro font-medium text-muted-foreground";
 
 const workOrderKindLabel: Record<string, string> = {
   REPAIR: "Repair",
@@ -142,7 +142,7 @@ function CostFormFields({
             aria-invalid={showError("amount") ? true : undefined}
           />
           {showError("amount") && (
-            <p className="mt-1 text-[11px] text-destructive">{errors.amount}</p>
+            <p className="mt-1 text-micro text-destructive">{errors.amount}</p>
           )}
         </div>
       </div>
@@ -179,7 +179,7 @@ function CostFormFields({
             aria-invalid={showError("incurredAt") ? true : undefined}
           />
           {showError("incurredAt") && (
-            <p className="mt-1 text-[11px] text-destructive">{errors.incurredAt}</p>
+            <p className="mt-1 text-micro text-destructive">{errors.incurredAt}</p>
           )}
         </div>
       </div>
@@ -196,7 +196,7 @@ function CostFormFields({
           aria-invalid={showError("description") ? true : undefined}
         />
         {showError("description") && (
-          <p className="mt-1 text-[11px] text-destructive">{errors.description}</p>
+          <p className="mt-1 text-micro text-destructive">{errors.description}</p>
         )}
       </div>
     </>
@@ -398,7 +398,7 @@ function CostRow({
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1.5">
         <span
-          className={cn("text-[13px] font-semibold", cost.amount_pence < 0 && "text-destructive")}
+          className={cn("text-strong font-semibold", cost.amount_pence < 0 && "text-destructive")}
         >
           {formatPence(cost.amount_pence)}
         </span>
@@ -425,7 +425,7 @@ function CostRow({
               <AlertDialog.Portal>
                 <AlertDialog.Overlay className="fixed inset-0 z-50 bg-foreground/20" />
                 <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-5 shadow-panel">
-                  <AlertDialog.Title className="text-sm font-semibold">
+                  <AlertDialog.Title className="text-section font-semibold">
                     Delete this cost entry?
                   </AlertDialog.Title>
                   <AlertDialog.Description className="mt-1 text-xs leading-relaxed text-muted-foreground">
@@ -473,7 +473,7 @@ function TotalTile({
 }) {
   return (
     <div title={hint}>
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="text-micro uppercase tracking-wide text-muted-foreground">{label}</div>
       <div
         className={cn(
           "mt-0.5 font-semibold",
@@ -530,7 +530,7 @@ export function CostsPanel({ caseId, workOrders }: { caseId: string; workOrders:
   return (
     <Card className="p-5">
       <div>
-        <h2 className="text-[15px] font-semibold">Costs</h2>
+        <h2 className="text-section font-semibold">Costs</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
           Quotes and approved spend limits per work order, plus every recorded cost entry on this
           case.
@@ -538,7 +538,7 @@ export function CostsPanel({ caseId, workOrders }: { caseId: string; workOrders:
       </div>
 
       <div className="mt-4">
-        <div className="text-[13px] font-semibold">By work order</div>
+        <div className="text-strong font-semibold">By work order</div>
         {workOrders.length === 0 ? (
           <p className="mt-2 text-xs text-muted-foreground">No work orders on this case yet.</p>
         ) : (
@@ -547,7 +547,7 @@ export function CostsPanel({ caseId, workOrders }: { caseId: string; workOrders:
               <li key={wo.id} className="rounded-lg border border-border p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2 text-[13px] font-semibold">
+                    <div className="flex items-center gap-2 text-strong font-semibold">
                       {workOrderKindLabel[wo.kind] ?? titleCase(wo.kind)}
                       <Pill tone="gray">{titleCase(wo.trade)}</Pill>
                     </div>
@@ -578,7 +578,7 @@ export function CostsPanel({ caseId, workOrders }: { caseId: string; workOrders:
       </div>
 
       <div className="mt-5 border-t border-border pt-4">
-        <div className="text-[13px] font-semibold">Recorded costs</div>
+        <div className="text-strong font-semibold">Recorded costs</div>
         <p className="mt-0.5 text-xs text-muted-foreground">
           Quoted and actual money are never summed together -- see the figures below.
         </p>

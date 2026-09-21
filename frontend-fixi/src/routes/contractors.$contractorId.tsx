@@ -36,8 +36,8 @@ function BackLink() {
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
-      <dt className="text-[11px] text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5 text-[13px] font-medium">{value}</dd>
+      <dt className="text-micro text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 text-strong font-medium">{value}</dd>
     </div>
   );
 }
@@ -117,7 +117,7 @@ function ContractorProfilePage() {
                   {approve.isPending ? "Approving…" : "Approve contractor"}
                 </Button>
                 {!hasNote && (
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-micro text-muted-foreground">
                     Add a verification note before approving
                   </span>
                 )}
@@ -139,7 +139,7 @@ function ContractorProfilePage() {
 
         <div className="mt-4 grid gap-4 lg:grid-cols-3">
           <Card className="p-4 lg:col-span-1">
-            <h2 className="text-sm font-semibold">Details</h2>
+            <h2 className="text-section font-semibold">Details</h2>
             <dl className="mt-3 space-y-3">
               <DetailRow label="Contact reference" value={c.contact_reference ?? "—"} />
               <DetailRow label="Connector" value={c.connector ? titleCase(c.connector) : "—"} />
@@ -161,9 +161,9 @@ function ContractorProfilePage() {
 
           <Card className="overflow-x-auto lg:col-span-2">
             <div className="p-4 pb-0">
-              <h2 className="text-sm font-semibold">Work history</h2>
+              <h2 className="text-section font-semibold">Work history</h2>
             </div>
-            <table className="mt-2 w-full min-w-[640px] text-[12px]">
+            <table className="mt-2 w-full min-w-[640px] text-body">
               <thead>
                 <tr className="border-b border-border text-left text-muted-foreground">
                   <th className="px-4 py-2.5 font-medium">Case</th>

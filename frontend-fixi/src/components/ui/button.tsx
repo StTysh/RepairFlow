@@ -23,7 +23,7 @@ const variantClasses: Record<Variant, string> = {
 
 const sizeClasses: Record<Size, string> = {
   default: "h-9 px-4 py-2 text-xs font-semibold",
-  sm: "h-8 rounded-lg px-3 text-[11px] font-semibold",
+  sm: "h-8 rounded-lg px-3 text-micro font-semibold",
   lg: "h-10 rounded-xl px-6 text-sm font-semibold",
   icon: "h-9 w-9",
   iconSm: "h-8 w-8",
@@ -47,9 +47,14 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
         // reference relies on: it writes `<Button><Plus/>New Ticket</Button>`
         // with no size on the icon and expects 16px.
         "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg",
-        "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        // Colour *and* transform, so the press has weight. 90ms is the
+        // shortest step on the scale: a button must feel like it responded
+        // before the operator has finished clicking it, not afterwards.
+        // The global prefers-reduced-motion rule clamps both.
+        "transition-[color,background-color,border-color,box-shadow,transform] duration-instant ease-fixi",
+        "active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         "focus-visible:ring-offset-1 focus-visible:ring-offset-background",
-        "disabled:pointer-events-none disabled:opacity-50",
+        "disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100",
         "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
         variantClasses[variant],
         sizeClasses[size],

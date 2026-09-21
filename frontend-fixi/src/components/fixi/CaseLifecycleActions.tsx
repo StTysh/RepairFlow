@@ -201,7 +201,7 @@ export function CaseLifecycleActions({
             sideOffset={6}
             className="z-50 w-72 rounded-xl border border-border bg-card p-1.5 shadow-panel"
           >
-            <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
+            <div className="px-2 py-1.5 text-micro text-muted-foreground">
               Actions allowed from “{STATUS_LABEL[status]}”
             </div>
             {available.map((action) => (
@@ -225,7 +225,7 @@ export function CaseLifecycleActions({
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-foreground/25 backdrop-blur-[1px]" />
           <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(28rem,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-card p-5 shadow-panel">
-            <Dialog.Title className="text-sm font-semibold">{open?.title}</Dialog.Title>
+            <Dialog.Title className="text-section font-semibold">{open?.title}</Dialog.Title>
             <Dialog.Description className="mt-1 text-xs leading-relaxed text-muted-foreground">
               {open?.description}
             </Dialog.Description>

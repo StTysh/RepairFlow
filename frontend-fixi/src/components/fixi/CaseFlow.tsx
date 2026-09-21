@@ -1,15 +1,18 @@
 import {
   Background,
+  Controls,
   Handle,
   Position,
   ReactFlow,
+  useReactFlow,
+  useStore,
   type Edge,
   type Node,
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Brain, Check, CircleDot, Copy, Hourglass, Inbox, UserCheck, Wrench } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/fixi/AppShell";
 import { Pill } from "@/components/fixi/Badge";
 import type { CaseEvent, CaseSnapshot, OrchestrationRun } from "@/api/types";
@@ -33,6 +36,30 @@ import { cn } from "@/lib/utils";
 const COLUMN_WIDTH = 300;
 const ROW_HEIGHT = 132;
 const LABEL_OFFSET = 46;
+
+// Declared node sizes, used for the fit before the real ones are known.
+//
+// React Flow measures nodes with a ResizeObserver, and until a node is
+// measured it contributes almost nothing to the bounding box fitView is
+// computing against. With eleven unmeasured nodes the box collapses to
+// roughly one card, fitView asks for ~3.6x, and the clamp at maxZoom
+// hands back 1.6 -- a canvas showing its content at 137% of the pane,
+// overflowing on both sides, with the built-in "fit view" button unable
+// to correct it because it recomputes from the same empty box.
+//
+// That is easy to hit: a browser tab that is not rendering (backgrounded,
+// occluded, or a prerender) runs no rendering steps, so no ResizeObserver
+// callback is ever delivered and the nodes stay unmeasured indefinitely.
+// `initialWidth`/`initialHeight` are React Flow's answer -- a declared
+// box used only until the measured one arrives, so the first fit is
+// right even when measurement is late or never comes.
+//
+// STEP_W must track `w-56` on StepNode below. The height is a typical
+// card, not a maximum: it only has to make the box approximately right.
+const STEP_W = 224;
+const STEP_H = 104;
+const LABEL_W = 56;
+const LABEL_H = 18;
 
 // The connection points themselves add visual noise at this node density,
 // and the routing is legible without them.
@@ -101,9 +128,9 @@ function StepNode({ data }: NodeProps<StepNodeType>) {
           strokeWidth={1.9}
         />
         <div className="min-w-0">
-          <div className={cn("text-xs font-semibold", isNow && "text-[13px]")}>{step.title}</div>
+          <div className={cn("text-xs font-semibold", isNow && "text-strong")}>{step.title}</div>
           {step.detail && (
-            <p className="mt-0.5 line-clamp-3 text-[11px] leading-snug text-muted-foreground">
+            <p className="mt-0.5 line-clamp-3 text-micro leading-snug text-muted-foreground">
               {step.detail}
             </p>
           )}
@@ -112,7 +139,7 @@ function StepNode({ data }: NodeProps<StepNodeType>) {
       <div className="mt-2 flex items-center justify-between gap-2">
         {step.badge ? <Pill tone="gray">{step.badge}</Pill> : <span />}
         {step.at && (
-          <span className="text-[10px] text-muted-foreground">{formatRelative(step.at)}</span>
+          <span className="text-micro text-muted-foreground">{formatRelative(step.at)}</span>
         )}
       </div>
       <Handle id="r" type="source" position={Position.Right} style={HIDDEN_HANDLE} />
@@ -126,7 +153,7 @@ function StepNode({ data }: NodeProps<StepNodeType>) {
  * rather than as an undifferentiated wall of cards. */
 function RoundLabelNode({ data }: NodeProps<RoundLabelNodeType>) {
   return (
-    <div className="pointer-events-none select-none text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <div className="pointer-events-none select-none text-micro font-semibold uppercase tracking-wide text-muted-foreground">
       {data.label}
     </div>
   );
@@ -148,6 +175,63 @@ const nodeTypes = { step: StepNode, roundLabel: RoundLabelNode };
  * and the round's full detail (tools read, evidence, policy, model,
  * timing) renders below, so the graph stays legible and the audit trail
  * stays complete. */
+/**
+ * Zoom limits. These are the ReactFlow props, not fitView options,
+ * because `fitBounds` reads the clamp from the store rather than from
+ * its own argument -- and they also bound what manual zooming can do,
+ * which is what we want: below ~0.4 the labels stop being readable and
+ * above 1.6 a card is comically large.
+ */
+const MIN_ZOOM = 0.4;
+const MAX_ZOOM = 1.6;
+
+/** How much of the canvas to leave as margin around the graph. */
+const FIT_PADDING = 0.06;
+
+/**
+ * Fits an EXPLICIT box, recomputed whenever the graph's extent changes.
+ *
+ * `<ReactFlow fitView>` fits to the bounding box React Flow derives from
+ * its own node measurements, and that is the problem: measurement is
+ * asynchronous (a ResizeObserver), so the box is whatever has been
+ * measured at the moment of the call. Observed on this canvas: the first
+ * fit ran against an almost-empty box, asked for ~3.6x, got the maxZoom
+ * clamp, and left the graph at 137% of its pane -- overflowing both
+ * edges, with the built-in "fit view" button recomputing the same wrong
+ * answer. Declaring `initialWidth`/`initialHeight` improved it but did
+ * not make it deterministic: consecutive loads measured 0.837 and 1.6.
+ *
+ * This component sidesteps measurement. The layout is ours -- fixed
+ * column width, fixed row height, a known node width -- so the extent is
+ * arithmetic, not observation, and `fitBounds` takes it directly. The
+ * one thing still measured is the canvas itself, which React Flow needs
+ * regardless and which is a single stable element.
+ */
+function FitToBounds({
+  bounds,
+}: {
+  bounds: { x: number; y: number; width: number; height: number };
+}) {
+  const { fitBounds } = useReactFlow();
+  // The canvas's own size is the one thing fitBounds still reads from
+  // the store, and it arrives asynchronously like everything else -- two
+  // consecutive loads fitted at 1.10 and 0.87 purely because the panel
+  // had a different height at the moment of the call. Subscribing to it
+  // means the fit is redone when the panel settles.
+  const paneWidth = useStore((s) => s.width);
+  const paneHeight = useStore((s) => s.height);
+  const { x, y, width, height } = bounds;
+
+  useEffect(() => {
+    if (!paneWidth || !paneHeight) return;
+    // duration 0: this is a correction, not a transition. Animating it
+    // would draw the eye to the canvas every time a poll adds a step.
+    void fitBounds({ x, y, width, height }, { padding: FIT_PADDING, duration: 0 });
+  }, [fitBounds, x, y, width, height, paneWidth, paneHeight]);
+
+  return null;
+}
+
 export function CaseFlow({
   snapshot,
   events,
@@ -164,7 +248,7 @@ export function CaseFlow({
   const steps = useMemo(() => buildCaseFlow(snapshot, events, runs), [snapshot, events, runs]);
   const [copied, setCopied] = useState(false);
 
-  const { nodes, edges, columns } = useMemo(() => {
+  const { nodes, edges, columns, bounds } = useMemo(() => {
     // Lay each round out as its own column. Row 0 is what arrived, row 1
     // is what the agent decided about it, rows 2+ are what changed as a
     // result -- so reading down a column answers "and then what?", and
@@ -201,6 +285,8 @@ export function CaseFlow({
         id: step.id,
         type: "step",
         position: { x: col * COLUMN_WIDTH, y: LABEL_OFFSET + row * ROW_HEIGHT },
+        initialWidth: STEP_W,
+        initialHeight: STEP_H,
         data: { step, selected: step.runId != null && step.runId === selectedRunId },
       };
     });
@@ -209,6 +295,8 @@ export function CaseFlow({
       id: `round-label:${r}`,
       type: "roundLabel",
       position: { x: i * COLUMN_WIDTH + 4, y: 0 },
+      initialWidth: LABEL_W,
+      initialHeight: LABEL_H,
       draggable: false,
       selectable: false,
       data: { label: i === rounds.length - 1 ? "Now" : `Round ${i + 1}` },
@@ -231,7 +319,25 @@ export function CaseFlow({
       };
     });
 
-    return { nodes: [...labelNodes, ...stepNodes], edges, columns: rounds.length };
+    // The extent, from the layout rather than from measurement. The last
+    // column starts at (n-1) * COLUMN_WIDTH and is STEP_W wide; the
+    // deepest row starts at LABEL_OFFSET + row * ROW_HEIGHT and is
+    // STEP_H tall.
+    const lastRow = Math.max(0, ...stepNodes.map((n) => n.position.y));
+    const bounds = {
+      x: 0,
+      y: 0,
+      width: Math.max(1, (rounds.length - 1) * COLUMN_WIDTH + STEP_W),
+      // One ROW_HEIGHT past the last row, not one STEP_H. Card heights
+      // vary with their text, and STEP_H is only a typical value -- a
+      // taller bottom card then hung 111px below the panel. Rows are
+      // ROW_HEIGHT apart, so a card can never exceed that without
+      // colliding with the row beneath it, which makes this the tight
+      // upper bound rather than a guess.
+      height: Math.max(1, lastRow + ROW_HEIGHT),
+    };
+
+    return { nodes: [...labelNodes, ...stepNodes], edges, columns: rounds.length, bounds };
   }, [steps, selectedRunId]);
 
   const decisionCount = steps.filter((s) => s.kind === "decision").length;
@@ -246,7 +352,11 @@ export function CaseFlow({
       return triggers + 1 + effects;
     }),
   );
-  const height = Math.min(720, LABEL_OFFSET + 60 + deepestColumn * ROW_HEIGHT);
+  // Was a flat `Math.min(720, ...)`. On a 1226px-tall window the canvas
+  // came out 634px with the graph using 43% of it. Clamp to the window so
+  // a tall screen gets a tall canvas, with a floor for short ones.
+  const contentHeight = LABEL_OFFSET + 60 + deepestColumn * ROW_HEIGHT;
+  const height = `clamp(420px, min(${contentHeight}px, calc(100vh - 340px)), 900px)`;
 
   async function copySummary() {
     const text = summariseCaseFlow(steps, `#${snapshot.case.case_number} — ${snapshot.case.title}`);
@@ -265,7 +375,7 @@ export function CaseFlow({
     <Card className="p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold">How this case has gone</h2>
+          <h2 className="text-section font-semibold">How this case has gone</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             Everything that came in, every decision the agent made, and where it stands now.
           </p>
@@ -280,7 +390,7 @@ export function CaseFlow({
         </button>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-micro text-muted-foreground">
         <LegendDot className="border-border" label="Came in" />
         <LegendDot className="border-primary/50" label="Agent decided" />
         <LegendDot className="border-timeline-done/50" label="Something changed" />
@@ -292,16 +402,17 @@ export function CaseFlow({
         className="mt-3 overflow-hidden rounded-lg border border-border bg-background/40"
         style={{ height }}
       >
+        {/* No `key={steps.length}` here any more. It remounted the entire
+         * canvas whenever a step arrived -- which, on a 4s poll against a
+         * live case, threw away the viewport mid-read. React Flow updates
+         * `nodes`/`edges` by identity, and the ids are stable
+         * (`event:<id>` / `run:<id>`), so it does not need the remount. */}
         <ReactFlow
-          key={steps.length}
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
-          fitView
-          // minZoom floor matters more than fitting everything in: a
-          // nine-round case is ~2700px wide and fitting that into a panel
-          // would shrink the text past reading. Clamp, and let it pan.
-          fitViewOptions={{ padding: 0.18, minZoom: 0.55, maxZoom: 1 }}
+          minZoom={MIN_ZOOM}
+          maxZoom={MAX_ZOOM}
           nodesDraggable={false}
           nodesConnectable={false}
           proOptions={{ hideAttribution: true }}
@@ -311,7 +422,12 @@ export function CaseFlow({
             onSelectRun(step.runId === selectedRunId ? null : step.runId);
           }}
         >
+          <FitToBounds bounds={bounds} />
           <Background color="var(--border)" gap={20} />
+          {/* The pan/zoom hint text was conditional on `columns > 4`, so a
+           * 4-round case offered no affordance at all while still being
+           * pannable. Controls are always present and always honest. */}
+          <Controls showInteractive={false} position="bottom-right" className="!shadow-card" />
         </ReactFlow>
       </div>
 
@@ -333,7 +449,7 @@ export function CaseFlow({
       </ol>
 
       {events.length === 0 && runs.length === 0 && (
-        <p className="mt-3 text-[11px] text-muted-foreground">
+        <p className="mt-3 text-micro text-muted-foreground">
           No event log was recorded for this case, so there is no history to draw beyond its current
           state. Cases raised before the event log existed look like this.
         </p>
@@ -363,8 +479,8 @@ export function RunDetail({ run }: { run: OrchestrationRun }) {
   return (
     <Card className="p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold">Why it decided that</h2>
-        <span className="text-[11px] text-muted-foreground">
+        <h2 className="text-section font-semibold">Why it decided that</h2>
+        <span className="text-micro text-muted-foreground">
           {formatDateTime(run.started_at)}
           {ms !== null && ` · ${(ms / 1000).toFixed(1)}s`}
         </span>
@@ -383,7 +499,7 @@ export function RunDetail({ run }: { run: OrchestrationRun }) {
                   key={t.id}
                   title={t.error_code ?? undefined}
                   className={cn(
-                    "rounded-md border px-1.5 py-px font-mono text-[10px]",
+                    "rounded-md border px-1.5 py-px font-mono text-micro",
                     t.outcome === "FAILED"
                       ? "border-destructive/40 text-destructive"
                       : "border-border text-muted-foreground",
@@ -413,11 +529,11 @@ export function RunDetail({ run }: { run: OrchestrationRun }) {
         {run.policy_result && <Row label="Policy">{run.policy_result}</Row>}
         {run.error_code && (
           <Row label="Failed">
-            <span className="font-mono text-[11px] text-destructive">{run.error_code}</span>
+            <span className="font-mono text-micro text-destructive">{run.error_code}</span>
           </Row>
         )}
         <Row label="Model">
-          <span className="font-mono text-[11px]">{run.model_id}</span>
+          <span className="font-mono text-micro">{run.model_id}</span>
         </Row>
       </dl>
     </Card>

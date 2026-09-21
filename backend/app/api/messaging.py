@@ -85,6 +85,12 @@ class ThreadListResponse(StrictModel):
 
 class ThreadDetailResponse(StrictModel):
     case_id: UUID
+    # The thread LIST endpoint has always returned these; this one did
+    # not, so the conversation page fell through its
+    # `case_title ?? \`Case ${caseId}\`` fallback and showed operators a
+    # raw UUID as the heading of every thread they opened (docs/27).
+    case_number: int
+    case_title: str
     items: list[MessageRecord]
 
 
@@ -239,7 +245,12 @@ async def get_thread(case_id: str, session: AsyncSession = Depends(get_session))
             select(MessageModel).where(MessageModel.case_id == case_id).order_by(MessageModel.created_at.asc())
         )
     ).scalars().all()
-    return ThreadDetailResponse(case_id=case.id, items=[_to_message_record(m) for m in rows])
+    return ThreadDetailResponse(
+        case_id=case.id,
+        case_number=case.case_number,
+        case_title=case.title,
+        items=[_to_message_record(m) for m in rows],
+    )
 
 
 @router.post("/messages/threads/{case_id}", status_code=201)

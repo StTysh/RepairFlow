@@ -74,7 +74,7 @@ function ShareButton({ caseId }: { caseId: string }) {
           <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-5 shadow-panel">
             <div className="flex items-start justify-between">
               <div>
-                <Dialog.Title className="text-sm font-semibold">Copy this link</Dialog.Title>
+                <Dialog.Title className="text-section font-semibold">Copy this link</Dialog.Title>
                 <Dialog.Description className="mt-1 text-xs leading-relaxed text-muted-foreground">
                   Your browser blocked automatic clipboard access. Copy it manually below — it
                   grants no public access; whoever opens it still has to sign in.
@@ -222,7 +222,7 @@ function EditCaseDialog({ snapshot }: { snapshot: CaseSnapshot }) {
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[min(30rem,92vw)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-panel">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <Dialog.Title className="text-sm font-semibold text-foreground">
+              <Dialog.Title className="text-section font-semibold text-foreground">
                 Edit case
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs leading-relaxed text-muted-foreground">
@@ -263,7 +263,7 @@ function EditCaseDialog({ snapshot }: { snapshot: CaseSnapshot }) {
                 aria-invalid={showError("title") ? true : undefined}
               />
               {showError("title") && (
-                <p className="mt-1 text-[11px] text-destructive">{errors.title}</p>
+                <p className="mt-1 text-micro text-destructive">{errors.title}</p>
               )}
             </div>
 
@@ -280,7 +280,7 @@ function EditCaseDialog({ snapshot }: { snapshot: CaseSnapshot }) {
                   aria-invalid={showError("location") ? true : undefined}
                 />
                 {showError("location") && (
-                  <p className="mt-1 text-[11px] text-destructive">{errors.location}</p>
+                  <p className="mt-1 text-micro text-destructive">{errors.location}</p>
                 )}
               </div>
               <div>
@@ -314,7 +314,7 @@ function EditCaseDialog({ snapshot }: { snapshot: CaseSnapshot }) {
                 aria-invalid={showError("description") ? true : undefined}
               />
               {showError("description") && (
-                <p className="mt-1 text-[11px] text-destructive">{errors.description}</p>
+                <p className="mt-1 text-micro text-destructive">{errors.description}</p>
               )}
             </div>
 

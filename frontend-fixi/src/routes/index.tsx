@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { AppShell, Card, PageContainer } from "@/components/fixi/AppShell";
 import { EmptyState, ErrorState, LoadingRows } from "@/components/fixi/EmptyState";
+import { Metric } from "@/components/fixi/Metric";
 import {
   useOverview,
   type NeedsAttentionItem,
@@ -165,9 +166,9 @@ function OverviewPage() {
             <section className="mt-5">
               <Card className="p-4">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-semibold">Needs attention</h2>
+                  <h2 className="text-section font-semibold">Needs attention</h2>
                   {!overview.isLoading && needsAttention.length > 0 && (
-                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[11px] font-bold text-destructive-foreground">
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-micro font-bold text-destructive-foreground">
                       {needsAttention.length}
                     </span>
                   )}
@@ -215,15 +216,15 @@ function OverviewPage() {
                                   <span className="truncate text-xs font-semibold">
                                     #{item.case_number} · {item.case_title}
                                   </span>
-                                  <span className="shrink-0 text-[10px] font-medium text-muted-foreground">
+                                  <span className="shrink-0 text-micro font-medium text-muted-foreground">
                                     {attentionLabel(item.reason)}
                                   </span>
                                 </div>
-                                <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
+                                <p className="mt-0.5 line-clamp-1 text-micro text-muted-foreground">
                                   {item.detail}
                                 </p>
                               </div>
-                              <span className="shrink-0 text-[10px] text-muted-foreground">
+                              <span className="shrink-0 text-micro text-muted-foreground">
                                 {formatRelative(item.occurred_at)}
                               </span>
                               <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -241,10 +242,10 @@ function OverviewPage() {
             <section className="mt-4 grid gap-4 xl:grid-cols-2">
               <Card className="p-4">
                 <div className="flex items-center justify-between gap-2">
-                  <h2 className="text-sm font-semibold">Upcoming appointments</h2>
+                  <h2 className="text-section font-semibold">Upcoming appointments</h2>
                   <Link
                     to="/maintenance"
-                    className="text-[11px] font-medium text-primary hover:underline"
+                    className="text-micro font-medium text-primary hover:underline"
                   >
                     View all
                   </Link>
@@ -277,7 +278,7 @@ function OverviewPage() {
               </Card>
 
               <Card className="p-4">
-                <h2 className="text-sm font-semibold">Recent activity</h2>
+                <h2 className="text-section font-semibold">Recent activity</h2>
                 <div className="mt-3">
                   {overview.isLoading ? (
                     <LoadingRows rows={3} />
@@ -334,7 +335,9 @@ function MetricLink({
         <Icon className="h-5 w-5" />
       </span>
       <div className="min-w-0">
-        <div className="text-xl font-bold tracking-tight">{value ?? "—"}</div>
+        <div className="text-metric font-bold tracking-tight">
+          <Metric value={value ?? "—"} />
+        </div>
         <div className="truncate text-xs text-muted-foreground">{label}</div>
       </div>
     </>
@@ -363,11 +366,11 @@ function AppointmentRow({ appointment }: { appointment: OverviewAppointmentItem 
       >
         <div className="min-w-0 flex-1">
           <div className="truncate text-xs font-semibold">{appointment.property_address}</div>
-          <div className="truncate text-[11px] text-muted-foreground">
+          <div className="truncate text-micro text-muted-foreground">
             {appointment.contractor_name} · #{appointment.case_number}
           </div>
         </div>
-        <div className="shrink-0 text-right text-[11px] text-muted-foreground">
+        <div className="shrink-0 text-right text-micro text-muted-foreground">
           <div>{date}</div>
           <div>{time}</div>
         </div>
@@ -389,11 +392,11 @@ function ActivityRow({ event }: { event: OverviewActivityItem }) {
           <div className="truncate text-xs font-semibold">
             #{event.case_number} · {event.case_title}
           </div>
-          <div className="truncate text-[11px] text-muted-foreground">
+          <div className="truncate text-micro text-muted-foreground">
             {titleCase(event.event_type)}
           </div>
         </div>
-        <span className="shrink-0 text-[10px] text-muted-foreground">
+        <span className="shrink-0 text-micro text-muted-foreground">
           {formatRelative(event.occurred_at)}
         </span>
         <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />

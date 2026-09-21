@@ -91,7 +91,7 @@ async def list_cases(
     session: AsyncSession = Depends(get_session),
 ) -> CaseListResponse:
     query = (
-        select(RepairCaseModel, PropertyModel.address_line, RepairIssueModel.description)
+        select(RepairCaseModel, PropertyModel.address_line, RepairIssueModel.description, PropertyModel.photo_key)
         .join(PropertyModel, RepairCaseModel.property_id == PropertyModel.id)
         .outerjoin(RepairIssueModel, RepairIssueModel.case_id == RepairCaseModel.id)
         # Only needed for the `q` search below (tenant display name), but
@@ -157,10 +157,11 @@ async def list_cases(
             assigned_contractor_name=(
                 contractors_by_case[case.id].display_name if case.id in contractors_by_case else None
             ),
+            property_photo_key=photo_key,
             category=case.category,
             is_archived=case.archive_batch_id is not None,
         )
-        for case, address_line, _description in rows
+        for case, address_line, _description, photo_key in rows
     ]
     return CaseListResponse(items=items, next_cursor=next_cursor)
 

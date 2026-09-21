@@ -32,7 +32,7 @@ export function DecisionCard({
       <div className="flex items-start gap-2.5">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-status-amber-foreground" />
         <div>
-          <h2 className="text-[15px] font-semibold text-status-amber-foreground">
+          <h2 className="text-section font-semibold text-status-amber-foreground">
             {awaiting.length === 1
               ? "1 action needs your approval"
               : `${awaiting.length} actions need your approval`}
@@ -105,7 +105,7 @@ function DecisionRow({
     <li className="rounded-lg border border-border bg-card p-3">
       <div className="min-w-0">
         <Pill tone="amber">{titleCase(action.proposal.action.kind)}</Pill>
-        <p className="mt-1.5 text-[13px] leading-relaxed">{action.proposal.decision_summary}</p>
+        <p className="mt-1.5 text-strong leading-relaxed">{action.proposal.decision_summary}</p>
         <ProposalScope action={action.proposal.action} snapshot={snapshot} />
         <EvidenceCount refs={action.proposal.evidence_refs} />
       </div>
@@ -176,7 +176,7 @@ function ProposalScope({
   if (entries.length === 0) return null;
 
   return (
-    <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-0.5 text-[11px]">
+    <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-0.5 text-micro">
       {entries.map(([key, value]) => (
         <Fragment key={key}>
           <dt className="text-muted-foreground">{titleCase(key.replace(/_/g, " "))}</dt>
@@ -195,7 +195,7 @@ function ProposalScope({
  * snapshot alone, which is worth knowing before approving it. */
 function EvidenceCount({ refs }: { refs: unknown[] }) {
   return (
-    <p className="mt-1.5 text-[11px] text-muted-foreground">
+    <p className="mt-1.5 text-micro text-muted-foreground">
       {refs.length === 0
         ? "No cited evidence — proposed from the case snapshot alone."
         : `Cites ${refs.length} piece${refs.length === 1 ? "" : "s"} of evidence.`}

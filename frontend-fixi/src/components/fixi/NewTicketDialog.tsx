@@ -128,7 +128,7 @@ export function NewTicketDialog() {
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[min(30rem,92vw)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-panel">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <Dialog.Title className="text-sm font-semibold text-foreground">
+              <Dialog.Title className="text-section font-semibold text-foreground">
                 New maintenance ticket
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs leading-relaxed text-muted-foreground">
@@ -166,15 +166,15 @@ export function NewTicketDialog() {
                 ))}
               </select>
               {showError("property") && (
-                <p className="mt-1 text-[11px] text-destructive">{errors.property}</p>
+                <p className="mt-1 text-micro text-destructive">{errors.property}</p>
               )}
               {!properties.isLoading && propertyItems.length === 0 && (
-                <p className="mt-1 text-[11px] text-muted-foreground">
+                <p className="mt-1 text-micro text-muted-foreground">
                   No properties yet — add one under Properties before raising a ticket.
                 </p>
               )}
               {properties.isError && (
-                <p className="mt-1 text-[11px] text-destructive">
+                <p className="mt-1 text-micro text-destructive">
                   Could not load properties. Is the backend running?
                 </p>
               )}
@@ -206,10 +206,10 @@ export function NewTicketDialog() {
                 ))}
               </select>
               {showError("tenant") && (
-                <p className="mt-1 text-[11px] text-destructive">{errors.tenant}</p>
+                <p className="mt-1 text-micro text-destructive">{errors.tenant}</p>
               )}
               {propertyId && !tenants.isLoading && tenantItems.length === 0 && (
-                <p className="mt-1 text-[11px] text-muted-foreground">
+                <p className="mt-1 text-micro text-muted-foreground">
                   No tenant recorded at this property yet — add one under Tenants.
                 </p>
               )}
@@ -229,7 +229,7 @@ export function NewTicketDialog() {
                   aria-invalid={showError("location") ? true : undefined}
                 />
                 {showError("location") && (
-                  <p className="mt-1 text-[11px] text-destructive">{errors.location}</p>
+                  <p className="mt-1 text-micro text-destructive">{errors.location}</p>
                 )}
               </div>
               <div>
@@ -264,7 +264,7 @@ export function NewTicketDialog() {
                 aria-invalid={showError("description") ? true : undefined}
               />
               {showError("description") && (
-                <p className="mt-1 text-[11px] text-destructive">{errors.description}</p>
+                <p className="mt-1 text-micro text-destructive">{errors.description}</p>
               )}
             </div>
 

@@ -101,11 +101,11 @@ function PropertiesPage() {
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-[1510px] px-6 py-6 xl:px-7">
+      <div className="mx-auto max-w-page px-6 py-6 xl:px-7">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Properties</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <h1 className="text-title font-bold tracking-tight">Properties</h1>
+            <p className="mt-1 text-strong text-muted-foreground">
               Every property in this portfolio, its current tenants and open cases.
             </p>
           </div>
@@ -188,8 +188,11 @@ function PropertiesPage() {
             />
           )}
 
+          {/* auto-fill, not a fixed column count: at 1454px this gives
+           * 4 x 351px and the four properties sit in one row instead of
+           * 3 + an orphan next to 954px of empty grid (docs/27). */}
           {items.length > 0 && (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(288px,1fr))] gap-4">
               {items.map((p) => (
                 <Link
                   key={p.id}
@@ -198,11 +201,13 @@ function PropertiesPage() {
                   search={{ address: p.address_line, postcode: p.postcode }}
                 >
                   <Card className="flex h-full flex-col overflow-hidden transition-colors hover:bg-accent">
-                    <PropertyPhoto photoKey={p.photo_key} className="h-32 w-full" />
+                    <PropertyPhoto photoKey={p.photo_key} className="h-40 w-full" />
                     <div className="flex flex-1 flex-col gap-2 p-4">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold">{p.address_line}</div>
+                          <div className="truncate text-section font-semibold">
+                            {p.address_line}
+                          </div>
                           <div className="text-xs text-muted-foreground">{p.postcode}</div>
                         </div>
                         {p.is_archived && (
@@ -346,7 +351,7 @@ function NewPropertyDialog({
         >
           <div className="flex items-start justify-between">
             <div>
-              <Dialog.Title className="text-sm font-semibold text-foreground">
+              <Dialog.Title className="text-section font-semibold text-foreground">
                 New property
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs text-muted-foreground">
@@ -375,7 +380,7 @@ function NewPropertyDialog({
                 placeholder="e.g. 14 King Street"
               />
               {touched && addressLine.trim().length === 0 && (
-                <p className="mt-1 text-[11px] text-destructive">Address is required.</p>
+                <p className="mt-1 text-micro text-destructive">Address is required.</p>
               )}
             </Field>
 
@@ -388,12 +393,12 @@ function NewPropertyDialog({
                 placeholder="e.g. E17 6QX"
               />
               {!postcodeValid && (
-                <p className="mt-1 text-[11px] text-destructive">
+                <p className="mt-1 text-micro text-destructive">
                   That doesn't look like a UK postcode.
                 </p>
               )}
               {touched && postcode.trim().length === 0 && (
-                <p className="mt-1 text-[11px] text-destructive">Postcode is required.</p>
+                <p className="mt-1 text-micro text-destructive">Postcode is required.</p>
               )}
             </Field>
 
@@ -406,7 +411,7 @@ function NewPropertyDialog({
                 placeholder="e.g. LDN-0192"
               />
               {touched && landlordReference.trim().length === 0 && (
-                <p className="mt-1 text-[11px] text-destructive">Landlord reference is required.</p>
+                <p className="mt-1 text-micro text-destructive">Landlord reference is required.</p>
               )}
             </Field>
 

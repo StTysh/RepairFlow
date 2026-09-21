@@ -167,7 +167,7 @@ export function AgentActivity({ snapshot }: { snapshot: CaseSnapshot }) {
           className={cn("mt-0.5 h-5 w-5 shrink-0", state.tone === "thinking" && "animate-pulse")}
         />
         <div className="min-w-0">
-          <div className="text-sm font-semibold">{state.label}</div>
+          <div className="text-section font-semibold">{state.label}</div>
           <p className="mt-0.5 text-xs opacity-90">{state.detail}</p>
         </div>
       </Card>
@@ -181,7 +181,7 @@ export function AgentActivity({ snapshot }: { snapshot: CaseSnapshot }) {
       />
 
       {events.data?.truncated && (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-micro text-muted-foreground">
           This case has more history than is shown — the oldest events are not loaded. Everything
           above is accurate; it simply does not start at the beginning.
         </p>
@@ -190,8 +190,8 @@ export function AgentActivity({ snapshot }: { snapshot: CaseSnapshot }) {
       {selectedRun && <RunDetail run={selectedRun} />}
 
       <Card className="p-5">
-        <div className="flex items-baseline justify-between gap-3">
-          <h2 className="text-sm font-semibold">Decision history</h2>
+        <div className="flex items-baseline gap-2">
+          <h2 className="text-section font-semibold">Decision history</h2>
           <span className="text-xs text-muted-foreground">
             {items.length === 0 ? "" : `${items.length} round${items.length === 1 ? "" : "s"}`}
           </span>
@@ -239,13 +239,11 @@ function RunCard({ run, round }: { run: OrchestrationRun; round: number }) {
 
   return (
     <li className="rounded-xl border border-border p-3.5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold">Round {round}</span>
-          <Pill tone={RUN_STATE_TONE[run.state] ?? "gray"}>{titleCase(run.state)}</Pill>
-          {run.policy_result && <Pill tone="gray">{titleCase(run.policy_result)}</Pill>}
-        </div>
-        <span className="text-[11px] text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="text-xs font-semibold">Round {round}</span>
+        <Pill tone={RUN_STATE_TONE[run.state] ?? "gray"}>{titleCase(run.state)}</Pill>
+        {run.policy_result && <Pill tone="gray">{titleCase(run.policy_result)}</Pill>}
+        <span className="text-micro text-muted-foreground">
           {formatRelative(run.started_at)}
           {ms !== null && ` · took ${(ms / 1000).toFixed(1)}s`}
         </span>
@@ -269,7 +267,7 @@ function RunCard({ run, round }: { run: OrchestrationRun; round: number }) {
                   key={t.id}
                   title={t.error_code ?? undefined}
                   className={cn(
-                    "rounded-md border px-1.5 py-px font-mono text-[10px]",
+                    "rounded-md border px-1.5 py-px font-mono text-micro",
                     t.outcome === "FAILED"
                       ? "border-destructive/40 text-destructive"
                       : "border-border text-muted-foreground",
@@ -297,12 +295,12 @@ function RunCard({ run, round }: { run: OrchestrationRun; round: number }) {
 
         {run.error_code && (
           <Step icon={XCircle} label="Failed">
-            <span className="font-mono text-[11px] text-destructive">{run.error_code}</span>
+            <span className="font-mono text-micro text-destructive">{run.error_code}</span>
           </Step>
         )}
       </div>
 
-      <p className="mt-3 border-t border-border pt-2 text-[10px] text-muted-foreground">
+      <p className="mt-3 border-t border-border pt-2 text-micro text-muted-foreground">
         Model {run.model_id}
       </p>
     </li>

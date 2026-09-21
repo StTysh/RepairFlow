@@ -67,13 +67,13 @@ function SearchHit({ item, onNavigate }: { item: SearchResultItem; onNavigate: (
         <span className="flex items-center gap-1.5">
           <span className="truncate text-xs font-medium text-foreground">{item.label}</span>
           {item.is_archived && (
-            <span className="shrink-0 rounded-full bg-muted px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <span className="shrink-0 rounded-full bg-muted px-1.5 py-px text-micro font-semibold uppercase tracking-wide text-muted-foreground">
               Sample
             </span>
           )}
         </span>
         {item.sublabel && (
-          <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+          <span className="mt-0.5 block truncate text-micro text-muted-foreground">
             {item.sublabel}
           </span>
         )}
@@ -198,7 +198,7 @@ function GlobalSearch() {
             <div className="max-h-[420px] overflow-y-auto">
               {groups.map((group) => (
                 <div key={group.type} className="mb-1 last:mb-0">
-                  <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <div className="px-2 py-1 text-micro font-semibold uppercase tracking-wide text-muted-foreground">
                     {GROUP_LABEL[group.type] ?? group.type}
                   </div>
                   <div className="space-y-0.5">
@@ -211,7 +211,7 @@ function GlobalSearch() {
                     ))}
                   </div>
                   {group.has_more && (
-                    <p className="px-2 py-1 text-[10px] text-muted-foreground">
+                    <p className="px-2 py-1 text-micro text-muted-foreground">
                       More {GROUP_LABEL[group.type]?.toLowerCase() ?? group.type} match — keep
                       typing to narrow.
                     </p>
@@ -244,7 +244,7 @@ function NotificationsBell() {
         >
           <Bell className="h-4 w-4" />
           {unreadCount > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold text-destructive-foreground ring-2 ring-card">
+            <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-micro font-semibold text-destructive-foreground ring-2 ring-card">
               {unreadCount > 9 ? "9+" : unreadCount}
             </span>
           )}
@@ -282,10 +282,10 @@ function NotificationsBell() {
                         <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
                       )}
                     </div>
-                    <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">
+                    <p className="mt-0.5 line-clamp-2 text-micro text-muted-foreground">
                       {n.message}
                     </p>
-                    <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    <p className="mt-0.5 text-micro text-muted-foreground">
                       {formatRelative(n.occurred_at)}
                     </p>
                   </Link>

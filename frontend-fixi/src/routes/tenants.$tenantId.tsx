@@ -29,8 +29,8 @@ function BackLink() {
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
-      <dt className="text-[11px] text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5 text-[13px] font-medium">{value}</dd>
+      <dt className="text-micro text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 text-strong font-medium">{value}</dd>
     </div>
   );
 }
@@ -135,7 +135,7 @@ function TenantProfilePage() {
           <Card className="mt-3 flex items-start gap-2.5 border-status-red-foreground/25 bg-status-red/40 p-4">
             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-status-red-foreground" />
             <div>
-              <p className="text-sm font-semibold text-status-red-foreground">
+              <p className="text-section font-semibold text-status-red-foreground">
                 Contact not allowed
               </p>
               <p className="mt-0.5 text-xs text-status-red-foreground/80">
@@ -149,7 +149,7 @@ function TenantProfilePage() {
         <div className="mt-4 grid gap-4 lg:grid-cols-3">
           <div className="space-y-4 lg:col-span-1">
             <Card className="p-4">
-              <h2 className="text-sm font-semibold">Contact details</h2>
+              <h2 className="text-section font-semibold">Contact details</h2>
               <dl className="mt-3 space-y-3">
                 <DetailRow label="Phone" value={t.phone_e164 ?? "—"} />
                 <DetailRow label="Email" value={t.email ?? "—"} />
@@ -174,8 +174,8 @@ function TenantProfilePage() {
 
             <Link to="/properties/$propertyId/history" params={{ propertyId: t.property_id }}>
               <Card className="p-4 transition-colors hover:bg-accent">
-                <h2 className="text-sm font-semibold">Property</h2>
-                <p className="mt-2 text-[13px] font-medium">{t.property_address}</p>
+                <h2 className="text-section font-semibold">Property</h2>
+                <p className="mt-2 text-strong font-medium">{t.property_address}</p>
                 {t.property_postcode && (
                   <p className="text-xs text-muted-foreground">{t.property_postcode}</p>
                 )}
@@ -188,7 +188,7 @@ function TenantProfilePage() {
 
           <Card className="lg:col-span-2">
             <div className="p-4 pb-0">
-              <h2 className="text-sm font-semibold">
+              <h2 className="text-section font-semibold">
                 Cases ({t.open_case_count} open, {t.total_case_count} total)
               </h2>
             </div>
@@ -207,14 +207,14 @@ function TenantProfilePage() {
                     key={cs.id}
                     to="/maintenance/tickets/$ticketId/{-$section}"
                     params={{ ticketId: cs.id, section: undefined }}
-                    className="flex items-center justify-between gap-3 px-4 py-3 text-[13px] transition-colors hover:bg-muted/60"
+                    className="flex items-center justify-between gap-3 px-4 py-3 text-strong transition-colors hover:bg-muted/60"
                   >
                     <div className="min-w-0">
                       <div className="truncate font-medium">
                         {cs.case_number ? `#${cs.case_number} — ` : ""}
                         {cs.title}
                       </div>
-                      <div className="mt-0.5 text-[11px] text-muted-foreground">
+                      <div className="mt-0.5 text-micro text-muted-foreground">
                         {/* Both, because they answer different questions:
                          * when the tenant raised it, and whether anything
                          * has happened since. */}

@@ -1200,6 +1200,10 @@ class CaseListItem(StrictModel):
     # status). "UNKNOWN" until triage has run.
     urgency: Literal["EMERGENCY", "URGENT", "ROUTINE", "UNKNOWN"] = "UNKNOWN"
     assigned_contractor_name: str | None = None
+    # The property's photograph, so the ticket list can show which
+    # building a job is at rather than an identical placeholder glyph on
+    # every row. Null is normal and renders as a neutral tile.
+    property_photo_key: str | None = None
     category: Trade | None = None
     # True when this row is synthetic archival history rather than
     # live work. Every list that can show one must label it, so a

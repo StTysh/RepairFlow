@@ -1,10 +1,23 @@
 // Ported from frontend/src/lib/format.ts (old Fixi UI) -- keeping the
-// same formatting conventions so the two frontends read consistently while
-// both exist side by side.
+// same formatting conventions.
+
+/** Every rendered date, time and amount in this app is British.
+ *
+ * These helpers previously passed `undefined` as the locale, which means
+ * "whatever the viewer's browser is set to" -- so the same case could
+ * render 09/21/2026 for one operator and 21/09/2026 for another, in a
+ * product that only handles UK lettings and prices everything in GBP.
+ *
+ * Note this does NOT change the native date pickers (`<input type="date">`
+ * / `datetime-local`). Chrome formats those from the browser's own UI
+ * language and ignores both this and the document's `lang`, so a US-
+ * configured browser will still show mm/dd/yyyy inside the picker itself.
+ * That is a browser behaviour, not something the page can override. */
+const LOCALE = "en-GB";
 
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleString(undefined, {
+  return new Date(iso).toLocaleString(LOCALE, {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -14,7 +27,7 @@ export function formatDateTime(iso: string | null | undefined): string {
 
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString(undefined, {
+  return new Date(iso).toLocaleDateString(LOCALE, {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -23,7 +36,7 @@ export function formatDate(iso: string | null | undefined): string {
 
 export function formatTime(iso: string | null | undefined): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" });
 }
 
 /** "Tomorrow, 14 Sep 2026" / "15:00 – 17:00"-style range, split as two
@@ -60,7 +73,7 @@ export function titleCase(value: string): string {
  * "not recorded" copy rather than this silently rendering "£0.00". */
 export function formatPence(pence: number | null | undefined): string | null {
   if (pence === null || pence === undefined) return null;
-  return (pence / 100).toLocaleString(undefined, {
+  return (pence / 100).toLocaleString(LOCALE, {
     style: "currency",
     currency: "GBP",
   });

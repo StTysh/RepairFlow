@@ -2,7 +2,26 @@
 @source "../src";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+/* Dark mode was removed on 2026-09-21, not disabled.
+ *
+ * A `.dark` block existed here defining 32 colour tokens, plus
+ * `@custom-variant dark`. It was unreachable: nothing in the app ever
+ * added the `.dark` class, there were zero `dark:` utilities in any
+ * component, no `prefers-color-scheme` hook, and index.html did not set
+ * it. It had never rendered.
+ *
+ * It was also incomplete. `:root` defines 55 tokens; `.dark` defined 32.
+ * Every status colour (--status-red/amber/green/blue/gray/orange/purple
+ * and their -foreground pairs), the timeline colours, --selected and both
+ * shadows were missing, so a dark theme would have fallen back to the
+ * light values and rendered pale pastel pills with light text on dark
+ * cards -- illegible exactly where the UI carries its meaning.
+ *
+ * Shipping a real dark theme means authoring those 23 values and checking
+ * legibility across every screen in both themes. That is a design task,
+ * not a flag flip. Recover the old block with:
+ *     git show HEAD:frontend-fixi/src/styles.css
+ */
 
 /*
  * Design system definition.
@@ -10,11 +29,11 @@
  * The @theme inline block maps CSS custom properties to Tailwind utility
  * classes (e.g. --color-primary -> bg-primary, text-primary).
  *
- * The :root and .dark blocks define the actual color values using oklch.
+ * The :root block defines the actual color values using oklch.
  * All colors MUST use oklch format.
  *
  * To add a new semantic color:
- * 1. Add the variable to :root (light value) and .dark (dark value)
+ * 1. Add the variable to :root
  * 2. Register it in @theme inline as --color-<name>: var(--<name>)
  */
 
@@ -85,6 +104,212 @@
   --shadow-panel: var(--shadow-panel);
 }
 
+/* --------------------------------------------------------------------
+ * Layout, type and motion tokens (docs/27).
+ *
+ * Not `@theme inline`: these are literal values, not indirections through
+ * :root, so they belong in a plain `@theme` block.
+ * ------------------------------------------------------------------ */
+@theme {
+  /* Page width. 1760px is derived, not chosen: the widest page
+   * (Maintenance) needs ~1350px of table to stop truncating the Issue
+   * column, plus a 320px rail, a 24px gap and 2x28px gutters. Past that,
+   * extra width only flings labels away from their values again.
+   * Replaces six hand-written copies of `max-w-[1510px]`. */
+  --container-page: 110rem; /* 1760px -> max-w-page */
+  --container-prose-fixi: 70ch; /* -> max-w-prose-fixi, for prose blocks */
+
+  /* Type scale. Seven steps, replacing seventeen ad-hoc sizes.
+   * 11px is a hard floor -- the app previously used 8px, 9px and 9.5px. */
+  --text-micro: 0.6875rem; /* 11 -- badges, timestamps */
+  --text-micro--line-height: 1rem;
+  --text-body: 0.75rem; /* 12 -- table body */
+  --text-body--line-height: 1.125rem;
+  --text-strong: 0.8125rem; /* 13 -- row titles */
+  --text-strong--line-height: 1.25rem;
+  --text-section: 0.9375rem; /* 15 -- card headings */
+  --text-section--line-height: 1.375rem;
+  --text-title: 1.25rem; /* 20 -- page h1 */
+  --text-title--line-height: 1.75rem;
+  --text-metric: 1.625rem; /* 26 -- KPI values */
+  --text-metric--line-height: 1.875rem;
+
+  /* Motion. Four durations; an app used for eight hours needs no more.
+   * `--transition-duration-*` is Tailwind v4's real namespace, so
+   * `duration-fast` works AND drives tw-animate-css's `animate-in`
+   * (which reads --tw-duration). `--ease-*` backs `ease-fixi`. */
+  --transition-duration-instant: 90ms;
+  --transition-duration-fast: 140ms;
+  --transition-duration-base: 200ms;
+  --transition-duration-slow: 320ms;
+
+  --ease-fixi: cubic-bezier(0.2, 0, 0, 1);
+  --ease-fixi-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-fixi-in: cubic-bezier(0.4, 0, 1, 1);
+
+  --animate-value-flash: value-flash 640ms var(--ease-fixi) 1;
+  @keyframes value-flash {
+    0% {
+      background-color: color-mix(in oklch, var(--primary) 18%, transparent);
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+
+  --animate-agent-ring: agent-ring 1800ms var(--ease-fixi-out) infinite;
+  @keyframes agent-ring {
+    0% {
+      transform: scale(1);
+      opacity: 0.55;
+    }
+    70%,
+    100% {
+      transform: scale(2.1);
+      opacity: 0;
+    }
+  }
+
+  --animate-shimmer: shimmer 1400ms linear infinite;
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+}
+
+/* --------------------------------------------------------------------
+ * prefers-reduced-motion: the single global backstop.
+ *
+ * Nothing in this app honoured the preference before -- not the app (0
+ * matches in src), and not tw-animate-css itself (0 matches in its dist).
+ * TanStack Router does not check it either. Individual features opt out
+ * at their own level too, so nothing depends only on this cascade.
+ *
+ * 1ms rather than 0s is deliberate: Radix's Presence waits for
+ * `animationend` before unmounting, and a zero-duration animation is not
+ * guaranteed to fire it. A dialog that will not close is worse than one
+ * that animates.
+ * ------------------------------------------------------------------ */
+/* --------------------------------------------------------------------
+ * Route transitions (router.tsx starts them; this decides what they look
+ * like).
+ *
+ * Only `page-content` moves -- the sidebar and utility bar are named
+ * snapshot groups in AppShell.tsx, so they stay put while the page body
+ * swaps. The travel is 10px, not a full slide: at 1760px wide a real
+ * slide would be a long, slow sweep, and the job here is only to say
+ * "this is a different page" and which direction you went.
+ *
+ * View Transitions are Baseline as of Firefox 144; in an older browser
+ * `startViewTransition` is simply absent and TanStack Router falls back
+ * to an ordinary instant navigation, which is the correct degradation.
+ * ------------------------------------------------------------------ */
+::view-transition-old(page-content),
+::view-transition-new(page-content) {
+  /* Both snapshots occupy the same box while they cross-fade; without
+   * this the outgoing page is laid out below the incoming one. */
+  animation-duration: var(--transition-duration-base);
+  animation-timing-function: var(--ease-fixi-out);
+  animation-fill-mode: both;
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(page-content) {
+  animation-name: page-leave;
+}
+
+::view-transition-new(page-content) {
+  animation-name: page-enter;
+}
+
+@keyframes page-leave {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Directional refinement. `:active-view-transition-type()` is newer than
+ * view transitions themselves, so these rules are additive: where the
+ * selector is not understood it is dropped and the plain cross-fade
+ * above still runs. */
+html:active-view-transition-type(forward)::view-transition-new(page-content) {
+  animation-name: page-enter, page-in-from-right;
+}
+html:active-view-transition-type(forward)::view-transition-old(page-content) {
+  animation-name: page-leave, page-out-to-left;
+}
+html:active-view-transition-type(back)::view-transition-new(page-content) {
+  animation-name: page-enter, page-in-from-left;
+}
+html:active-view-transition-type(back)::view-transition-old(page-content) {
+  animation-name: page-leave, page-out-to-right;
+}
+
+@keyframes page-in-from-right {
+  from {
+    transform: translateX(10px);
+  }
+}
+@keyframes page-out-to-left {
+  to {
+    transform: translateX(-10px);
+  }
+}
+@keyframes page-in-from-left {
+  from {
+    transform: translateX(-10px);
+  }
+}
+@keyframes page-out-to-right {
+  to {
+    transform: translateX(10px);
+  }
+}
+
+/* The shell regions: no travel, just a soft cross-fade so the active
+ * nav pill and the page-specific parts of the utility bar do not snap. */
+::view-transition-old(app-sidebar),
+::view-transition-new(app-sidebar),
+::view-transition-old(app-utility-bar),
+::view-transition-new(app-utility-bar) {
+  animation-duration: var(--transition-duration-fast);
+  animation-timing-function: var(--ease-fixi);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+
+  /* React Flow's `animated` edge is a marching-ants dash animation. */
+  .react-flow__edge.animated path {
+    animation: none !important;
+  }
+}
+
 :root {
   --radius: 0.75rem;
   --background: oklch(0.982 0.004 230);
@@ -143,41 +368,6 @@
   --shadow-card:
     0 1px 2px 0 oklch(0.2 0.03 260 / 0.035), 0 4px 14px -8px oklch(0.2 0.03 260 / 0.12);
   --shadow-panel: 0 8px 30px -12px oklch(0.2 0.03 260 / 0.18);
-}
-
-.dark {
-  --background: oklch(0.129 0.042 264.695);
-  --foreground: oklch(0.984 0.003 247.858);
-  --card: oklch(0.208 0.042 265.755);
-  --card-foreground: oklch(0.984 0.003 247.858);
-  --popover: oklch(0.208 0.042 265.755);
-  --popover-foreground: oklch(0.984 0.003 247.858);
-  --primary: oklch(0.929 0.013 255.508);
-  --primary-foreground: oklch(0.208 0.042 265.755);
-  --secondary: oklch(0.279 0.041 260.031);
-  --secondary-foreground: oklch(0.984 0.003 247.858);
-  --muted: oklch(0.279 0.041 260.031);
-  --muted-foreground: oklch(0.704 0.04 256.788);
-  --accent: oklch(0.279 0.041 260.031);
-  --accent-foreground: oklch(0.984 0.003 247.858);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.984 0.003 247.858);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.551 0.027 264.364);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.208 0.042 265.755);
-  --sidebar-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-accent: oklch(0.279 0.041 260.031);
-  --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.551 0.027 264.364);
 }
 
 @layer base {

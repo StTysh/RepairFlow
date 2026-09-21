@@ -146,7 +146,7 @@ export function RecordFieldUpdateDialog({
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-6 shadow-panel">
           <div className="flex items-start justify-between">
             <div>
-              <Dialog.Title className="text-sm font-semibold text-foreground">
+              <Dialog.Title className="text-section font-semibold text-foreground">
                 Record an update
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs leading-relaxed text-muted-foreground">
@@ -175,7 +175,7 @@ export function RecordFieldUpdateDialog({
                     disabled={disabled}
                     onClick={() => setKind(k)}
                     className={cn(
-                      "h-8 flex-1 rounded-lg border px-1.5 text-[11px] font-medium leading-tight transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                      "h-8 flex-1 rounded-lg border px-1.5 text-micro font-medium leading-tight transition-colors disabled:cursor-not-allowed disabled:opacity-40",
                       kind === k
                         ? "border-foreground bg-foreground text-background"
                         : "border-border bg-card text-foreground hover:bg-accent",

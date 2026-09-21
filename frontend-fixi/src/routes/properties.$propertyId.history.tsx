@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Download, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Metric } from "@/components/fixi/Metric";
 import { AppShell, Card } from "@/components/fixi/AppShell";
 import { Pill } from "@/components/fixi/Badge";
 import { PropertyTabs } from "@/components/fixi/PropertyTabs";
@@ -11,7 +12,7 @@ import {
 } from "@/components/fixi/PropertyStatsCharts";
 import { usePropertyHistory, usePropertyStats } from "@/hooks/use-property-history";
 import type { PropertyHistoryItem, Trade } from "@/api/types";
-import { CASE_STATUSES, statusTone, type CaseStatus } from "@/lib/fixi-data";
+import { CASE_STATUSES, statusTone, type CaseStatus, STATUS_LABEL } from "@/lib/fixi-data";
 import { formatDate, formatPence, titleCase } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { readParam } from "@/lib/search-params";
@@ -273,7 +274,9 @@ function HistoryPage() {
         <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {stats.map((s) => (
             <Card key={s.label} className="px-4 py-3">
-              <div className="text-lg font-bold tracking-tight">{s.value}</div>
+              <div className="text-metric font-bold tracking-tight">
+                <Metric value={s.value} />
+              </div>
               <div className="text-xs text-muted-foreground">{s.label}</div>
             </Card>
           ))}
@@ -339,7 +342,7 @@ function HistoryPage() {
               <button
                 type="button"
                 onClick={clearFilters}
-                className="ml-2 inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] font-medium hover:bg-accent"
+                className="ml-2 inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-micro font-medium hover:bg-accent"
               >
                 <X className="h-3 w-3" /> Clear filter
               </button>
@@ -357,7 +360,7 @@ function HistoryPage() {
         </div>
 
         <Card className="mt-2 overflow-x-auto">
-          <table className="w-full min-w-[950px] text-[13px]">
+          <table className="w-full min-w-[950px] text-strong">
             <thead>
               <tr className="border-b border-border text-left text-xs text-muted-foreground">
                 <th className="w-10 px-4 py-2.5">
@@ -503,7 +506,7 @@ function HistoryRow({
       </td>
       <td className="px-4 py-3 text-muted-foreground">{h.trade ? titleCase(h.trade) : "—"}</td>
       <td className="px-4 py-3">
-        <Pill tone={statusTone(h.status)}>{h.status}</Pill>
+        <Pill tone={statusTone(h.status)}>{STATUS_LABEL[h.status] ?? h.status}</Pill>
       </td>
       <td className="px-4 py-3 text-muted-foreground">{h.outcome ?? "—"}</td>
       <td className="px-4 py-3 text-muted-foreground">{h.contractor_name ?? "—"}</td>
@@ -587,7 +590,7 @@ function YearChipRow({
           onClick={() => onToggle(year)}
           aria-pressed={active === year}
           className={cn(
-            "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
+            "rounded-md border px-2 py-0.5 text-micro font-medium transition-colors",
             active === year
               ? "border-primary bg-primary/10 text-primary"
               : "border-border text-muted-foreground hover:bg-accent",

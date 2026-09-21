@@ -194,25 +194,31 @@ export function CaseProgress({ snapshot }: { snapshot: CaseSnapshot }) {
   const { steps, banner } = useMemo(() => deriveCaseProgress(snapshot), [snapshot]);
 
   return (
-    <Card className="mt-4 px-4 py-4 sm:px-6">
+    <Card className="mt-4 px-4 py-3">
       {banner && (
         <div
           className={cn(
-            "mb-4 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs leading-relaxed",
+            "mb-3 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-body leading-relaxed",
             banner.tone === "escalated"
               ? "border-status-red-foreground/25 bg-status-red/40 text-status-red-foreground"
               : "border-border bg-muted text-muted-foreground",
           )}
         >
           {banner.tone === "escalated" ? (
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           ) : (
-            <Ban className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <Ban className="h-3.5 w-3.5 shrink-0" />
           )}
-          <span>{banner.text}</span>
+          <span className="line-clamp-1" title={banner.text}>
+            {banner.text}
+          </span>
         </div>
       )}
-      <ol className="flex items-start">
+      {/* Capped: unconstrained, this rail spanned 2205px on a 2552px
+       * screen -- 441px per label and 1764px between the first and
+       * last step centres, which is not a progress indicator any
+       * more (docs/27). */}
+      <ol className="mx-auto flex max-w-[860px] items-start">
         {steps.map((s, i) => (
           <li key={s.key} className="relative flex flex-1 flex-col items-center px-1 text-center">
             {i < steps.length - 1 && (
@@ -233,7 +239,7 @@ export function CaseProgress({ snapshot }: { snapshot: CaseSnapshot }) {
               {s.label}
             </div>
             {s.note && (
-              <div className="mt-0.5 max-w-[10rem] text-[10px] leading-snug text-muted-foreground">
+              <div className="mt-0.5 max-w-[10rem] text-micro leading-snug text-muted-foreground">
                 {s.note}
               </div>
             )}

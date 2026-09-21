@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Card } from "@/components/fixi/AppShell";
 import { Pill } from "@/components/fixi/Badge";
 import { Button } from "@/components/ui/button";
-import { EmptyState, ErrorState, LoadingRows } from "@/components/fixi/EmptyState";
+import { ErrorState, LoadingRows } from "@/components/fixi/EmptyState";
 import {
   fetchDocumentObjectUrl,
   useDeleteDocument,
@@ -100,7 +100,7 @@ function EvidenceImage({ evidence }: { evidence: EvidenceRefLike }) {
         onError={() => setFailed(true)}
         className="aspect-square w-full object-cover"
       />
-      <span className="absolute bottom-1 left-1 right-1 truncate rounded bg-foreground/70 px-1.5 py-0.5 text-[9px] font-medium text-background">
+      <span className="absolute bottom-1 left-1 right-1 truncate rounded bg-foreground/70 px-1.5 py-0.5 text-micro font-medium text-background">
         {illustrative
           ? "Illustrative sample — not a photo of this property"
           : (SOURCE_LABEL[evidence.source_type] ?? evidence.source_type)}
@@ -117,7 +117,7 @@ function EvidencePhotos({ evidenceRefs }: { evidenceRefs: unknown[] }) {
 
   return (
     <div className="mt-5 border-t border-border pt-4">
-      <div className="text-[13px] font-semibold">Reported evidence</div>
+      <div className="text-strong font-semibold">Reported evidence</div>
       <p className="mt-0.5 text-xs text-muted-foreground">
         What was recorded as evidence for this issue, labelled by its source.
       </p>
@@ -226,13 +226,13 @@ function DocumentRow({ doc, caseId }: { doc: DocumentRecord; caseId: string }) {
             <FileText className="h-4 w-4" />
           </span>
           <div className="min-w-0">
-            <div className="truncate text-[13px] font-semibold">{doc.display_name}</div>
-            <div className="mt-0.5 text-[11px] text-muted-foreground">
+            <div className="truncate text-strong font-semibold">{doc.display_name}</div>
+            <div className="mt-0.5 text-micro text-muted-foreground">
               {doc.content_type} · {formatBytes(doc.size_bytes)} · {doc.uploaded_by} ·{" "}
               {formatDateTime(doc.uploaded_at)}
             </div>
             {doc.description && (
-              <p className="mt-1 text-[11px] text-muted-foreground">{doc.description}</p>
+              <p className="mt-1 text-micro text-muted-foreground">{doc.description}</p>
             )}
           </div>
         </button>
@@ -258,7 +258,7 @@ function DocumentRow({ doc, caseId }: { doc: DocumentRecord; caseId: string }) {
             <AlertDialog.Portal>
               <AlertDialog.Overlay className="fixed inset-0 z-50 bg-foreground/20" />
               <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-5 shadow-panel">
-                <AlertDialog.Title className="text-sm font-semibold">
+                <AlertDialog.Title className="text-section font-semibold">
                   Delete this file?
                 </AlertDialog.Title>
                 <AlertDialog.Description className="mt-1 text-xs leading-relaxed text-muted-foreground">
@@ -353,7 +353,7 @@ export function DocumentsPanel({
   return (
     <Card className="p-5">
       <div>
-        <h2 className="text-[15px] font-semibold">Files</h2>
+        <h2 className="text-section font-semibold">Files</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
           Documents and photos attached to this case.
         </p>
@@ -397,7 +397,7 @@ export function DocumentsPanel({
           }}
         />
         {upload.isPending && (
-          <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <p className="flex items-center gap-1.5 text-micro text-muted-foreground">
             <Loader2 className="h-3 w-3 animate-spin" /> Uploading…
           </p>
         )}
@@ -411,12 +411,16 @@ export function DocumentsPanel({
             onRetry={() => void docs.refetch()}
           />
         )}
+        {/* One empty state, not two. The dropzone above already says
+         * "Drag a file here, or browse" and already invites the action;
+         * a second full EmptyState beneath it repeated the same message
+         * in ~230px of extra height (docs/27). A single quiet line is
+         * enough once the dropzone is doing the work. */}
         {!docs.isLoading && !docs.isError && items.length === 0 && (
-          <EmptyState
-            icon={FileText}
-            title="No files yet"
-            description="Attach photos, quotes or reports here so everyone working this case sees the same evidence."
-          />
+          <p className="mt-3 text-body text-muted-foreground">
+            No files yet. Attach photos, quotes or reports so everyone working this case sees the
+            same evidence.
+          </p>
         )}
         {!docs.isLoading && !docs.isError && items.length > 0 && (
           <ul className="space-y-2">

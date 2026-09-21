@@ -120,7 +120,7 @@ export function RescheduleDialog({
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-6 shadow-panel">
           <div className="flex items-start justify-between">
             <div>
-              <Dialog.Title className="text-sm font-semibold text-foreground">
+              <Dialog.Title className="text-section font-semibold text-foreground">
                 Reschedule visit
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs leading-relaxed text-muted-foreground">
@@ -168,7 +168,7 @@ export function RescheduleDialog({
                     aria-invalid={showError("start") ? true : undefined}
                   />
                   {showError("start") && (
-                    <p className="mt-1 text-[11px] text-destructive">{errors.start}</p>
+                    <p className="mt-1 text-micro text-destructive">{errors.start}</p>
                   )}
                 </div>
                 <div>
@@ -184,7 +184,7 @@ export function RescheduleDialog({
                     aria-invalid={showError("end") ? true : undefined}
                   />
                   {showError("end") && (
-                    <p className="mt-1 text-[11px] text-destructive">{errors.end}</p>
+                    <p className="mt-1 text-micro text-destructive">{errors.end}</p>
                   )}
                 </div>
               </div>
@@ -202,7 +202,7 @@ export function RescheduleDialog({
                   aria-invalid={showError("arrangedWith") ? true : undefined}
                 />
                 {showError("arrangedWith") && (
-                  <p className="mt-1 text-[11px] text-destructive">{errors.arrangedWith}</p>
+                  <p className="mt-1 text-micro text-destructive">{errors.arrangedWith}</p>
                 )}
               </div>
 
@@ -219,7 +219,7 @@ export function RescheduleDialog({
                   aria-invalid={showError("reason") ? true : undefined}
                 />
                 {showError("reason") && (
-                  <p className="mt-1 text-[11px] text-destructive">{errors.reason}</p>
+                  <p className="mt-1 text-micro text-destructive">{errors.reason}</p>
                 )}
               </div>
 
