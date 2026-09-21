@@ -33,7 +33,7 @@ are the authority on every deliberate deviation.
 
 | Missing | Consequence | What to do |
 |---|---|---|
-| `backend/data/` | **No database.** No cases, no call history. | The app creates and migrates one on first boot. `python -m app.seed` adds reference data; `python -m app.archive --apply` adds 60 closed sample cases. |
+| `backend/data/` | **No database.** No cases, no call history. | The app creates and migrates one on first boot. `python -m app.seed` adds reference data; `python -m app.archive --apply` adds 60 closed sample cases; `python -m app.sample_operations --apply` adds 25 open/recently-closed operational cases so the dashboard counters are not all zero. |
 | `frontend-fixi/dist/` | The SPA is **not built**, and `main.py` only mounts it `if FRONTEND_DIST.is_dir()` — checked once at import. | `npm ci && npm run build` **before** starting the backend. Building afterwards does not fix a running process; restart it. |
 | `backend/.venv/`, `node_modules/` | Nothing installed. | `uv sync --frozen`, `npm ci`. `uv` is the one prerequisite this repo does not install for you. |
 | `backend/.env` | No provider keys. Operator auth defaults **on**. | Optional — every setting has a working default. Sign in with `operator` / `repairflow-demo`. |
@@ -47,6 +47,113 @@ the old machine holds 14 real cases and the only three `LIVE`
 communications that exist, including two genuine failed call attempts.
 Copying that file by hand is the only way to bring them; a clone starts
 empty, which is a supported state.
+
+---
+
+## 0b. What changed on 2026-09-21
+
+The rest of this document was written on 2026-09-20. A later session
+drove the application in a real browser and changed what is true. Read
+this section before trusting anything below it; `docs/26`'s
+2026-09-21 entry has the full reasoning.
+
+**Operator sign-in no longer exists.** `OPERATOR_AUTH_ENABLED` now
+defaults **False**, `LoginGate.tsx` and `use-auth.ts` are deleted, and
+the API is open. This was not a preference: with auth on (the old
+default, and what a fresh clone got), `require_operator` returned
+`401 WWW-Authenticate: Basic`, Chrome hijacked the response to raise its
+own credentials dialog, the SPA's auth probe never settled, and **the
+documented bootstrap rendered a permanently blank page**. The owner
+elected to remove the login rather than repair it.
+
+> **This build must stay on localhost.** CLAUDE.md forbids public
+> unauthenticated write endpoints and this build now has them. §6's
+> "set `OPERATOR_AUTH_ENABLED=true` before exposing this to a network"
+> is no longer sufficient advice: turning the flag on now 401s every
+> call with no sign-in form to recover through. Restore a form first —
+> `frontend-fixi/src/lib/auth-context.ts` is the single seam.
+
+**Gemini is dead and the coordinator is on its fixture.** The key in
+`backend/.env` returns `API_KEY_INVALID`. `ConservativeFixtureCoordinator`
+hardcodes triage to `Trade.OTHER` and then waits, so end-to-end
+autonomy cannot be demonstrated until a working key exists. ElevenLabs
+was first assessed as a substitute and rejected; that judgement has since
+been **narrowed** -- it holds for the TTS/STT product, but its Agents
+platform brokers an LLM and scored 11/11 on the coordinator contract in a
+sandbox. See the re-evaluation below and in docs/26.
+
+**Now surfaced in the UI, having been built but invisible:** global
+search (`GET /search`, previously zero callers), the coordinator's
+decision history (`GET /cases/{id}/runs`, previously zero callers — now
+an **Agent** tab), `approved_contractors` and `policy_snapshot`
+(previously typed `unknown[]` and discarded), and recording-failure
+reasons with a working retry.
+
+**A "waiting" state exists for the first time.** A `Wait` with no timer
+writes nothing durable, so a case waiting on a contractor was
+indistinguishable from an abandoned one. `AgentActivity` derives the
+state from real fields and admits when it cannot tell.
+
+**The workspace has an operational workload.** Two idempotent
+generators fill what an empty database cannot show: `app.sample_operations`
+writes 25 operational cases across every status (6 resolved this week, 6
+resolved 9-27 days back, 4 awaiting confirmation, 3 escalated, 4 active
+with a visit to come, 2 cancelled), and `app.backfill_case_history` gives
+pre-existing event-less cases a log derived from their own rows. The
+dashboard now reads 39 total / 12 active / 4 awaiting / 3 escalated / 6
+resolved this week / 59.8h average, where every one of those was 0 or
+null. Both generators refuse to touch a case carrying LIVE provenance,
+write `Provenance.SIMULATED` on everything and enqueue no jobs. Run
+`--validate` on either; see docs/26.
+
+**Four defects were found by exercising the running app, not by reading
+it** -- a 500 on `GET /cases/{id}` for every case with a contractor
+report, a 500 on `GET /cases/{id}/runs` for every backfilled case, an
+`agent_active` flag stuck true, and a report table labelled "Quoted
+Pence" above values in pounds. All fixed, three with regression tests
+proven to fail when reverted. docs/26 has the table.
+
+**ElevenLabs was re-evaluated as the reasoning model and scored 11/11**
+on the coordinator contract, including both call-placing actions and a
+prompt-injection report it refused to act on. It is an evaluation only:
+no backend code changed, and nothing could dial (no phone number, client
+-only tools, tool calls skipped in test mode). The earlier "cannot
+serve" conclusion applies to the TTS/STT product, not the Agents
+platform. See docs/26.
+
+**The Agent tab draws the coordinator's reasoning as a graph.**
+`components/fixi/CaseFlow.tsx` (React Flow, over the pure
+`lib/case-flow.ts`) lays a case out one column per coordination round,
+with triggers on the top lane, that round's decision below them and its
+effects underneath — so position means something and an operator can see
+at a glance what woke the agent, what it chose and what changed. It
+updates live while the tab is focused; React Query pauses polling in a
+background tab. The archival cases have real histories to draw (730
+events, 439 runs) rather than the single "Completed" node they showed
+before. See docs/26.
+
+**Data.** Contractor roster 6 → 18, every trade covering BS1–BS8 (trade
+`OTHER` previously had none, so any non-roof/scaffold/plumbing/
+electrical ticket dead-ended at escalation). The archive now generates
+107 contractor reports, one per finished visit, with a 15th validation
+check. The four operational properties gained photographs and types.
+
+**Corrections to figures below:** "19 routers" was 18 (the extra was the
+untracked `api/demo.py`, now deleted); the regression file holds 43
+cases from 35 functions, not "24 tests / 32 cases"; all eight archival
+indexes exist. Also note `repair_cases.category` is NULL on every case
+in `backend/data/repairflow.db` — the backfill command has never been
+run against it — and no "DNS" text exists anywhere in that database, so
+the stated cause of the two failed LIVE calls is unsourced; the stored
+reason is `"reconciliation abandoned"` after 1,806 and 3,795 attempts.
+
+**Row 10 (error envelopes) is half closed.** The backend still emits
+three shapes, but the client now parses all three, so a `DomainError` no
+longer reaches the operator as a raw JSON blob. The backend-side
+normalisation is still outstanding.
+
+A thirteenth audit, `docs/audit/13_full_stack_sweep.md`, records the
+full-repository sweep that produced most of the above.
 
 ---
 
@@ -68,7 +175,7 @@ contractor research.
 **Scale today**, measured 2026-09-20, not estimated: ~15,000 lines of
 backend Python across 57 files; 17 frontend routes and 21 components;
 73 HTTP routes (72 under `/api`, `/webhooks` and `/integrations`, plus
-`/healthz`); **25** database tables; **214** backend tests and **62**
+`/healthz`); **25** database tables; **232** backend tests and **62**
 frontend tests.
 
 ---
@@ -83,7 +190,7 @@ frontend tests.
 | Orchestration | `orchestration/{dispatcher,worker,executor,dedupe}.py` | Complete. Durable `JobModel` queue, leases, idempotency keys, one proposal per wake. |
 | Agent | `agents/{coordinator,read_tools,instructions,dependencies}.py` | Complete. Gemini via Pydantic AI, scoped read-only tools, bounded retries, redacted snapshot. |
 | Integrations | `integrations/{elevenlabs,tavily,booking,no_contact}.py` | ElevenLabs and Tavily complete; **booking is a mock that invents availability** (§5). |
-| API | `api/` — 19 routers, 72 routes | Complete. |
+| API | `api/` — 18 routers, 72 routes | Complete. The "19" counted the untracked `api/demo.py`, deleted 2026-09-21. |
 | Analytics | `analytics.py` | Complete; **two money sources disagree** (§7). |
 | Data commands | `seed.py`, `archive/`, `backfill_category.py`, `legacy_demo_purge.py` | Complete. |
 
@@ -203,7 +310,7 @@ is the summary.
 | **Largest-remainder percentages** | Every edge case sums to exactly 100. |
 | **Supply chain** | `uv.lock` hash-pinned; `npm audit` clean; no secrets in the built bundle. |
 | **Every visible control does something** | All interactive elements traced: no `console.log`-only buttons, no toast-without-a-write, no fabricated "Sent"/"Confirmed" strings. |
-| **The fixes are pinned** | 24 regression tests (32 cases with parametrisation), each proven to fail when its fix is reverted. |
+| **The fixes are pinned** | `test_audit_regressions.py` collects 43 cases from 35 functions as of 2026-09-21 (the "24 tests / 32 cases" figure was written earlier and undercounts), each proven to fail when its fix is reverted. |
 | **Money reconciles** | One figure across five reads of the same scope: property stats by trade, by year, property history rows, insights case detail, and the costs endpoint. |
 
 ### Fixed during this session
@@ -242,9 +349,9 @@ Found by audit, fixed, and covered by new regression tests:
   to 3.4×. Resolved — see below.
 - **Four CLI commands crashed against a real database** (`no such table:
   cost_entries`) because only the FastAPI lifespan called `create_all()`.
-- **The production database was missing all eight archival indexes**, so
-  `WHERE archive_batch_id IS NULL` — the leading filter in nearly every
-  analytics query — was a full table scan.
+- ~~**The production database was missing all eight archival indexes.**~~
+  **Stale — re-measured 2026-09-21: all eight exist.** Kept because
+  `docs/audit/` refers to it.
 - **`_add_missing_columns` silently produced a wrong column** for a
   `nullable=False` + `server_default` addition; it now refuses loudly.
 - **Message attachments were unopenable** (`/documents/undefined/content`).
@@ -306,7 +413,7 @@ scope call to make explicitly — the work is scoped in §6.
 | ~~7~~ | ~~Archival seasonality is flat, and roofing peaked in July.~~ **Resolved**: reporting dates are now drawn from per-trade monthly weights (the obvious physical seasons, not fitted data). Measured after regeneration: 2 cases in May against 10 in December, and roofing Nov–Feb 9 against May–Aug 6. | — | `archive/dataset.py` |
 | ~~8~~ | ~~Property history/stats include archival cases undisclosed.~~ **Resolved**: both take `include_archived` (default true — the blending is wanted), both return `includes_archived_history` and `archived_case_count`, and each history row carries `is_archived`. | — | `api/cases.py` |
 | ~~9~~ | ~~A late reopen reports stale `resolution_hours`.~~ **Was already correct** — `_terminal_event_at_by_case` takes MAX. Probed directly: 2,376h reported, not 48h. The row described a bug that did not exist; now pinned by a test so it cannot appear. | — | `analytics.py` |
-| 10 | Error envelopes are inconsistent: `DomainError` and FastAPI's `RequestValidationError` produce different shapes across ~30 routes. | **MEDIUM** | `api/errors.py` |
+| 10 | Error envelopes are inconsistent: `DomainError` and FastAPI's `RequestValidationError` produce different shapes across ~30 routes, and `require_operator` adds a third on auth failure. **Half closed 2026-09-21**: the client now parses all three, so a `DomainError` no longer reaches the operator as a raw JSON blob in a toast, and an unmodelled crash returns the typed envelope with a `correlation_id` instead of plain-text "Internal Server Error". The backend still emits three shapes. | **MEDIUM** | `api/errors.py`, `frontend-fixi/src/api/client.ts` |
 | ~~11~~ | ~~No idempotency on case creation.~~ **Resolved**: an optional `Idempotency-Key` header derives the intake communication id deterministically, routing a repeat into `submit_intake`'s existing per-communication NOOP path. Without the header behaviour is unchanged, because two genuine reports of one fault must not merge. | — | `api/cases.py` |
 | ~~12~~ | ~~Upload cap runs after the body is spooled.~~ **Resolved**: `MaxBodySizeMiddleware` rejects an over-sized `Content-Length` before a byte is read, and counts chunked bodies as they stream so omitting the header does not bypass it. It sits inside CORS on purpose, so a 413 still carries the headers a browser needs to read the status. | — | `app/middleware.py` |
 | ~~13~~ | ~~No CORS guardrail against a wildcard with credentials.~~ **Resolved**: `Settings` refuses to construct on that combination, so it cannot be reached from configuration. The wildcard remains available with `CORS_ALLOW_CREDENTIALS=false`. The default allow-list also gained `:5174` — the only dev port actually served — which it had been missing. | — | `app/config.py` |

@@ -86,19 +86,20 @@ Logfire and Pydantic Evals are useful optional additions. PSTN Twilio calling is
 - `backend/app/`: `main.py`, `config.py`, `db.py`, `models.py`,
   `schemas.py`, `analytics.py`, `middleware.py`, `seed.py`,
   `backfill_category.py`, `legacy_demo_purge.py`
-- `backend/app/api/` (19 routers): approvals, cases, contractors, costs,
+- `backend/app/api/` (18 routers): approvals, cases, contractors, costs,
   documents, field_updates, insights, messaging, metrics, notes,
   notifications, observations, overview, properties, reports, search,
   tenants, voice, plus `deps.py` and `errors.py`
-- `backend/app/domain/`: transitions, policy, dependencies, services
+- `backend/app/domain/`: transitions, policy, dependencies, services, errors
 - `backend/app/orchestration/`: dispatcher, worker, executor, dedupe
 - `backend/app/agents/`: coordinator, dependencies, read_tools, instructions
 - `backend/app/integrations/`: elevenlabs, tavily, booking, no_contact
 - `backend/app/archive/`: the synthetic closed-case dataset and importer
-- `backend/tests/` (214 tests); `backend/alembic/` (frozen -- see docs/26)
-- `frontend-fixi/` is the frontend that is **actually served**. `frontend/`
-  is the earlier app, kept for reference and wired to nothing:
-  `main.py`'s `FRONTEND_DIST` points at `frontend-fixi/dist`.
+- `backend/tests/` (252 tests); `backend/alembic/` (frozen -- see docs/26)
+- `frontend-fixi/` is the only frontend. `main.py`'s `FRONTEND_DIST`
+  points at `frontend-fixi/dist`. The earlier `frontend/` app was deleted
+  on 2026-09-21 -- recover anything from it with
+  `git show bd61137:frontend/<path>`.
 - `frontend-fixi/src/components/fixi/` (20 components): AppShell, Badge,
   CaseLifecycleActions, CaseProgress, CaseToolbar, Charts, CostsPanel,
   DecisionCard, DirectoryForms, DocumentsPanel, EmptyState, LoginGate,

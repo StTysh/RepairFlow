@@ -104,9 +104,10 @@ hand.
 - **Bash heredocs in this harness eat backslashes**, even quoted ones.
   When a Python patch script needs a literal backslash, build it with
   `chr(92)` rather than writing `\\`.
-- **Two frontend directories.** `frontend-fixi/` is served;
-  `frontend/` is dead reference code. Nothing in the backend points at
-  it.
+- **One frontend.** `frontend-fixi/` is served. The old `frontend/`
+  tree and the untracked `liza.UI2/` and `new UI/` design references were
+  all deleted on 2026-09-21; the design refs live on the
+  `origin/liza.UI2` branch and `frontend/` in history at `bd61137`.
 - **`validateSearch` is avoided app-wide** in the frontend — it
   reproducibly froze the renderer against the SPA-fallback hydration
   shell. URL state uses `useRouterState` + `src/lib/search-params.ts`.

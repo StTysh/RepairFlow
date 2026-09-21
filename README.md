@@ -101,12 +101,15 @@ one unauthenticated route, so it is the honest smoke check.
 
 **Nothing is seeded on boot.** The application starts against whatever is
 in the database, including nothing at all, and every screen has a real
-empty state. Three optional, idempotent commands populate it:
+empty state. These optional, idempotent commands populate it:
 
 ```
 uv run python -m app.seed             # sample portfolio: properties, tenants, approved contractors
 uv run python -m app.archive --apply  # 60 closed archival cases over 8 properties, 2021-2026
-uv run python -m app.archive --validate   # 14 integrity checks over that import
+uv run python -m app.sample_operations --apply  # 25 open/recently-closed operational cases
+uv run python -m app.backfill_case_history --apply  # event logs for any case that has none
+uv run python -m app.archive --validate   # 21 integrity checks over that import
+uv run python -m app.sample_operations --validate  # 16 checks over the operational workload
 uv run python -m app.archive --remove     # removes exactly that batch, nothing else
 uv run python -m app.legacy_demo_purge --dry-run   # count the scripted demo cases an older build seeded
 uv run python -m app.legacy_demo_purge --apply     # remove exactly those nine cases
@@ -130,10 +133,10 @@ backend cross-origin, so both 5173 and 5174 are in the default
 `OPERATOR_AUTH_ENABLED=false` in `backend/.env` (the frontend detects
 this and skips the login form).
 
-There are two frontend directories. **`frontend-fixi` is the one that is
-served** -- `main.py`'s `FRONTEND_DIST` points at `frontend-fixi/dist`,
-and nothing references `frontend/`. `frontend/` is the earlier app, kept
-for reference only.
+There is one frontend. **`frontend-fixi`** is served -- `main.py`'s
+`FRONTEND_DIST` points at `frontend-fixi/dist`. An earlier `frontend/`
+app sat alongside it, wired to nothing; it was deleted on 2026-09-21.
+Anything in it is recoverable with `git show bd61137:frontend/<path>`.
 
 ### Tests
 

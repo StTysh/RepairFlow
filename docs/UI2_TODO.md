@@ -91,6 +91,18 @@ zero changes.
 
 ## 3. The Research drawer has never been built — `TODO`
 
+> **Reference implementation, 2026-09-21.** The retired `frontend/` tree
+> was deleted in the repo cleanup, and it contained the only existing
+> version of this drawer. It is not lost — recover it with:
+>
+> ```
+> git show bd61137:frontend/src/components/ResearchDrawer.tsx
+> git show bd61137:frontend/src/components/EvidenceDrawer.tsx
+> ```
+>
+> Treat it as a shape to copy, not code to paste: it was written against
+> the old flat component tree and the pre-migration API.
+
 `docs/18_FRONTEND_UX.md` lists it as a **required region** of the case
 workspace: *"Actual Tavily query/time/request ID/sources; unverified
 candidates separate from approved suppliers."*

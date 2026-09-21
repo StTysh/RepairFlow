@@ -156,7 +156,7 @@ depends on scripted progression any more.
 | Ticket browser tab read `#<uuid> — Fixi` | **fixed** — title set from the loaded case |
 | Contractors had no archival toggle | **fixed** |
 | Insights drill-down claimed hour bounds were unavailable | **fixed** — the API serves them now |
-| Reports filters are not in the URL, so a filtered report is not linkable | **open** — the controls work; only the deep link is missing |
+| Reports filters are not in the URL, so a filtered report is not linkable | **fixed** (2026-09-20) — Reports now reads and writes its filters through the URL like the other filtered routes, using the `useRouterState` + `lib/search-params.ts` pattern |
 | Insights property filter lists operational properties only | **open** — an archival sample property cannot be singled out |
 | Insights drill-downs open an inline panel rather than pushing filters onto Maintenance | **open by choice** — the brief allowed either |
 | Property-history trade drill-down's total is computed from the filtered rows, not asserted equal to the donut segment | **open by design** — the donut sums work orders by trade, a history row carries the case's single primary trade; the two genuinely differ, and the screen says so |
