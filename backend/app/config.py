@@ -29,7 +29,13 @@ class Settings(BaseSettings):
     # Toggle, not a removal: flip back to True (the safe default for anyone
     # else running this) before any live/public demo. False just makes
     # require_operator accept every request with no Authorization header.
-    operator_auth_enabled: bool = True
+    # Default OFF since 2026-09-21 (owner decision): this is a localhost
+    # prototype and operator sign-in was removed from the UI entirely. It
+    # remains a switch rather than a deletion so the capability survives if
+    # this is ever exposed -- but the SPA no longer has a login form, so
+    # turning it on makes every API call 401 until one is reintroduced.
+    # See docs/26 and frontend-fixi/src/lib/auth-context.ts.
+    operator_auth_enabled: bool = False
 
     # Gemini / Pydantic AI
     gemini_api_key: str | None = None

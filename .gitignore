@@ -22,9 +22,13 @@ venv/
 .ruff_cache/
 
 # Node / frontend
+# The served SPA is frontend-fixi/; its build output is ignored by
+# frontend-fixi/.gitignore. The old `frontend/` app was deleted on
+# 2026-09-21 (recover any file with `git show bd61137:frontend/<path>`),
+# so its dist/.vite rules went with it.
 node_modules/
-frontend/dist/
-frontend/.vite/
+dist/
+.vite/
 
 # Editors / OS
 .vscode/

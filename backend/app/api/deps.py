@@ -1,4 +1,13 @@
-"""Shared FastAPI dependencies: operator Basic auth and a per-request session."""
+"""Shared FastAPI dependencies: operator Basic auth and a per-request session.
+
+Deliberately NO `WWW-Authenticate: Basic` header on the 401s below. Chrome
+treats that challenge as an invitation to raise its own native credentials
+dialog and withholds the response from `fetch()` while the dialog is up, so
+the SPA's auth probe never settled and the app rendered a permanently blank
+page instead of its own sign-in form. Omitting the challenge keeps the 401 a
+plain, readable API response. Anything re-adding it must solve that first.
+See docs/26, 2026-09-21.
+"""
 from __future__ import annotations
 
 import secrets
@@ -20,14 +29,12 @@ def require_operator(credentials: HTTPBasicCredentials | None = Depends(_basic),
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="operator credentials required",
-            headers={"WWW-Authenticate": "Basic"},
         )
     valid_user = secrets.compare_digest(credentials.username, settings.operator_username)
     valid_pass = secrets.compare_digest(credentials.password, settings.operator_password)
     if not (valid_user and valid_pass):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid operator credentials",
-            headers={"WWW-Authenticate": "Basic"},
         )
     return credentials.username
 

@@ -6,16 +6,16 @@
 * text=auto eol=lf
 
 # Let git detect these rather than guess; a mangled binary is silent.
-*.png binary
-*.jpg binary
-*.jpeg binary
-*.gif binary
-*.ico binary
-*.woff binary
-*.woff2 binary
-*.db binary
-*.sqlite binary
-*.sqlite3 binary
-*.mp3 binary
-*.wav binary
-*.pdf binary
+*.png binary !eol
+*.jpg binary !eol
+*.jpeg binary !eol
+*.gif binary !eol
+*.ico binary !eol
+*.woff binary !eol
+*.woff2 binary !eol
+*.db binary !eol
+*.sqlite binary !eol
+*.sqlite3 binary !eol
+*.mp3 binary !eol
+*.wav binary !eol
+*.pdf binary !eol
