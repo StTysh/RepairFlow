@@ -157,6 +157,100 @@ full-repository sweep that produced most of the above.
 
 ---
 
+## 0c. The UI pass of 2026-09-21
+
+A second session on the same day rebuilt the layout, type scale and
+motion of the frontend. `docs/27_UI_LAYOUT_AND_MOTION_PLAN.md` is the
+audit and, in its section 9, the record of what landed and what the
+numbers came out at. The short version:
+
+- **One page width** (`--container-page`, 110rem) replaces six
+  hand-written values; the ticket page, which had no container, now has
+  one. Its chrome above the first card went 526px -> 321px.
+- **One type scale**, seven sizes, an 11px floor. There were seventeen
+  sizes and fifty-one usages below 11px, down to 8px.
+- **Motion** where it carries information: route transitions that say
+  which direction you went, content-shaped loading skeletons in place of
+  twelve bare "Loading..." strings, KPI figures that count up and flash
+  when they change under you, and an agent-activity ring gated on the
+  same boolean as the indicator dot so it cannot claim work that is not
+  happening. All of it behind a global `prefers-reduced-motion` guard.
+- **Dark mode was deleted, not disabled.** The `.dark` block defined 32
+  of the 55 tokens `:root` does — missing every status and timeline
+  colour — and nothing in the app ever set the class, so it had never
+  rendered. `styles.css` carries the recovery command and the reasoning.
+
+**Two things to know before changing styles.**
+
+First: `cn()` in `lib/utils.ts` is an *extended* tailwind-merge. It has
+to be. Plain tailwind-merge treats any unrecognised `text-<word>` as a
+colour, so it silently deleted all six custom font-size classes whenever
+a text colour appeared in the same call — no error, no build failure,
+the class just absent from the DOM and the element back on the 16px
+browser default. **A new token in `@theme` must also be registered in
+`utils.ts`,** or it will not survive `cn()`. `lib/utils.test.ts` guards
+this.
+
+Second: `frontend-fixi/dist` must be rebuilt for any of this to be
+visible. The backend serves the built bundle, not the source.
+
+## 0d. A clone now reproduces this workspace exactly
+
+`data/` is gitignored, so a clone has no database -- that has not
+changed, and the SQLite file is still never committed. What changed on
+2026-09-21 is that everything *in* it is now reproducible from the
+repository:
+
+```
+uv run python -m app.bootstrap
+```
+
+Five idempotent steps, then the validators, then the counts to check
+against: **12 properties, 12 tenants, 24 contractors, 99 cases (39
+operational, 60 archival)**. Verified by diffing a freshly bootstrapped
+database against the source machine's: every one of the eighteen
+content tables matches row for row, and the case ids and case numbers
+are identical sets.
+
+Three of the five steps already existed. The two new pieces:
+
+- **`app.intake_fixture`** holds the fourteen cases that were created by
+  *using* the application rather than by a generator -- including the
+  eight genuine Gemini coordinator runs -- captured row-for-row into a
+  committed `dataset.json` and replayed on import. They could not be
+  regenerated; they are a record of what happened.
+- **`app.bootstrap`** runs everything in the one order that works and
+  prints the counts. `--check` reports without writing.
+
+**Order is load-bearing.** `app.intake_fixture` must run before both
+case generators: its cases carry the numbers they were originally issued
+(1-14) while the generators allocate `MAX(case_number) + 1`, so running
+it last collides on `uq_case_number` for all fourteen. Numbering
+reproduces as intake 1-14, archive 15-74, operations 75-99.
+
+**Two things are deliberately not identical, and both are correct.**
+Generated cases are dated relative to bootstrap time, so a clone made
+next month still has upcoming visits in the future rather than a stale
+workspace; only the derived week-over-week delta percentages differ as a
+result. And `jobs` is the worker's retry queue -- runtime state, not
+content -- so it is never captured. (The source machine had 5,618 rows
+there, almost all accumulated retries against the dead Gemini key.)
+
+**This repository is public.** The exporter refuses to write a dataset
+containing a non-placeholder phone number, an email address or anything
+shaped like an API key, and never exports `tenants`, `properties` or
+`contractors` at all -- `app.seed` creates those deterministically, with
+placeholder numbers, before the import runs. That is what keeps the one
+value that has ever qualified (a real mobile, hand-edited into a single
+`tenants` row on one machine) structurally out of scope rather than
+merely filtered. `tests/test_intake_fixture.py` re-runs the same scan
+against the committed file.
+
+The five real call recordings in `backend/data/recordings/` are
+unreferenced orphans -- no `communications` row carries a `media_path`,
+and the three `LIVE` rows have empty transcripts -- so nothing in the
+captured dataset points at audio, and none of it ships.
+
 ## 1. What the application is
 
 A repair-coordination tool for a small property portfolio. An operator

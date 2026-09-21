@@ -97,23 +97,85 @@ operator auth is **on** by default -- sign in with `operator` /
 `repairflow-demo` (the defaults in `config.py`). `GET /healthz` is the
 one unauthenticated route, so it is the honest smoke check.
 
-### 4. Optional: put something in it
+### 4. Put the shared workspace in it
 
 **Nothing is seeded on boot.** The application starts against whatever is
 in the database, including nothing at all, and every screen has a real
-empty state. These optional, idempotent commands populate it:
+empty state. One command fills it with the workspace everyone else has:
 
 ```
-uv run python -m app.seed             # sample portfolio: properties, tenants, approved contractors
-uv run python -m app.archive --apply  # 60 closed archival cases over 8 properties, 2021-2026
-uv run python -m app.sample_operations --apply  # 25 open/recently-closed operational cases
+uv run python -m app.bootstrap
+```
+
+That is the whole setup. It runs five idempotent steps in the only order
+that works and then validates the result:
+
+```
+  properties                12
+  tenants                   12
+  contractors               24
+  cases (total)             99
+  cases (operational)       39
+  cases (archival)          60
+```
+
+Those numbers are the check: **a clone that prints them has the same
+database as everybody else** -- same cases, same case numbers, same
+work orders, appointments, events, messages, costs, notes, documents and
+property photographs. `uv run python -m app.bootstrap --check` reports
+them without writing anything.
+
+`data/` is gitignored, so the database itself is never committed. The
+content is committed as code instead -- generators for what can be
+generated, and a captured dataset for what cannot:
+
+```
+uv run python -m app.seed                  # 12 properties (with photos), 12 tenants, 24 contractors
+uv run python -m app.intake_fixture --apply    # the 14 cases created by using the app (cases 1-14)
+uv run python -m app.archive --apply       # 60 closed archival cases, 2021-2026 (cases 15-74)
+uv run python -m app.sample_operations --apply # 25 operational cases (cases 75-99)
 uv run python -m app.backfill_case_history --apply  # event logs for any case that has none
-uv run python -m app.archive --validate   # 21 integrity checks over that import
-uv run python -m app.sample_operations --validate  # 16 checks over the operational workload
-uv run python -m app.archive --remove     # removes exactly that batch, nothing else
+```
+
+Order is load-bearing: `app.intake_fixture` carries the case numbers those
+cases were originally issued (1-14), while both generators allocate theirs
+as `MAX(case_number) + 1`. Run it after them and every captured case
+collides on the `uq_case_number` constraint. `app.bootstrap` gets this
+right; if you run the steps by hand, keep them in this order.
+
+Each step also has `--remove`, `--status` and `--validate`:
+
+```
+uv run python -m app.archive --validate            # 21 integrity checks
+uv run python -m app.sample_operations --validate  # 16 checks
+uv run python -m app.intake_fixture --validate     #  5 checks
+uv run python -m app.archive --remove              # removes exactly that batch, nothing else
 uv run python -m app.legacy_demo_purge --dry-run   # count the scripted demo cases an older build seeded
 uv run python -m app.legacy_demo_purge --apply     # remove exactly those nine cases
 ```
+
+**Two things are deliberately not identical across machines.** Generated
+cases are dated relative to when you bootstrap, so the workload always
+looks current instead of going stale -- a clone made next month still has
+its visits in the future. And the `jobs` queue is runtime state, not
+content, so it is never captured. The 14 captured cases *are* frozen:
+their timestamps, ids and case numbers are byte-identical everywhere.
+
+#### Re-capturing after you change something
+
+If you add or edit cases through the running application and want everyone
+else to have them:
+
+```
+uv run python -m app.intake_fixture --export   # rewrite dataset.json from YOUR database
+```
+
+then commit `backend/app/intake_fixture/dataset.json`. The exporter
+**refuses** to write a file containing a non-placeholder phone number, an
+email address or anything shaped like an API key, and never exports
+`tenants`, `properties` or `contractors` at all -- this repository is
+public, and `app.seed` already creates those deterministically. A test
+re-runs the same scan against the committed file.
 
 Archival cases are marked with an `archive_batch_id` and are excluded
 from every current-workload count, notification and agent wake. They

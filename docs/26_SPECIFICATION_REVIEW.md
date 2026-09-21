@@ -772,3 +772,113 @@ Gemini per CLAUDE.md. What it establishes is that the coordinator
 it -- the blocker is the credential, not the prompt. The sandbox agent,
 its ten tools and eleven tests remain in the ElevenLabs workspace tagged
 `delete-me`.
+
+---
+
+## 2026-09-21 (second entry) — the UI layout, type and motion pass
+
+Scope: `frontend-fixi` only, plus two additive backend fields. No domain
+contract, state machine, tool catalog or safety rule changed.
+`docs/27_UI_LAYOUT_AND_MOTION_PLAN.md` §9 holds the detail; this entry
+records the deviations a future session needs to know about.
+
+**Two fields added to existing response schemas.** `RepairCaseSummary`
+gained `property_photo_key: str | None` so the Maintenance table can show
+which building a job is at instead of repeating one identical icon on
+every row; `ThreadDetailResponse` gained `case_number: int` and
+`case_title: str`, which fixes a message thread that was headed with a
+raw UUID. Both are additive and optional-safe. `docs/16` describes the
+endpoints, not the exact field lists, so nothing there contradicts them.
+
+**Dark mode removed.** `styles.css` had a `.dark` block and a
+`@custom-variant dark`. Nothing added the class, there were zero `dark:`
+utilities anywhere, and the block defined 32 of the 55 tokens `:root`
+does — every status and timeline colour was missing, so had it ever
+rendered it would have shown light pills on dark cards. Deleted rather
+than shipped broken; the recovery command is in the file. No
+specification required a dark theme.
+
+**`recharts` removed from `package.json`.** It was a dependency with no
+import anywhere; the charts are hand-drawn SVG and CSS.
+
+**A silent class-deletion defect, worth recording as a trap.**
+tailwind-merge assumes any `text-<word>` it does not recognise is a
+colour. The new type scale uses custom names, so `cn()` deleted every one
+of them whenever a text colour sat in the same call — with no error and
+no build failure. The compiled stylesheet was correct; the DOM was not.
+`lib/utils.ts` now extends tailwind-merge with all five custom token
+groups and `lib/utils.test.ts` pins the behaviour. **Any token added to
+`@theme` must be registered there as well.**
+
+**Verification.** 263 backend tests and 101 frontend tests pass (74
+before; the 27 new ones cover the tailwind-merge extension and the
+count-up arithmetic, and each was confirmed to fail with its fix
+reverted). `tsc`, `oxlint` and `npm run build` are clean. Layout and type
+were measured in Chrome against the running backend on every destination.
+
+**Not verified, and stated as such.** `prefers-reduced-motion` could not
+be emulated in this environment, so the reduced-motion path — including
+whether Radix dialogs still close — is unproven. Route transitions start
+with the correct types and their CSS parses, but Chrome aborts a view
+transition in a hidden document, so none was watched running. Viewports
+below 1280px remain unchecked; Chrome would not resize below the display
+width.
+
+
+---
+
+## 2026-09-21 (third entry) -- making a clone reproduce the workspace
+
+Scope: two new backend modules and a README rewrite. No domain contract,
+state machine, tool catalog, API shape or safety rule changed.
+
+**The problem.** `data/` is gitignored, so a clone had no database. Four
+documented commands rebuilt most of one -- but a measured diff showed a
+clone got 85 cases where the source machine had 99. The missing fourteen
+were the cases created by *driving the application*: five real intake
+cases carrying eight genuine Gemini runs and three `LIVE`
+communications, and nine leftovers from the retired boot-seeding build.
+
+**`app/intake_fixture/`** captures all fourteen row-for-row into a
+committed `dataset.json` (148 KB, 152 rows across eleven tables) and
+replays them, with `--apply/--remove/--status/--validate/--export` in the
+same shape as `app.archive`. **`app/bootstrap.py`** runs the five steps
+in order and prints the counts.
+
+**Why not commit the database.** It is a 5.3 MB binary that cannot be
+diffed or merged, it goes stale the moment anyone uses the app, and it
+carried a real UK mobile number. The repository is public. Committing
+data as code keeps it reviewable and keeps the number out; a scan
+confirmed the number appears in exactly one column (`tenants.phone_e164`)
+and was never pushed -- it exists only in a local `backup/` branch, in
+`docs/UI2_CHECKPOINT.md` at `2adb8da`, removed again at `79a1f3d`.
+
+**Two orderings, both wrong first, both now pinned by tests.**
+
+1. `dependencies` was hand-listed before `contractor_reports`, but it
+   carries `discovered_from_report_id`, so the import raised `FOREIGN KEY
+   constraint failed`. The insert order is now derived from
+   `Base.metadata.sorted_tables` -- the real ForeignKey graph -- rather
+   than restated by hand. `case_events.causation_event_id` is a
+   self-reference, which a *table* sort cannot order, so it is nulled on
+   insert and restored in a second pass.
+2. `app.intake_fixture` ran last in the bootstrap, after both generators
+   had taken case numbers 1-85 via `MAX(case_number) + 1`, so all
+   fourteen captured cases collided on `uq_case_number`. It now runs
+   first, reproducing intake 1-14, archive 15-74, operations 75-99.
+
+Neither was visible from reading the code; both only appeared on import
+against a real schema. Four tests fail with the fixes reverted.
+
+**Deliberately not reproduced.** `jobs` (runtime retry state, 5,618 rows
+on the source machine, nearly all retries against the dead Gemini key)
+and the exact timestamps of *generated* cases, which anchor to bootstrap
+time so the workload stays current. The fourteen captured cases are
+frozen and byte-identical.
+
+**Verification.** A freshly bootstrapped database was diffed against the
+source machine's: all eighteen content tables match row for row, case ids
+and case numbers are identical sets, all three validators pass, and the
+app served from the clone returns the same dashboard metrics (bar the
+derived delta percentages, per above). 273 backend tests pass, up from
+263.
