@@ -76,6 +76,13 @@ def _case_number() -> int:
 async def _seed_property_tenant() -> tuple[str, str]:
     property_id, tenant_id = uid(), uid()
     async with session_scope() as session:
+        # archive_batch_id is a real FK; the batch has to exist first.
+        session.add(
+            ArchiveBatchModel(
+                id="batch-26", label="regression-26", generator_version="test", random_seed=1,
+            )
+        )
+        await session.flush()
         session.add(
             PropertyModel(
                 id=property_id, address_line="1 Audit St", postcode="BS1 1AA",
@@ -1541,3 +1548,370 @@ async def test_a_mock_booking_is_pending_never_confirmed(app_db):
             f"a slot this system invented was written as {row.status}; nothing acknowledged it"
         )
         assert row.provenance == "SIMULATED"
+
+
+# --------------------------------------------------------------------------
+# 23. Operator sign-in must not be able to blank the app (app/api/deps.py,
+#     app/config.py)
+# --------------------------------------------------------------------------
+# A fresh clone has no .env, so it ran on the defaults -- and the default was
+# OPERATOR_AUTH_ENABLED=True. The SPA's LoginGate probed `/api/v1/readiness`
+# to find out whether a login was needed at all, the backend answered
+# `401 WWW-Authenticate: Basic`, and Chrome withheld that response from
+# fetch() so it could raise its own native credentials dialog. The probe
+# promise never settled, LoginGate's `checking` state never cleared, and the
+# page rendered `<div className="min-h-screen w-full bg-background" />`
+# forever: a blank screen, no login form, no error, nothing in the console.
+# Reproduced in a real browser on 2026-09-21 -- the request sat at
+# `statusCode: pending` while curl got its 401 in 2ms.
+#
+# Sign-in was then removed from the UI entirely by owner decision. These two
+# assertions pin the halves that made the failure possible.
+
+
+def test_operator_auth_is_off_by_default() -> None:
+    """A clone with no .env must serve the app, not demand a login the UI
+    can no longer offer -- LoginGate is gone (see
+    frontend-fixi/src/lib/auth-context.ts)."""
+    from app.config import Settings
+
+    assert Settings(_env_file=None).operator_auth_enabled is False, (
+        "default auth is on again; a fresh clone will 401 every call with no "
+        "sign-in form to recover through"
+    )
+
+
+@pytest.mark.asyncio
+async def test_401_carries_no_browser_triggering_challenge(app_db) -> None:
+    """Even with auth switched back on, a 401 must stay a plain API response.
+
+    `WWW-Authenticate: Basic` is not cosmetic: it is the signal that makes a
+    browser swallow the response and open its own dialog, which is what hung
+    the probe and blanked the page.
+    """
+    from app.api.deps import require_operator
+    from app.config import Settings, get_settings
+
+    enabled = Settings(_env_file=None, OPERATOR_AUTH_ENABLED=True)
+    main_module.app.dependency_overrides[get_settings] = lambda: enabled
+    try:
+        async with await _client() as client:
+            res = await client.get("/api/v1/readiness")
+    finally:
+        main_module.app.dependency_overrides.pop(get_settings, None)
+
+    assert res.status_code == 401, "auth was meant to be enabled for this check"
+    assert "www-authenticate" not in {k.lower() for k in res.headers}, (
+        "the 401 carries a browser auth challenge; Chrome will hijack it, the "
+        "SPA's fetch will never settle, and the page will render blank"
+    )
+    assert require_operator is not None
+
+
+# --------------------------------------------------------------------------
+# 24. Global search must find a case by the number the UI displays
+#     (app/api/search.py)
+# --------------------------------------------------------------------------
+# Two separate holes, both found by driving the real UI on 2026-09-21:
+#
+#   * MIN_QUERY_LENGTH = 2 made cases #1-#9 unreachable by number. The guard
+#     exists so a stray keystroke cannot dump the portfolio, which is right
+#     for text -- but a bare number is an exact `case_number ==` lookup
+#     returning at most one row, not a sweep.
+#   * Every case number renders as "#4" (page titles, list rows, the
+#     notification feed), so "#4" is the obvious thing to type. It cleared
+#     the length guard at 2 characters, but `"#4".isdigit()` is False, so it
+#     fell through to LIKE '%#4%' against a column storing "4" and matched
+#     nothing, forever.
+
+
+@pytest.mark.asyncio
+async def test_single_digit_case_number_is_searchable(app_db) -> None:
+    """Cases #1-#9 must be findable by number despite MIN_QUERY_LENGTH."""
+    property_id, tenant_id, _roofer_id, _scaffolder_id = await _seed_reference_data()
+    async with await _client() as client:
+        created = await client.post(
+            "/api/v1/cases",
+            json={
+                "property_id": property_id, "tenant_id": tenant_id,
+                "description": "Single digit lookup probe.", "location": "Kitchen",
+                "source_text": "Single digit lookup probe.",
+            },
+            auth=AUTH,
+        )
+        assert created.status_code == 201, created.text
+        case_id = created.json()["case_id"]
+        detail = await client.get(f"/api/v1/cases/{case_id}", auth=AUTH)
+        number = detail.json()["snapshot"]["case"]["case_number"]
+
+        res = await client.get("/api/v1/search", params={"q": str(number)}, auth=AUTH)
+
+    assert res.status_code == 200, res.text
+    hits = [i for g in res.json()["groups"] for i in g["items"]]
+    assert any(i["id"] == case_id for i in hits), (
+        f"case #{number} is not findable by typing its number; "
+        f"MIN_QUERY_LENGTH is rejecting an exact case-number lookup"
+    )
+
+
+@pytest.mark.asyncio
+async def test_hash_prefixed_case_number_is_searchable(app_db) -> None:
+    """'#4' -- the format the UI renders everywhere -- must match case 4."""
+    property_id, tenant_id, _roofer_id, _scaffolder_id = await _seed_reference_data()
+    async with await _client() as client:
+        created = await client.post(
+            "/api/v1/cases",
+            json={
+                "property_id": property_id, "tenant_id": tenant_id,
+                "description": "Hash prefix lookup probe.", "location": "Hallway",
+                "source_text": "Hash prefix lookup probe.",
+            },
+            auth=AUTH,
+        )
+        assert created.status_code == 201, created.text
+        case_id = created.json()["case_id"]
+        detail = await client.get(f"/api/v1/cases/{case_id}", auth=AUTH)
+        number = detail.json()["snapshot"]["case"]["case_number"]
+
+        res = await client.get("/api/v1/search", params={"q": f"#{number}"}, auth=AUTH)
+
+    assert res.status_code == 200, res.text
+    hits = [i for g in res.json()["groups"] for i in g["items"]]
+    assert any(i["id"] == case_id for i in hits), (
+        f"'#{number}' matched nothing; the UI displays case numbers with a '#' "
+        f"so this is the query a user actually types"
+    )
+
+
+@pytest.mark.asyncio
+async def test_single_digit_search_does_not_sweep_the_portfolio(app_db) -> None:
+    """The narrow numeric exemption must not become a dataset dump.
+
+    MIN_QUERY_LENGTH's whole purpose is that one keystroke cannot return
+    every property and tenant. Allowing a bare digit through must therefore
+    return case hits ONLY.
+    """
+    property_id, tenant_id, _roofer_id, _scaffolder_id = await _seed_reference_data()
+    async with await _client() as client:
+        await client.post(
+            "/api/v1/cases",
+            json={
+                "property_id": property_id, "tenant_id": tenant_id,
+                "description": "Sweep guard probe.", "location": "Roof",
+                "source_text": "Sweep guard probe.",
+            },
+            auth=AUTH,
+        )
+        res = await client.get("/api/v1/search", params={"q": "1"}, auth=AUTH)
+
+    assert res.status_code == 200, res.text
+    kinds = {g["type"] for g in res.json()["groups"] if g["items"]}
+    assert kinds <= {"case"}, (
+        f"a one-character query returned {kinds - {'case'}} as well as cases; "
+        f"the numeric exemption has re-opened the dataset sweep it was scoped to avoid"
+    )
+
+
+# --------------------------------------------------------------------------
+# 25. Error handling: bounded limits and a typed envelope for every failure
+#     (app/api/cases.py, app/api/errors.py)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_negative_limit_cannot_request_an_unbounded_result_set(app_db) -> None:
+    """`?limit=-1` was accepted and SQLite reads LIMIT -1 as "no limit".
+
+    `cases.py:83` had `ge=1, le=100`; the events and runs endpoints had only
+    `le=100`, so a client fully controlled how much came back. Verified live
+    against the running instance before the fix: `/runs?limit=-1` returned
+    the whole set.
+    """
+    property_id, tenant_id, _roofer_id, _scaffolder_id = await _seed_reference_data()
+    async with await _client() as client:
+        created = await client.post(
+            "/api/v1/cases",
+            json={
+                "property_id": property_id, "tenant_id": tenant_id,
+                "description": "Limit bound probe.", "location": "Loft",
+                "source_text": "Limit bound probe.",
+            },
+            auth=AUTH,
+        )
+        case_id = created.json()["case_id"]
+        for path in (f"/api/v1/cases/{case_id}/events", f"/api/v1/cases/{case_id}/runs"):
+            res = await client.get(path, params={"limit": -1}, auth=AUTH)
+            assert res.status_code == 422, (
+                f"{path}?limit=-1 returned {res.status_code}; a negative limit is "
+                f"'no limit' in SQLite, so this is a client-controlled unbounded query"
+            )
+
+
+@pytest.mark.asyncio
+async def test_unmodelled_exception_still_returns_a_correlation_id(app_db) -> None:
+    """A crash that is not a DomainError must keep the typed envelope.
+
+    Without a catch-all handler, Starlette answered plain-text "Internal
+    Server Error": no JSON, no `retryable`, and no `correlation_id` -- so
+    the one failure a user most needs to report was the one they could not
+    quote an id for.
+    """
+    from fastapi import FastAPI
+    from app.api.errors import register_error_handlers
+
+    probe = FastAPI()
+    register_error_handlers(probe)
+
+    @probe.get("/boom")
+    async def _boom() -> dict:
+        raise RuntimeError("a bug nobody modelled")
+
+    transport = ASGITransport(app=probe, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get("/boom")
+
+    assert res.status_code == 500
+    assert res.headers["content-type"].startswith("application/json"), (
+        f"unmodelled crash answered {res.headers.get('content-type')!r}, not JSON"
+    )
+    envelope = res.json().get("error")
+    assert envelope, f"no typed envelope: {res.text[:200]}"
+    assert envelope.get("correlation_id"), "no correlation_id to quote in a bug report"
+    assert "a bug nobody modelled" not in res.text, (
+        "the raw exception string reached the browser; it can carry paths or query "
+        "fragments and belongs in the log, not the response body"
+    )
+
+
+# --------------------------------------------------------------------------
+# 26. A cancelled case is not a resolved one, archival or otherwise
+#     (app/analytics.py)
+# --------------------------------------------------------------------------
+# docs/audit/06 finding 3, raised CRITICAL on 2026-09-20 with a worked
+# example, never carried into APPLICATION_STATE.md, and still live on
+# 2026-09-21. Both archival branches tested `archive_batch_id IS NOT NULL
+# AND archived_closed_at IS NOT NULL` with no status predicate, and
+# `case_detail_rows` wrote `is_archived or case_is_resolved(status)` --
+# short-circuiting the status check entirely. The sample generator cancels
+# ~10% of cases and gives every one a closure date, so four cancelled
+# cases were averaged into "how long does a repair take" with a duration
+# measuring how long it took to give up. include_archived defaults TRUE on
+# /insights and /reports/summary, so this was the default path.
+
+
+@pytest.mark.asyncio
+async def test_cancelled_archival_case_is_not_counted_as_resolved(app_db) -> None:
+    from datetime import datetime, timezone
+
+    from app import analytics
+    from app.db import session_scope
+    from app.models import ArchiveBatchModel, PropertyModel, RepairCaseModel, TenantModel
+    from app.schemas import CaseStatus
+
+    created = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    resolved_close = datetime(2026, 1, 3, tzinfo=timezone.utc)      # 48h to fix
+    cancelled_close = datetime(2026, 1, 1, 2, tzinfo=timezone.utc)  # 2h to give up
+
+    batch_id, property_id, tenant_id = uid(), uid(), uid()
+    async with session_scope() as session:
+        # archive_batch_id is a real FK, so the batch must exist first.
+        session.add(
+            ArchiveBatchModel(
+                id=batch_id, label=f"regression-26-{batch_id[:8]}",
+                generator_version="test", random_seed=1,
+            )
+        )
+        session.add(
+            PropertyModel(
+                id=property_id, address_line="1 Archive Way", postcode="BS1 1AA",
+                timezone="Europe/London", landlord_reference=f"ref-{property_id[:8]}",
+                roof_responsibility="LANDLORD",
+            )
+        )
+        session.add(
+            TenantModel(
+                id=tenant_id, property_id=property_id, display_name="Archive Tenant",
+                preferred_channel="VOICE", contact_allowed=True,
+            )
+        )
+        await session.flush()
+        for status, closed in (
+            (CaseStatus.RESOLVED, resolved_close),
+            (CaseStatus.CANCELLED, cancelled_close),
+        ):
+            session.add(
+                RepairCaseModel(
+                    id=uid(), case_number=_case_number(), property_id=property_id,
+                    tenant_id=tenant_id, status=status, version=1,
+                    title=f"Archival {status.value}", risk={},
+                    created_at=created, updated_at=closed,
+                    archive_batch_id=batch_id, archived_closed_at=closed,
+                )
+            )
+
+    async with session_scope() as session:
+        dist = await analytics.resolution_time_distribution(session, include_archived=True)
+
+    assert dist.sample_count == 1, (
+        f"{dist.sample_count} cases contributed to the resolution-time stats; only the "
+        f"RESOLVED one should. A cancelled case was called off, not fixed."
+    )
+    # 48h, not the 25h mean of 48 and 2.
+    assert dist.average_hours == pytest.approx(48.0, abs=0.5), (
+        f"average resolution time is {dist.average_hours}h; a cancelled case's "
+        f"time-to-give-up is being averaged into how long repairs take"
+    )
+
+
+# --------------------------------------------------------------------------
+# 27. The end-to-end script must refuse a non-isolated target
+#     (scripts/verify_scenarios.py)
+# --------------------------------------------------------------------------
+# Its docstring says it "refuses to run" against a non-isolated database.
+# It did not: the isolation assertion was an ordinary check() that printed
+# FAIL and carried on into scenario 1, which creates properties, tenants,
+# cases, notes and documents through the real API. Pointed at a server
+# backed by backend/data/repairflow.db -- the only real ElevenLabs call
+# history that exists -- it would have written fiction into it. A guard
+# that advertises protection it does not provide is worse than no guard,
+# because it invites the mistake it claims to prevent.
+
+
+def test_verify_scenarios_refuses_a_populated_target() -> None:
+    """The guard must abort, not merely record a FAIL and continue."""
+    import ast
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parents[1] / "scripts" / "verify_scenarios.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+
+    main = next(
+        (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "main"), None
+    )
+    assert main is not None, "verify_scenarios.main() not found"
+
+    # The guard is identified by the message it checks, so this keeps
+    # holding if the surrounding code is rearranged.
+    guard_line = None
+    for node in ast.walk(main):
+        if isinstance(node, ast.Constant) and node.value == "starting from an empty operational workspace":
+            guard_line = node.lineno
+            break
+    assert guard_line is not None, "the isolation guard has been removed entirely"
+
+    # Somewhere after the guard, and before the scenarios begin, the
+    # function must be able to leave early.
+    early_exits = [
+        n.lineno
+        for n in ast.walk(main)
+        if isinstance(n, (ast.Return, ast.Raise)) and n.lineno > guard_line
+    ]
+    assert early_exits, (
+        "verify_scenarios.main() cannot exit between the isolation guard and the scenarios; "
+        "a FAIL is recorded and the script then writes to the target anyway"
+    )
+    first_exit = min(early_exits)
+    assert first_exit - guard_line < 40, (
+        f"the first early exit after the isolation guard is {first_exit - guard_line} lines later, "
+        f"which is too far to be that guard's abort"
+    )

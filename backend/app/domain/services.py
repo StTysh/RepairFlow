@@ -15,6 +15,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain import dependencies as dep_graph
@@ -150,8 +151,46 @@ async def enqueue_job(
         run_at=run_at or utcnow(),
         status=JobStatus.PENDING,
     )
-    session.add(job)
-    await session.flush()
+    try:
+        # A SAVEPOINT (session.begin_nested), not the caller's own ambient
+        # transaction, around the add+flush. This repo runs one worker
+        # process (CLAUDE.md), but that only rules out worker-vs-worker
+        # contention -- two concurrent API requests can still both compute
+        # the same dedupe_key (e.g. two overlapping webhook deliveries
+        # each calling enqueue_job with `coordinate:{case_id}:{version}`)
+        # and both pass the SELECT above before either has committed.
+        # jobs.dedupe_key is UNIQUE (models.py), so the loser's flush
+        # trips that constraint. Without a savepoint, the failed INSERT
+        # would leave the *caller's* whole session_scope transaction
+        # unusable (SQLAlchemy requires a rollback before a session can be
+        # used again after a failed flush) -- turning a benign dedupe race
+        # into an unrelated 500 for whatever else that request's
+        # transaction was doing.
+        #
+        # `job` is deliberately added to the session *inside* the nested
+        # block, not before it: entering begin_nested() unconditionally
+        # flushes whatever is already pending, to give the SAVEPOINT a
+        # clean baseline (SQLAlchemy docs). Adding `job` first would put
+        # its INSERT inside that pre-savepoint flush, which runs before
+        # the SAVEPOINT actually exists at the database level -- a
+        # conflict there fails outside of anything this function can roll
+        # back, defeating the whole point of the savepoint.
+        async with session.begin_nested():
+            session.add(job)
+            await session.flush()
+    except IntegrityError:
+        # Someone else's job for this key won the race and is already
+        # committed (or about to be) -- exactly the "a job for this key
+        # already exists" outcome this function promises its callers via
+        # the SELECT above, just discovered the hard way. The failed
+        # nested transaction already expires/evicts whatever it added on
+        # rollback (SQLAlchemy's begin_nested() contract), so `job` is
+        # typically gone from the session already; `in` (not a bare
+        # expunge()) guards the case where it somehow is not, so a later
+        # flush/commit on this same session never re-attempts its insert.
+        if job in session:
+            session.expunge(job)
+        return None
     return job
 
 
@@ -974,12 +1013,27 @@ async def resolve_case(session: AsyncSession, *, case_id: str, action: ResolveCa
     return CommandResult(status=CommandResultStatus.APPLIED, case_version=case.version, event_ids=[event.id])
 
 
+_ESCALATION_SOURCE_STATUSES = (CaseStatus.ACTIVE, CaseStatus.AWAITING_CONFIRMATION, CaseStatus.RESOLVED)
+
+
 async def escalate_to_human(session: AsyncSession, *, case_id: str, action: Escalate, trigger_event_id: str | None, actor: ActorContext) -> CommandResult:
     case = await load_case(session, case_id)
-    if case.status in (CaseStatus.ACTIVE, CaseStatus.AWAITING_CONFIRMATION, CaseStatus.RESOLVED):
-        case.resume_status = case.status
-        assert_case_transition(case.status, CaseStatus.ESCALATED)
-        case.status = CaseStatus.ESCALATED
+    # docs/07's state graph has exactly three edges into ESCALATED --
+    # ACTIVE, AWAITING_CONFIRMATION and RESOLVED ("late contradictory
+    # evidence") -- and none at all out of CANCELLED, which is terminal.
+    # This used to only guard the *status write* on that same list,
+    # leaving escalation_reason, bump_version and a CASE_ESCALATED event
+    # applied unconditionally even when the case was CANCELLED (or already
+    # ESCALATED): a phantom escalation and a version bump on a case
+    # docs/07 treats as terminal (or as already handled). Every sibling
+    # command (resolve_case, add_prerequisite, accept_report) raises
+    # PolicyRejectedError for an invalid precondition instead of silently
+    # no-oping past it -- do the same here, before any write.
+    if case.status not in _ESCALATION_SOURCE_STATUSES:
+        raise PolicyRejectedError(f"case {case_id} cannot be escalated from status {case.status}")
+    case.resume_status = case.status
+    assert_case_transition(case.status, CaseStatus.ESCALATED)
+    case.status = CaseStatus.ESCALATED
     case.escalation_reason = action.operator_message
     bump_version(case)
     event = await append_event(
@@ -1117,162 +1171,6 @@ async def assigned_contractors_for_cases(session: AsyncSession, case_ids: list[s
         )
     return result
 
-
-async def load_property_history(session: AsyncSession, property_id: str) -> list["PropertyHistoryItem"]:
-    """Past (and current) cases for a property, each with an honest
-    `outcome` when one is grounded in real data -- never a fabricated
-    summary. contractor_name/quoted_pence/trade reuse the same selection
-    rules as the case-list endpoint and _pick_primary_trade, so this view
-    never disagrees with those."""
-    from app.models import ContractorReportModel as ContractorReportModel_
-    from app.schemas import PropertyHistoryItem
-
-    cases = (
-        await session.execute(
-            select(RepairCaseModel).where(RepairCaseModel.property_id == property_id).order_by(RepairCaseModel.created_at.desc())
-        )
-    ).scalars().all()
-    case_ids = [c.id for c in cases]
-    contractors_by_case = await assigned_contractors_for_cases(session, case_ids)
-    work_orders_by_case = await _work_orders_by_case_id(session, case_ids)
-
-    items: list[PropertyHistoryItem] = []
-    for case in cases:
-        resolved_at = None
-        outcome = None
-        if case.status == CaseStatus.RESOLVED:
-            resolved_event = (
-                await session.execute(
-                    select(CaseEventModel).where(
-                        CaseEventModel.case_id == case.id, CaseEventModel.type == "CASE_RESOLVED",
-                    ).order_by(CaseEventModel.occurred_at.desc()).limit(1)
-                )
-            ).scalars().first()
-            if resolved_event is not None:
-                resolved_at = resolved_event.occurred_at
-
-        latest_completion_report = (
-            await session.execute(
-                select(ContractorReportModel_)
-                .join(WorkOrderModel, WorkOrderModel.id == ContractorReportModel_.work_order_id)
-                .where(
-                    ContractorReportModel_.case_id == case.id,
-                    WorkOrderModel.status == WorkOrderStatus.COMPLETED,
-                    WorkOrderModel.completion_report_id == ContractorReportModel_.id,
-                )
-                .order_by(ContractorReportModel_.received_at.desc())
-                .limit(1)
-            )
-        ).scalars().first()
-        if latest_completion_report is not None:
-            outcome = latest_completion_report.text
-
-        case_work_orders = work_orders_by_case.get(case.id, [])
-        # A CANCELLED work order's quote is money that will never be spent
-        # -- excluded here for the same reason _pick_primary_trade excludes
-        # it from trade selection (honesty rule: don't count called-off
-        # work as "quoted").
-        priced = [
-            wo.quote_pence for wo in case_work_orders
-            if wo.quote_pence is not None and wo.status != WorkOrderStatus.CANCELLED
-        ]
-        quoted_pence = sum(priced) if priced else None
-        contractor = contractors_by_case.get(case.id)
-
-        items.append(
-            PropertyHistoryItem(
-                case_id=case.id, case_number=case.case_number, title=case.title, status=case.status,
-                created_at=case.created_at, resolved_at=resolved_at, outcome=outcome,
-                contractor_name=contractor.display_name if contractor else None,
-                quoted_pence=quoted_pence, trade=_pick_primary_trade(case_work_orders),
-            )
-        )
-    return items
-
-
-async def load_property_stats(session: AsyncSession, property_id: str, build_year: int | None) -> "PropertyStatsResponse":
-    """Property-level chart data for the "breakdown by trade" / "annual
-    quoted total" / "recurring issues" views. Every number here is summed
-    from real WorkOrder.quote_pence rows or counted from real RepairCase
-    rows -- CLAUDE.md's "never fabricate data" applies as much to a chart
-    input as to a headline figure.
-
-    recurring_issues heuristic (a judgment call -- there is no documented
-    product spec for this, so it's spelled out here): group the property's
-    cases by their _pick_primary_trade, and report any trade with 2 or more
-    cases, most-recently-occurring first. "Occurred" is a case's
-    created_at (when the issue was first reported), not its resolution
-    date -- an unresolved recurring issue should still show up.
-    """
-    from app.schemas import PropertyStatsResponse, RecurringIssue, TradeQuoteBreakdown, YearlyQuoteTotal
-
-    cases = (
-        await session.execute(select(RepairCaseModel).where(RepairCaseModel.property_id == property_id))
-    ).scalars().all()
-    case_ids = [c.id for c in cases]
-    active_count = sum(1 for c in cases if c.status == CaseStatus.ACTIVE)
-    total_count = len(cases)
-
-    work_orders_by_case = await _work_orders_by_case_id(session, case_ids)
-
-    trade_totals: dict[Trade, int] = {}
-    year_totals: dict[int, int] = {}
-    trade_occurrences: dict[Trade, list[datetime]] = {}
-    for case in cases:
-        case_work_orders = work_orders_by_case.get(case.id, [])
-        for wo in case_work_orders:
-            # Same rule as load_property_history: a CANCELLED work order's
-            # quote is money that will never be spent, so it doesn't belong
-            # in a "quoted" total (see _pick_primary_trade's docstring).
-            if wo.quote_pence is None or wo.status == WorkOrderStatus.CANCELLED:
-                continue
-            trade_totals[wo.trade] = trade_totals.get(wo.trade, 0) + wo.quote_pence
-            year_totals[case.created_at.year] = year_totals.get(case.created_at.year, 0) + wo.quote_pence
-
-        primary_trade = _pick_primary_trade(case_work_orders)
-        if primary_trade is not None:
-            trade_occurrences.setdefault(primary_trade, []).append(case.created_at)
-
-    grand_total = sum(trade_totals.values())
-    quoted_by_trade = [
-        TradeQuoteBreakdown(
-            trade=trade, quoted_pence=amount,
-            percentage=round(amount / grand_total * 100, 1) if grand_total else 0.0,
-        )
-        for trade, amount in sorted(trade_totals.items(), key=lambda kv: kv[1], reverse=True)
-    ]
-    quoted_by_year = [
-        YearlyQuoteTotal(year=year, quoted_pence=amount) for year, amount in sorted(year_totals.items())
-    ]
-    recurring_issues = sorted(
-        (
-            RecurringIssue(trade=trade, occurrence_count=len(occurrences), last_occurred_at=max(occurrences))
-            for trade, occurrences in trade_occurrences.items()
-            if len(occurrences) >= 2
-        ),
-        key=lambda item: item.last_occurred_at, reverse=True,
-    )
-
-    return PropertyStatsResponse(
-        property_id=property_id, active_count=active_count, total_count=total_count,
-        quoted_by_trade=quoted_by_trade, quoted_by_year=quoted_by_year,
-        recurring_issues=recurring_issues, build_year=build_year,
-    )
-
-
-# --- Dashboard trend deltas -------------------------------------------
-#
-# "vs N days ago" needs a historical snapshot, and this project has no
-# separate metrics-history table -- only the append-only CaseEvent log.
-# reconstructed_status_counts replays that log to approximate case status
-# as of a past cutoff. This is a *documented simplification*, not a full
-# state-machine replay: AWAITING_CONFIRMATION has no dedicated CaseEvent
-# (maybe_advance_to_awaiting_confirmation flips it silently, inferred live
-# from required-work-order completion state, which isn't itself
-# event-sourced), so it can never be reconstructed here and always comes
-# back as 0 -- which, combined with _delta_pct's "0 historical -> None"
-# rule below, means awaiting_confirmation_delta_pct is honestly always None
-# rather than a fabricated number.
 
 _STATUS_EVENT_MAP: dict[str, CaseStatus] = {
     "CASE_CREATED": CaseStatus.ACTIVE,

@@ -2,7 +2,7 @@
 
 `category` was added when the portfolio analytics landed. Every case
 created before then has it NULL, which empties the category donut and the
-recurrence grouping — both of which read this column and nothing else.
+recurrence grouping -- both of which read this column and nothing else.
 
 Those cases do already carry the information, one hop away: their work
 orders each have a real `Trade`. This derives the case's category from
@@ -13,7 +13,7 @@ The derivation is **not reimplemented here**. It delegates to
 property-stats views already use to answer "what kind of work is this
 case about":
 
-* CANCELLED work orders are excluded first — work that was called off is
+* CANCELLED work orders are excluded first -- work that was called off is
   not what the case is about any more. An earlier version of this file
   missed that and categorised a case ELECTRICAL when the electrical work
   order had been cancelled as a misdiagnosis and a plumber did the
@@ -22,7 +22,7 @@ case about":
   wins (the primary repair, not a scaffold or access prerequisite
   discovered later); ties and absences fall back to the earliest by
   `created_at`.
-* **No work orders, or every one cancelled** → left NULL. There is
+* **No work orders, or every one cancelled** -> left NULL. There is
   nothing to derive it from, and guessing would push a fabricated
   classification into every count, donut segment and recurrence group
   that reads this column. The UI labels these "Uncategorised", which is
@@ -33,7 +33,7 @@ with the trade shown on the property-history screen would be worse than
 no backfill at all.
 
 Never overwrites a category that is already set, and never touches an
-archival case — the archive assigns its own categories deliberately and
+archival case -- the archive assigns its own categories deliberately and
 rewriting them would desynchronise the dataset from its own validation.
 
 Safe to re-run: a second pass reports zero changes.

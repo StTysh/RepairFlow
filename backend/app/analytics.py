@@ -362,10 +362,15 @@ class ActivityItem:
 
 async def recent_activity(session: AsyncSession, *, limit: int = 20) -> list[ActivityItem]:
     """Latest CaseEventModel rows across every case, newest first, for
-    Overview's activity feed. Operational scope: the archive import writes
-    closed history directly (never through services.append_event), so
-    archival cases naturally have no CaseEvent rows -- the archive_batch_id
-    filter is included anyway so this stays true even if that changes."""
+    Overview's activity feed. Operational scope only.
+
+    The comment here used to say archival cases "naturally have no
+    CaseEvent rows" and that the archive_batch_id filter was belt-and-
+    braces. Since 2026-09-21 the archive generates a full event log per
+    case (730 rows across the sample set) so the graph can show how a
+    closed case actually went, which makes that filter load-bearing rather
+    than defensive: without it, Overview's activity feed would fill with
+    years-old synthetic history."""
     rows = (
         await session.execute(
             select(CaseEventModel, RepairCaseModel.case_number, RepairCaseModel.title)
@@ -487,9 +492,10 @@ def resolution_hours(case: ResolutionInputs) -> float | None:
     """Hours between a case's created_at and its close.
 
     - Archival case (archive_batch_id is not None): archived_closed_at -
-      created_at. Archival rows have no CaseEvent stream to read (see
-      RepairCaseModel.archived_closed_at's docstring), so this is the only
-      source of a close time for them.
+      created_at, always, never the event stream. Archival cases do now
+      carry CaseEvents (since 2026-09-21), and their terminal event is
+      written at exactly archived_closed_at -- but the column stays the
+      single source here so the two can never drift apart.
     - Real case: the occurred_at of its terminal CaseEvent (CASE_RESOLVED
       or CASE_CANCELLED, whichever is later), falling back to updated_at
       when no terminal event is on record.
@@ -831,8 +837,23 @@ async def resolution_time_distribution(
     """
     where_clause = RepairCaseModel.status == CaseStatus.RESOLVED
     if include_archived:
+        # The status predicate applies to archival rows too. Without it this
+        # branch matched any archival case with a closure date -- and the
+        # generator cancels ~10% of them -- so four cancelled cases were
+        # averaged into "how long does a repair take" with a resolution
+        # time measuring how long it took to give up. That contradicts
+        # `case_is_resolved` three functions above ("CANCELLED is a
+        # different terminal state ... never counted as resolved") and it
+        # fired on the DEFAULT path, since include_archived defaults true
+        # on both /insights and /reports/summary.
+        #
+        # Raised as CRITICAL in docs/audit/06 finding 3 on 2026-09-20,
+        # never carried into APPLICATION_STATE.md, and still live a day
+        # later. See docs/audit/13 part B.
         where_clause = where_clause | (
-            (RepairCaseModel.archive_batch_id.is_not(None)) & (RepairCaseModel.archived_closed_at.is_not(None))
+            (RepairCaseModel.archive_batch_id.is_not(None))
+            & (RepairCaseModel.archived_closed_at.is_not(None))
+            & (RepairCaseModel.status == CaseStatus.RESOLVED)
         )
     query = select(RepairCaseModel).where(where_clause)
     query = _apply_case_filters(
@@ -987,7 +1008,13 @@ async def case_detail_rows(
     result: list[CaseDetailRow] = []
     for case, address in rows:
         is_archived = case.archive_batch_id is not None
-        closed_and_resolved = is_archived or case_is_resolved(case.status)
+        # `is_archived or ...` short-circuited the status check, so an
+        # archival CANCELLED case was reported as resolved with a
+        # fabricated duration, in the drill-down rows, the Reports detail
+        # table and the CSV export. Same defect as the one fixed in
+        # resolution_time_distribution above; being archival says when a
+        # case closed, never that it was fixed.
+        closed_and_resolved = case_is_resolved(case.status)
         if is_archived:
             closed_at = case.archived_closed_at
         elif closed_and_resolved:

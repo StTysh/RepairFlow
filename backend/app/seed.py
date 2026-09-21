@@ -54,6 +54,25 @@ DEMO_SCAFFOLDER_ID = _demo_id("contractor:steadfast-scaffold")
 DEMO_PLUMBER_ID = _demo_id("contractor:harbourside-plumbing")
 DEMO_ELECTRICIAN_ID = _demo_id("contractor:clifton-electrical")
 
+# --- Roster expansion: every Trade needs multiple APPROVED contractors and
+# BS1-BS8 coverage, so any ticket -- not just the hero-path roofing case --
+# finds an eligible contractor instead of dead-ending at escalation. See
+# test_seed_roster.py for the coverage assertion this roster must satisfy.
+DEMO_ROOFER_4_ID = _demo_id("contractor:fishponds-roofing-and-repairs")
+DEMO_ROOFER_5_ID = _demo_id("contractor:southville-roof-specialists")
+DEMO_SCAFFOLDER_2_ID = _demo_id("contractor:redcliffe-scaffold-solutions")
+DEMO_SCAFFOLDER_3_ID = _demo_id("contractor:highground-access-and-scaffolding")
+DEMO_PLUMBER_2_ID = _demo_id("contractor:bedminster-plumbing-services")
+DEMO_PLUMBER_3_ID = _demo_id("contractor:horfield-heating-and-plumbing")
+DEMO_ELECTRICIAN_2_ID = _demo_id("contractor:bishopston-electrical")
+DEMO_ELECTRICIAN_3_ID = _demo_id("contractor:filton-road-electrical")
+# Trade.OTHER had zero contractors: general maintenance, appliance repair,
+# pest/drainage and locksmith/damp/decorating jobs all fall here.
+DEMO_HANDYMAN_ID = _demo_id("contractor:bristol-handyman-collective")
+DEMO_APPLIANCE_ID = _demo_id("contractor:home-appliance-medics")
+DEMO_PEST_DRAIN_ID = _demo_id("contractor:avon-pest-and-drain-control")
+DEMO_LOCKSMITH_DECOR_ID = _demo_id("contractor:cabot-locksmiths-and-decorating")
+
 # --- Additional properties/tenants (portfolio breadth for the maintenance
 # dashboard -- distinct addresses so tickets don't all land on one property).
 DEMO_PROPERTY_2_ID = _demo_id("property:27-cathedral-walk")
@@ -81,6 +100,9 @@ PROPERTIES: list[dict] = [
         # for). Applied via the update-if-null pass below for rows that
         # already exist from a prior seed run.
         build_year=1961,
+        property_type="Terraced house",
+        bedrooms=3,
+        photo_key="property-elm-court.jpg",
     ),
     dict(
         id=DEMO_PROPERTY_2_ID,
@@ -91,6 +113,9 @@ PROPERTIES: list[dict] = [
         roof_responsibility=RoofResponsibility.LANDLORD,
         access_notes="Flat 3B, top floor; roof access via communal stairwell, managing agent holds the key.",
         build_year=2005,
+        property_type="Top-floor flat",
+        bedrooms=2,
+        photo_key="property-cathedral-walk.jpg",
     ),
     dict(
         id=DEMO_PROPERTY_3_ID,
@@ -101,6 +126,9 @@ PROPERTIES: list[dict] = [
         roof_responsibility=RoofResponsibility.OTHER,
         access_notes="Mid-terrace; loft hatch access only, no external ladder point.",
         build_year=1978,
+        property_type="Mid-terrace house",
+        bedrooms=4,
+        photo_key="property-gloucester-road.jpg",
     ),
     dict(
         id=DEMO_PROPERTY_4_ID,
@@ -111,6 +139,9 @@ PROPERTIES: list[dict] = [
         roof_responsibility=RoofResponsibility.UNKNOWN,
         access_notes="Ground-floor flat; shared roof, access managed by the freeholder.",
         build_year=1967,
+        property_type="Ground-floor flat",
+        bedrooms=1,
+        photo_key="property-redcliffe-parade.jpg",
     ),
 ]
 
@@ -229,6 +260,169 @@ CONTRACTORS: list[dict] = [
         provenance=Provenance.SIMULATED,
         workers=[],
     ),
+    # --- Roster expansion (see comment block above the id constants) -------
+    dict(
+        id=DEMO_ROOFER_4_ID,
+        display_name="Fishponds Roofing & Repairs (fictional, SIMULATED)",
+        trades=[Trade.ROOFING.value],
+        service_postcodes=["BS5", "BS6", "BS7"],
+        approval_status=ContractorApprovalStatus.APPROVED,
+        connector=ConnectorType.MOCK,
+        contact_reference="mock:fishponds-roofing-and-repairs",
+        verification_note="Seeded demo fixture; not a real company.",
+        provenance=Provenance.SIMULATED,
+        workers=[{"name": "Callum Reid", "role": "Roofer"}],
+    ),
+    dict(
+        id=DEMO_ROOFER_5_ID,
+        display_name="Southville Roof Specialists (fictional, SIMULATED)",
+        trades=[Trade.ROOFING.value],
+        service_postcodes=["BS6", "BS7", "BS8"],
+        approval_status=ContractorApprovalStatus.APPROVED,
+        connector=ConnectorType.MOCK,
+        contact_reference="mock:southville-roof-specialists",
+        verification_note="Seeded demo fixture; not a real company.",
+        provenance=Provenance.SIMULATED,
+        workers=[
+            {"name": "Owen Matthews", "role": "Site lead"},
+            {"name": "Elena Popescu", "role": "Roofer"},
+        ],
+    ),
+    dict(
+        id=DEMO_SCAFFOLDER_2_ID,
+        display_name="Redcliffe Scaffold Solutions (fictional, SIMULATED)",
+        trades=[Trade.SCAFFOLDING.value],
+        service_postcodes=["BS4", "BS5", "BS6"],
+        approval_status=ContractorApprovalStatus.APPROVED,
+        connector=ConnectorType.MOCK,
+        contact_reference="mock:redcliffe-scaffold-solutions",
+        verification_note="Seeded demo fixture; not a real company.",
+        provenance=Provenance.SIMULATED,
+        workers=[{"name": "Jamie Foster", "role": "Scaffolder"}],
+    ),
+    dict(
+        id=DEMO_SCAFFOLDER_3_ID,
+        display_name="Highground Access & Scaffolding (fictional, SIMULATED)",
+        trades=[Trade.SCAFFOLDING.value],
+        service_postcodes=["BS5", "BS6", "BS7", "BS8"],
+        approval_status=ContractorApprovalStatus.APPROVED,
+        connector=ConnectorType.MOCK,
+        contact_reference="mock:highground-access-and-scaffolding",
+        verification_note="Seeded demo fixture; not a real company.",
+        provenance=Provenance.SIMULATED,
+        workers=[
+            {"name": "Ruth Ellison", "role": "Site lead, height-access certified"},
+            {"name": "Tomasz Baran", "role": "Scaffolder"},
+        ],
+    ),
+    dict(
+        id=DEMO_PLUMBER_2_ID,
+        display_name="Bedminster Plumbing Services (fictional, SIMULATED)",
+        trades=[Trade.PLUMBING.value],
+        service_postcodes=["BS3", "BS4", "BS5"],
+        approval_status=ContractorApprovalStatus.APPROVED,
+        connector=ConnectorType.MOCK,
+        contact_reference="mock:bedminster-plumbing-services",
+        verification_note="Seeded demo fixture; not a real company.",
+        provenance=Provenance.SIMULATED,
+        workers=[{"name": "Ffion Bevan", "role": "Plumber"}],
+    ),
+    dict(
+        id=DEMO_PLUMBER_3_ID,
+        display_name="Horfield Heating & Plumbing (fictional, SIMULATED)",
+        trades=[Trade.PLUMBING.value],
+        service_postcodes=["BS4", "BS5", "BS6"],
+        approval_status=ContractorApprovalStatus.APPROVED,
+        connector=ConnectorType.MOCK,
+        contact_reference="mock:horfield-heating-and-plumbing",
+        verification_note="Seeded demo fixture; not a real company.",
+        provenance=Provenance.SIMULATED,
+        workers=[
+            {"name": "Sam Whitlock", "role": "Gas-safe engineer"},
+            {"name": "Anika Desai", "role": "Plumber"},
+        ],
+    ),
+    dict(
+        id=DEMO_ELECTRICIAN_2_ID,
+        display_name="Bishopston Electrical (fictional, SIMULATED)",
+        trades=[Trade.ELECTRICAL.value],
+        service_postcodes=["BS2", "BS3", "BS4"],
+        approval_status=ContractorApprovalStatus.APPROVED,
+        connector=ConnectorType.MOCK,
+        contact_reference="mock:bishopston-electrical",
+        verification_note="Seeded demo fixture; not a real company.",
+        provenance=Provenance.SIMULATED,
+        workers=[{"name": "Leon Kowalski", "role": "Approved electrician"}],
+    ),
+    dict(
+        id=DEMO_ELECTRICIAN_3_ID,
+        display_name="Filton Road Electrical Contractors (fictional, SIMULATED)",
+        trades=[Trade.ELECTRICAL.value],
+        service_postcodes=["BS4", "BS5", "BS6"],
+        approval_status=ContractorApprovalStatus.APPROVED,
+        connector=ConnectorType.MOCK,
+        contact_reference="mock:filton-road-electrical",
+        verification_note="Seeded demo fixture; not a real company.",
+        provenance=Provenance.SIMULATED,
+        workers=[
+            {"name": "Grace Mahoney", "role": "Site lead, approved electrician"},
+            {"name": "Idris Osei", "role": "Electrician"},
+        ],
+    ),
+    dict(
+        id=DEMO_HANDYMAN_ID,
+        display_name="Bristol Handyman Collective (fictional, SIMULATED)",
+        trades=[Trade.OTHER.value],
+        service_postcodes=["BS1", "BS2", "BS3", "BS4"],
+        approval_status=ContractorApprovalStatus.APPROVED,
+        connector=ConnectorType.MOCK,
+        contact_reference="mock:bristol-handyman-collective",
+        verification_note="Seeded demo fixture; not a real company. General maintenance and small repairs.",
+        provenance=Provenance.SIMULATED,
+        workers=[
+            {"name": "Dean Ashworth", "role": "General maintenance"},
+            {"name": "Kirsty Palmer", "role": "Handyperson"},
+        ],
+    ),
+    dict(
+        id=DEMO_APPLIANCE_ID,
+        display_name="Home Appliance Medics (fictional, SIMULATED)",
+        trades=[Trade.OTHER.value],
+        service_postcodes=["BS2", "BS3", "BS4", "BS5"],
+        approval_status=ContractorApprovalStatus.APPROVED,
+        connector=ConnectorType.MOCK,
+        contact_reference="mock:home-appliance-medics",
+        verification_note="Seeded demo fixture; not a real company. White-goods and appliance repair.",
+        provenance=Provenance.SIMULATED,
+        workers=[{"name": "Robbie Tanner", "role": "Appliance engineer"}],
+    ),
+    dict(
+        id=DEMO_PEST_DRAIN_ID,
+        display_name="Avon Pest & Drain Control (fictional, SIMULATED)",
+        trades=[Trade.OTHER.value],
+        service_postcodes=["BS5", "BS6", "BS7", "BS8"],
+        approval_status=ContractorApprovalStatus.APPROVED,
+        connector=ConnectorType.MOCK,
+        contact_reference="mock:avon-pest-and-drain-control",
+        verification_note="Seeded demo fixture; not a real company. Pest control and drain clearance.",
+        provenance=Provenance.SIMULATED,
+        workers=[
+            {"name": "Marek Nowicki", "role": "Pest control technician"},
+            {"name": "Sophie Larkin", "role": "Drainage engineer"},
+        ],
+    ),
+    dict(
+        id=DEMO_LOCKSMITH_DECOR_ID,
+        display_name="Cabot Locksmiths & Decorating (fictional, SIMULATED)",
+        trades=[Trade.OTHER.value],
+        service_postcodes=["BS1", "BS6", "BS7", "BS8"],
+        approval_status=ContractorApprovalStatus.APPROVED,
+        connector=ConnectorType.MOCK,
+        contact_reference="mock:cabot-locksmiths-and-decorating",
+        verification_note="Seeded demo fixture; not a real company. Locksmith, damp treatment and decorating.",
+        provenance=Provenance.SIMULATED,
+        workers=[{"name": "Nia Fletcher", "role": "Locksmith and decorator"}],
+    ),
 ]
 
 async def seed() -> None:
@@ -240,12 +434,23 @@ async def seed() -> None:
             if existing_property is None:
                 session.add(PropertyModel(**row))
                 added_properties += 1
-            elif existing_property.build_year is None and row.get("build_year") is not None:
+            else:
                 # Backfill for a property inserted by an earlier seed run,
-                # before build_year existed/was populated here. Never
-                # overwrites a build_year that's already set.
-                existing_property.build_year = row["build_year"]
-                updated_properties += 1
+                # before these columns existed/were populated here. Only
+                # ever fills a NULL; never overwrites a value already set.
+                #
+                # `property_type` and `photo_key` matter beyond tidiness:
+                # the properties list renders "Type unknown" without the
+                # first, and silently shows no photograph without the
+                # second -- even though the images are already in
+                # `frontend-fixi/src/assets`.
+                filled = False
+                for column in ("build_year", "property_type", "bedrooms", "photo_key"):
+                    if getattr(existing_property, column) is None and row.get(column) is not None:
+                        setattr(existing_property, column, row[column])
+                        filled = True
+                if filled:
+                    updated_properties += 1
         for row in TENANTS:
             if await session.get(TenantModel, row["id"]) is None:
                 session.add(TenantModel(**row))

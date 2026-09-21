@@ -12,7 +12,7 @@ import {
   type ReportSection,
   type ReportsFilters,
 } from "@/hooks/use-reports";
-import { formatDate, formatPence, titleCase } from "@/lib/format";
+import { formatDate, formatDateTime, formatPence, titleCase } from "@/lib/format";
 import { readFlag, readParam } from "@/lib/search-params";
 import { cn } from "@/lib/utils";
 
@@ -86,11 +86,35 @@ function presetRange(preset: Preset): { from: string; to: string } {
   }
 }
 
+const isYearKey = (key: string) => /^year$/i.test(key) || /_year$/i.test(key);
+
+/** Column heading for a report key.
+ *
+ * `*_pence` columns are rendered in pounds by `formatCell`, so titleCasing
+ * the raw key produced the heading "Quoted Pence" above a column of
+ * "£8,295.00" -- a unit that contradicts the values underneath it. Drop
+ * the storage unit from the label and name the displayed one.
+ */
+function columnLabel(key: string): string {
+  if (/pence$/i.test(key)) return `${titleCase(key.replace(/_?pence$/i, ""))} (£)`;
+  return titleCase(key);
+}
+
 function formatCell(key: string, value: unknown): string {
+  // A case with no category has not been triaged yet -- a real, useful
+  // fact. Insights labels it "Uncategorised"; this table rendered a bare
+  // dash, so the same row read as missing data on one screen and as a
+  // fact on the other.
+  if (/^category$/i.test(key) && (value === null || value === undefined || value === "")) {
+    return "Uncategorised";
+  }
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "number") {
     if (/pence/i.test(key)) return formatPence(value) ?? "—";
+    // A year is an identifier, not a quantity: `toLocaleString` grouped it
+    // and the spend-by-year table read "2,026".
+    if (isYearKey(key)) return String(value);
     return value.toLocaleString();
   }
   if (typeof value === "string") {
@@ -236,7 +260,7 @@ function ReportsPage() {
                 </>
               )}
             </span>
-            <span>Generated on {new Date().toLocaleString()}</span>
+            <span>Generated on {formatDateTime(new Date().toISOString())}</span>
           </div>
 
           {includeArchived && (
@@ -445,7 +469,7 @@ function SectionPanel({
           {totalsEntries.map(([key, value]) => (
             <div key={key} className="rounded-lg border border-border bg-muted/40 px-3 py-2.5">
               <div className="text-lg font-bold tracking-tight">{formatStat(key, value)}</div>
-              <div className="text-[11px] text-muted-foreground">{titleCase(key)}</div>
+              <div className="text-[11px] text-muted-foreground">{columnLabel(key)}</div>
             </div>
           ))}
         </div>
@@ -460,7 +484,7 @@ function SectionPanel({
               <tr className="border-b border-border text-left text-muted-foreground">
                 {columns.map((c) => (
                   <th key={c} className="px-2 py-2 font-medium">
-                    {titleCase(c)}
+                    {columnLabel(c)}
                   </th>
                 ))}
               </tr>

@@ -9,6 +9,8 @@ coordinator behind the same Protocol, so this module does not change.
 """
 from __future__ import annotations
 
+import logging
+
 from typing import Callable, Protocol, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +20,8 @@ from app.domain.errors import DomainError, StaleVersionError
 from app.domain.services import ActorContext
 from app.models import ActionRecordModel, CaseEventModel, OrchestrationRunModel
 from app.schemas import ActionProposal, CaseSnapshot, OrchestrationRunState, RiskAssessment, utcnow
+
+logger = logging.getLogger(__name__)
 
 ROOT_LOOP_BUDGET = 6
 
@@ -177,28 +181,62 @@ async def run_coordinate(*, case_id: str, trigger_event_id: str, coordinator: Co
         raise
 
     # --- Phase C: apply the result in a fresh transaction ---
-    async with session_scope() as session:
-        run = await session.get(OrchestrationRunModel, run_id)
-        run.proposal = proposal.model_dump(mode="json")
-        run.finished_at = utcnow()
+    try:
+        async with session_scope() as session:
+            run = await session.get(OrchestrationRunModel, run_id)
+            run.proposal = proposal.model_dump(mode="json")
+            run.finished_at = utcnow()
 
-        try:
-            from app.orchestration.executor import admit_proposal
+            try:
+                from app.orchestration.executor import admit_proposal
 
-            action_record = await admit_proposal(session, proposal, ActorContext("COORDINATOR", coordinator.model_id, trigger_event_id))
-            run.state = OrchestrationRunState.SUCCEEDED
-            run.policy_result = action_record.state
-            return action_record
-        except StaleVersionError:
-            run.state = OrchestrationRunState.SUPERSEDED
-            run.policy_result = "stale_version_requeued"
-            current_case = await services.load_case(session, case_id)
-            await services.enqueue_job(
-                session, case_id=case_id, kind="COORDINATE",
-                dedupe_key=f"coordinate:{case_id}:{current_case.version}", payload={"trigger_event_id": trigger_event_id},
-            )
-            return None
-        except DomainError as exc:
-            run.state = OrchestrationRunState.FAILED
-            run.error_code = getattr(exc, "code", type(exc).__name__)
-            raise
+                action_record = await admit_proposal(session, proposal, ActorContext("COORDINATOR", coordinator.model_id, trigger_event_id))
+                run.state = OrchestrationRunState.SUCCEEDED
+                run.policy_result = action_record.state
+                return action_record
+            except StaleVersionError:
+                run.state = OrchestrationRunState.SUPERSEDED
+                run.policy_result = "stale_version_requeued"
+                current_case = await services.load_case(session, case_id)
+                await services.enqueue_job(
+                    session, case_id=case_id, kind="COORDINATE",
+                    dedupe_key=f"coordinate:{case_id}:{current_case.version}", payload={"trigger_event_id": trigger_event_id},
+                )
+                return None
+            except DomainError as exc:
+                run.state = OrchestrationRunState.FAILED
+                run.error_code = getattr(exc, "code", type(exc).__name__)
+                raise
+    except DomainError:
+        # Unchanged pre-existing shape: session_scope rolls the whole
+        # transaction back on any exception that escapes its `async with`
+        # block, which is exactly what happens here (the `raise` above
+        # propagates past the block) -- so this is only a pass-through,
+        # not new handling.
+        raise
+    except Exception as exc:  # noqa: BLE001 - must not leave the run at RUNNING
+        # Mirrors executor.execute_action's stranded-ActionRecord recovery
+        # (orchestration/executor.py ~426-456): admit_proposal can raise
+        # something that is neither a StaleVersionError nor a DomainError
+        # (a DB error, a genuine bug), and whatever carries it out of the
+        # `async with session_scope()` block above rolls that whole
+        # transaction back -- including the `run.state = ...` write the
+        # DomainError branch attempts, which is why that branch alone was
+        # never actually enough to keep the row from reverting to RUNNING
+        # either. The recovery write below happens in its OWN transaction,
+        # opened only now that the failed one has already unwound, or it
+        # would be discarded the same way.
+        #
+        # OrchestrationRunState has no UNKNOWN member the way ActionState
+        # does: admit_proposal is a local domain write, not an external
+        # call, so there is no "request sent, outcome unclear" case to
+        # preserve here -- FAILED plus error_code is the honest terminal
+        # state, matching the DomainError branch's own choice of state.
+        logger.exception("run_coordinate: admit_proposal failed unexpectedly for run %s", run_id)
+        async with session_scope() as recovery_session:
+            stranded = await recovery_session.get(OrchestrationRunModel, run_id)
+            if stranded is not None and stranded.state == OrchestrationRunState.RUNNING:
+                stranded.finished_at = utcnow()
+                stranded.state = OrchestrationRunState.FAILED
+                stranded.error_code = type(exc).__name__
+        raise

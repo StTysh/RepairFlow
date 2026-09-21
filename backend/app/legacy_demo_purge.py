@@ -61,6 +61,7 @@ async def purge(*, apply: bool) -> dict[str, int]:
     foreign_keys=ON` is set on every connection, so getting the order wrong
     raises rather than silently orphaning.
     """
+    from app.config import get_settings
     from app.models import (
         ActionRecordModel,
         AppointmentModel,
@@ -70,13 +71,16 @@ async def purge(*, apply: bool) -> dict[str, int]:
         ContractorReportModel,
         CostEntryModel,
         DependencyModel,
+        DocumentModel,
         JobModel,
         MessageModel,
+        NoteModel,
         OrchestrationRunModel,
         RepairCaseModel,
         RepairIssueModel,
         WorkOrderModel,
     )
+    from app.schemas import RecordSubject
 
     case_ids = scripted_case_ids()
     counts: dict[str, int] = {}
@@ -107,6 +111,40 @@ async def purge(*, apply: bool) -> dict[str, int]:
         counts["cases_found"] = len(present)
         if not present:
             return counts
+
+        # NoteModel/DocumentModel attach to a case via a generic
+        # subject_type=CASE, subject_id=<case_id> pair with no foreign key
+        # at all (models.py) -- the FK-ordered loop below, keyed on
+        # `model.case_id`, cannot reach either of them, so a note or
+        # document on one of these nine cases was never counted (not even
+        # by --dry-run) and never deleted. Counted and, on --apply, deleted
+        # here explicitly instead, using the same subject_type/subject_id
+        # scoping app/archive/importer.py's remove_archive uses for its own
+        # archive_batch_id-less tables. Nothing else has a foreign key onto
+        # notes/documents, so there is no ordering constraint forcing this
+        # before or after the loop below; it happens here because that is
+        # where the equivalent `--dry-run` counts belong.
+        note_condition = sa.and_(
+            NoteModel.subject_type == RecordSubject.CASE, NoteModel.subject_id.in_(present)
+        )
+        counts["notes"] = (
+            await session.execute(sa.select(sa.func.count()).select_from(NoteModel).where(note_condition))
+        ).scalar_one()
+        if apply and counts["notes"]:
+            await session.execute(sa.delete(NoteModel).where(note_condition))
+
+        doc_condition = sa.and_(
+            DocumentModel.subject_type == RecordSubject.CASE, DocumentModel.subject_id.in_(present)
+        )
+        doc_rows = (await session.execute(sa.select(DocumentModel).where(doc_condition))).scalars().all()
+        counts["documents"] = len(doc_rows)
+        if apply and doc_rows:
+            settings = get_settings()
+            for doc in doc_rows:
+                path = settings.documents_dir / doc.stored_name
+                if path.exists():
+                    path.unlink()
+            await session.execute(sa.delete(DocumentModel).where(doc_condition))
 
         for model in ordered:
             column = RepairCaseModel.id if model is RepairCaseModel else model.case_id

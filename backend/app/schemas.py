@@ -1257,18 +1257,6 @@ class ApprovalResponse(StrictModel):
     result: CommandResult
 
 
-class DemoResetResponse(StrictModel):
-    cleared: bool
-    reason: str | None = None
-    case_count: int = 0
-    preserved_live_cases: int = 0
-
-
-class DemoTenantFeedbackResponse(StrictModel):
-    communication_id: UUID
-    result: CommandResult
-
-
 class DashboardMetricsResponse(StrictModel):
     """Counts derived directly from the 5 real CaseStatus values plus
     CASE_RESOLVED CaseEvents -- no derived/richer display-status layer
@@ -1371,9 +1359,10 @@ class RecurringIssue(StrictModel):
 class PropertyStatsResponse(StrictModel):
     """Property-level aggregation for the "breakdown by trade" / "annual
     quoted total" / "recurring issues" charts. See
-    app.analytics.property_stats (not domain.services.load_property_stats,
-    which is unused dead code as of docs/26 2026-09-20) for the exact
-    (documented, judgment-call) computation of each derived field."""
+    app.analytics.property_stats -- the single implementation, since the
+    unused domain.services duplicate was deleted on 2026-09-21 -- for the
+    exact (documented, judgment-call) computation of each derived
+    field."""
 
     property_id: UUID
     # See PropertyHistoryResponse: which cases these figures were computed
@@ -1513,43 +1502,6 @@ class NotificationItem(StrictModel):
 class NotificationsResponse(StrictModel):
     items: list[NotificationItem]
     unread_count: int
-
-
-class DemoPropertyRef(StrictModel):
-    """One seeded property + its tenant, for the "+ New Ticket" property
-    picker and the property-history "Property details" tab. Demo-only glue
-    (see DemoSeedRefs docstring) -- not a general properties API."""
-
-    property_id: UUID
-    tenant_id: UUID
-    address_line: str
-    postcode: str
-    landlord_reference: str
-    roof_responsibility: RoofResponsibility
-    access_notes: str | None = None
-    build_year: int | None = None
-    tenant_name: str
-    tenant_phone: str | None = None
-
-
-class DemoSeedRefs(StrictModel):
-    property_id: UUID
-    tenant_id: UUID
-    roofer_id: UUID
-    scaffolder_id: UUID
-    # All seeded properties (including the one above, which stays first for
-    # backward compatibility with anything defaulting to it). Queried live
-    # from the DB rather than the seed module's constants, so this is
-    # honest even if seeding hasn't (yet) inserted everything it defines.
-    properties: list[DemoPropertyRef] = []
-
-
-# --------------------------------------------------------------------------
-# Voice endpoints (docs/16 "Operator and UI endpoints" for /api/v1/voice/*,
-# docs/16 "ElevenLabs endpoints" for the webhook and dedicated-secret tool
-# routes -- these bypass operator Basic auth per docs/16's own carve-out
-# and use their own verification instead).
-# --------------------------------------------------------------------------
 
 
 class VoiceSessionResponse(StrictModel):

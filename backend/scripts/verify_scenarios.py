@@ -54,11 +54,31 @@ def main() -> int:
         readiness = get("/readiness")
         check(readiness.status_code == 200, "backend reachable", f"HTTP {readiness.status_code}")
         overview_before = get("/overview").json()
-        check(
-            overview_before["status_counts"]["total"] == 0,
+        operational_cases = overview_before["status_counts"]["total"]
+        isolated = check(
+            operational_cases == 0,
             "starting from an empty operational workspace",
-            f"{overview_before['status_counts']['total']} case(s) present",
+            f"{operational_cases} case(s) present",
         )
+        if not isolated:
+            # This used to be an ordinary `check()`: it printed FAIL and
+            # carried straight on into scenario 1, which creates
+            # properties, tenants, cases, notes and documents. Pointed at a
+            # server backed by backend/data/repairflow.db -- the file
+            # holding the only real ElevenLabs call history there is -- the
+            # script would happily write fiction into it, while its own
+            # docstring promised it "refuses to run". A guard that
+            # announces protection it does not provide is worse than none,
+            # because it invites exactly the mistake it claims to prevent.
+            print(
+                "\nREFUSING TO RUN. This script writes real data through the API, and the\n"
+                f"target already holds {operational_cases} operational case(s), so it is not an\n"
+                "isolated instance. Start the backend against a scratch database first:\n\n"
+                "    FIXI_NO_CONTACT=1 OUTBOUND_CALLS_ENABLED=false \\\n"
+                "    DATABASE_PATH=/tmp/verify.db DOCUMENTS_DIR=/tmp/verify_docs \\\n"
+                "    python -m uvicorn app.main:app --port 8010\n"
+            )
+            return 1
 
         # -- 1. create a case through the real API ----------------------
         print("\n1. Create a case; verify detail, property relationship and metrics")
